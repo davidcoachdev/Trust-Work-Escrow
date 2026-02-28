@@ -192,14 +192,6 @@ chore: 🔧 mantenimiento
 └── README.md            # ← Este archivo
 ```
 
-## 🗑 Carpeta `_backup/`
-
-Contiene el proyecto anterior (TrustWork Escrow). Puedes eliminarlo cuando quieras:
-
-```bash
-rm -rf _backup
-```
-
 ---
 
 ## 📄 Licencia
