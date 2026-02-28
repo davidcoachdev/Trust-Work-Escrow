@@ -62,120 +62,81 @@ RUN avm install ${ANCHOR_VERSION} \
 # STAGE 2: Dev Container final
 # Contiene todo lo necesario para desarrollar.
 # AVM + Anchor se copian del builder (instantáneo).
+# Scripts modulares en .devcontainer/scripts/
 # ═════════════════════════════════════════════════════════════════
 FROM ubuntu:24.04 AS devcontainer
 
 ARG SOLANA_CLI_VERSION
 ARG ANCHOR_VERSION
 ARG NODE_VERSION
+ARG GH_CLI_VERSION="2.67.0"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=UTC \
     LANG=C.UTF-8
 
 # ─────────────────────────────────────────────────────────────────
-# 1. Dependencias del sistema
+# Copiar scripts de instalación y dar permisos
 # ─────────────────────────────────────────────────────────────────
-# GitHub CLI repo
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-    | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-    | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    pkg-config \
-    libudev-dev \
-    libssl-dev \
-    clang \
-    cmake \
-    libclang-dev \
-    python3 \
-    python3-pip \
-    curl \
-    wget \
-    git \
-    gh \
-    jq \
-    gnupg \
-    sudo \
-    ca-certificates \
-    unzip \
-    tini \
-    && rm -rf /var/lib/apt/lists/*
+COPY scripts/*.sh /tmp/scripts/
+RUN chmod +x /tmp/scripts/*.sh
 
 # ─────────────────────────────────────────────────────────────────
-# 2. Node.js LTS + utilidades JS globales
+# 1. Dependencias base del sistema
 # ─────────────────────────────────────────────────────────────────
-RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
-    | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_VERSION}.x nodistro main" \
-    | tee /etc/apt/sources.list.d/nodesource.list > /dev/null \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && npm install -g yarn typescript ts-node \
-    && rm -rf /var/lib/apt/lists/*
+RUN /tmp/scripts/install-base-deps.sh
 
 # ─────────────────────────────────────────────────────────────────
-# 3. Usuario no-root "vscode"
+# 2. Node.js LTS + utilidades globales
 # ─────────────────────────────────────────────────────────────────
-RUN if id -u 1000 > /dev/null 2>&1; then \
-    existing_user=$(getent passwd 1000 | cut -d: -f1); \
-    if [ "$existing_user" != "vscode" ]; then \
-    usermod -l vscode -d /home/vscode -m "$existing_user" 2>/dev/null || true; \
-    groupmod -n vscode "$existing_user" 2>/dev/null || true; \
-    fi; \
-    else \
-    useradd -m -u 1000 -s /bin/bash vscode; \
-    fi \
-    && echo "vscode ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/vscode \
-    && chmod 0440 /etc/sudoers.d/vscode \
-    && mkdir -p /home/vscode \
-    && chown -R 1000:1000 /home/vscode
+RUN /tmp/scripts/install-node.sh ${NODE_VERSION}
 
+# ─────────────────────────────────────────────────────────────────
+# 3. GitHub CLI
+# ─────────────────────────────────────────────────────────────────
+RUN /tmp/scripts/install-gh-cli.sh ${GH_CLI_VERSION}
+
+# ─────────────────────────────────────────────────────────────────
+# 4. Usuario no-root "vscode"
+# ─────────────────────────────────────────────────────────────────
+RUN /tmp/scripts/setup-user.sh
+
+# ─────────────────────────────────────────────────────────────────
+# Cambiar a usuario vscode para las siguientes instalaciones
+# ─────────────────────────────────────────────────────────────────
 USER vscode
 ENV HOME=/home/vscode
 
 # ─────────────────────────────────────────────────────────────────
-# 4. Rust (stable) + componentes esenciales
+# 5. Rust (stable) + componentes esenciales
 # ─────────────────────────────────────────────────────────────────
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --default-toolchain stable --profile default \
-    && ~/.cargo/bin/rustup component add rustfmt clippy
-
+RUN /tmp/scripts/install-rust.sh
 ENV PATH="${HOME}/.cargo/bin:${PATH}"
 
 # ─────────────────────────────────────────────────────────────────
-# 5. Solana CLI (descarga binarios precompilados — rápido)
+# 6. Solana CLI
 # ─────────────────────────────────────────────────────────────────
-RUN sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_CLI_VERSION}/install)"
-
+RUN /tmp/scripts/install-solana.sh ${SOLANA_CLI_VERSION}
 ENV PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
 
-RUN mkdir -p ${HOME}/.config/solana \
-    && solana-keygen new --no-bip39-passphrase --silent \
-    --outfile ${HOME}/.config/solana/id.json \
-    && solana config set --url localhost
-
 # ─────────────────────────────────────────────────────────────────
-# 6. AVM + Anchor — COPIADOS del builder (instantáneo, 0 compilación)
+# 7. AVM + Anchor — COPIADOS del builder (instantáneo)
 # ─────────────────────────────────────────────────────────────────
 COPY --from=avm-builder --chown=vscode:vscode /root/.cargo/bin/avm ${HOME}/.cargo/bin/avm
 COPY --from=avm-builder --chown=vscode:vscode /root/.avm ${HOME}/.avm
-
 ENV PATH="${HOME}/.avm/bin:${PATH}"
 
 # ─────────────────────────────────────────────────────────────────
-# 7. Metadata
+# 8. Metadata
 # ─────────────────────────────────────────────────────────────────
 LABEL maintainer="TrustWork" \
-    description="Solana Dev Container (multi-stage)" \
+    description="Solana Dev Container (modular)" \
     solana.version="${SOLANA_CLI_VERSION}" \
     anchor.version="${ANCHOR_VERSION}" \
     node.version="${NODE_VERSION}"
 
 # ─────────────────────────────────────────────────────────────────
-# 8. tini como init — previene procesos zombie
+# 9. tini como init — previene procesos zombie
 # ─────────────────────────────────────────────────────────────────
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
