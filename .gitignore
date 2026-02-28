@@ -20,5 +20,9 @@ out/
 .DS_Store
 Thumbs.db
 
+# Ide settings
+.idea/
+.vscode/
+
 # Backup del proyecto anterior
 _backup/
