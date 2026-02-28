@@ -1,0 +1,238 @@
+# ═══════════════════════════════════════════════════════════════
+# mainnet-deploy.yml — Deploy controlado a mainnet desde rama prod
+#
+# Trigger: push a prod (solo merge vía PR)
+# Seguridad: requiere aprobación manual en el environment "mainnet"
+# Pasos: build → test → approval → deploy mainnet → verify
+# ═══════════════════════════════════════════════════════════════
+
+name: Deploy to Mainnet
+
+on:
+  push:
+    branches: [prod]
+    paths:
+      - "programs/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+  # NO incluimos workflow_dispatch por seguridad — solo merges a prod
+
+concurrency:
+  group: mainnet-deploy
+  cancel-in-progress: false
+
+env:
+  SOLANA_CLI_VERSION: "stable"
+  ANCHOR_VERSION: "0.32.1"
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: "stable"
+  CLUSTER: "mainnet-beta"
+
+jobs:
+  # ────────────────────────────────────────────────────────────
+  # Job 1: Build y test completo
+  # ────────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test (Mainnet)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy, rustfmt
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-mainnet-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-mainnet-${{ runner.os }}-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "yarn"
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Lint (clippy) — strict
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Build program
+        run: anchor build
+
+      - name: Run tests
+        run: anchor test
+
+      - name: Generate build checksums
+        run: |
+          echo "## Build Checksums" >> $GITHUB_STEP_SUMMARY
+          for so_file in target/deploy/*.so; do
+            if [ -f "$so_file" ]; then
+              HASH=$(sha256sum "$so_file" | awk '{print $1}')
+              SIZE=$(du -h "$so_file" | awk '{print $1}')
+              echo "- **$(basename $so_file)**: \`$HASH\` ($SIZE)" >> $GITHUB_STEP_SUMMARY
+            fi
+          done
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mainnet-program-build
+          path: |
+            target/deploy/*.so
+            target/deploy/*-keypair.json
+            target/idl/*.json
+          retention-days: 90 # mantener más tiempo para mainnet
+
+  # ────────────────────────────────────────────────────────────
+  # Job 2: Deploy a mainnet (requiere aprobación)
+  # ────────────────────────────────────────────────────────────
+  deploy-mainnet:
+    name: Deploy to Mainnet-Beta
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+
+    # 🔒 El environment "mainnet" requiere aprobación manual
+    # Configúralo en: Settings → Environments → mainnet → Required reviewers
+    environment:
+      name: mainnet
+      url: https://explorer.solana.com/address/${{ steps.deploy.outputs.program_id }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mainnet-program-build
+          path: target/
+
+      - name: Setup Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Configure Solana for mainnet
+        run: |
+          solana config set --url mainnet-beta
+          echo "${{ secrets.MAINNET_DEPLOY_KEYPAIR }}" > /tmp/deploy-keypair.json
+          solana config set --keypair /tmp/deploy-keypair.json
+
+      - name: Pre-deploy checks
+        run: |
+          echo "🔒 Pre-deploy safety checks..."
+
+          # Verificar saldo
+          BALANCE=$(solana balance --lamports | awk '{print $1}')
+          BALANCE_SOL=$(echo "scale=4; $BALANCE / 1000000000" | bc)
+          echo "Balance: ${BALANCE_SOL} SOL"
+
+          if [ "$BALANCE" -lt 5000000000 ]; then
+            echo "::error::Saldo insuficiente para deploy a mainnet. Mínimo 5 SOL."
+            exit 1
+          fi
+
+          # Verificar que el binario existe
+          SO_FILE=$(find target/deploy -name "*.so" | head -1)
+          if [ -z "$SO_FILE" ]; then
+            echo "::error::No se encontró archivo .so"
+            exit 1
+          fi
+
+          echo "Binary: $SO_FILE ($(du -h "$SO_FILE" | awk '{print $1}'))"
+          echo "SHA256: $(sha256sum "$SO_FILE" | awk '{print $1}')"
+
+      - name: Deploy to mainnet-beta
+        id: deploy
+        run: |
+          echo "🚀 Deploying to mainnet-beta..."
+          anchor deploy --provider.cluster mainnet-beta
+
+          PROGRAM_ID=$(anchor keys list | head -1 | awk '{print $2}')
+          echo "program_id=${PROGRAM_ID}" >> $GITHUB_OUTPUT
+
+          echo "## 🚀 Mainnet Deploy Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Cluster** | mainnet-beta |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Program ID** | \`${PROGRAM_ID}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Commit** | \`${{ github.sha }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Date** | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Triggered by** | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Explorer** | [View Program](https://explorer.solana.com/address/${PROGRAM_ID}) |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup keypair
+        if: always()
+        run: rm -f /tmp/deploy-keypair.json
+
+      - name: Verify deployment
+        run: |
+          PROGRAM_ID="${{ steps.deploy.outputs.program_id }}"
+          echo "Verifying program: ${PROGRAM_ID}"
+          solana program show "$PROGRAM_ID"
+
+          # Verificar hash
+          DUMP_FILE="/tmp/onchain-verify.so"
+          solana program dump "$PROGRAM_ID" "$DUMP_FILE"
+          LOCAL_SO=$(find target/deploy -name "*.so" | head -1)
+
+          LOCAL_HASH=$(sha256sum "$LOCAL_SO" | awk '{print $1}')
+          ONCHAIN_HASH=$(sha256sum "$DUMP_FILE" | awk '{print $1}')
+
+          echo "Local hash:   ${LOCAL_HASH}"
+          echo "On-chain hash: ${ONCHAIN_HASH}"
+
+          if [ "$LOCAL_HASH" = "$ONCHAIN_HASH" ]; then
+            echo "✅ Binary verification PASSED"
+          else
+            echo "::error::Binary verification FAILED — hashes don't match!"
+            exit 1
+          fi
+
+          rm -f "$DUMP_FILE"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: mainnet-${{ github.sha }}
+          name: "Mainnet Deploy — $(date -u '+%Y-%m-%d')"
+          body: |
+            ## Mainnet Deployment
+
+            - **Program ID:** `${{ steps.deploy.outputs.program_id }}`
+            - **Commit:** `${{ github.sha }}`
+            - **Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+            - **Explorer:** [View on Solana Explorer](https://explorer.solana.com/address/${{ steps.deploy.outputs.program_id }})
+          files: |
+            target/deploy/*.so
+            target/idl/*.json
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

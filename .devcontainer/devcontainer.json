@@ -1,9 +1,12 @@
 // ═══════════════════════════════════════════════════════════════
 // Solana Dev Container
 //
-// Template para desarrollo sobre Solana.
-// Rust, Solana CLI y Anchor CLI se instalan en BUILD TIME
-// (Dockerfile). postCreateCommand solo verifica la instalación.
+// Multi-stage Dockerfile optimizado:
+//   Stage 1: compila AVM (cached con BuildKit)
+//   Stage 2: dev container final, copia binarios
+//
+// Para Codespaces: usa prebuild de ghcr.io (arranque < 1 min)
+// Para local:      usa cacheFrom para aprovechar el prebuild
 // ═══════════════════════════════════════════════════════════════
 {
     "name": "Solana Dev Container",
@@ -11,18 +14,18 @@
         "dockerfile": "./Dockerfile",
         "context": ".",
         "args": {
-            // Cambia esta versión si necesitas actualizar Solana CLI
-            // Usa "stable" para la última estable, o un tag como "v3.1.8"
             "SOLANA_CLI_VERSION": "stable",
+            "ANCHOR_VERSION": "0.32.1",
             "NODE_VERSION": "20"
         }
     },
     "remoteUser": "vscode",
-    // PATH ya está seteado en el Dockerfile, esto lo refuerza
-    // por si algún shell no lee /etc/environment
     "remoteEnv": {
-        "PATH": "${containerEnv:PATH}:/home/vscode/.avm/bin:/home/vscode/.local/share/solana/install/active_release/bin:/home/vscode/.cargo/bin"
+        "PATH": "${containerEnv:PATH}:/home/vscode/.avm/bin:/home/vscode/.local/share/solana/install/active_release/bin:/home/vscode/.cargo/bin",
+        "SOLANA_CLUSTER": "${localEnv:SOLANA_CLUSTER:localhost}"
     },
+    // ── Overrides para Codespaces ──────────────────────────────────
+    "overrideCommand": false,
     // ── Puertos ───────────────────────────────────────────────────
     "forwardPorts": [
         3000,
@@ -85,7 +88,11 @@
                 // Utilidades
                 "EditorConfig.EditorConfig",
                 "mads-hartmann.bash-ide-vscode",
-                "GitHub.copilot"
+                "GitHub.copilot",
+                "vivaxy.vscode-conventional-commits",
+                // Rust extras
+                "dustypomerleau.rust-syntax",
+                "serayuzgur.crates"
             ],
             "settings": {
                 // Rust Analyzer
@@ -104,5 +111,14 @@
         }
     },
     // ── Post-create: solo verifica herramientas instaladas ────────
-    "postCreateCommand": "bash .devcontainer/scripts/post-create.sh"
+    "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+    // ── Codespaces / Prebuild ─────────────────────────────────────
+    // Espera por personalization extensions antes de completar
+    "waitFor": "onCreateCommand",
+    // Hint para Codespaces: tamaño recomendado
+    "hostRequirements": {
+        "cpus": 4,
+        "memory": "8gb",
+        "storage": "32gb"
+    }
 }
