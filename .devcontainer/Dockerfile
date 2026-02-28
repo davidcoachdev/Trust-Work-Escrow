@@ -120,11 +120,15 @@ RUN /tmp/scripts/install-solana.sh ${SOLANA_CLI_VERSION}
 ENV PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
 
 # ─────────────────────────────────────────────────────────────────
-# 7. AVM + Anchor — COPIADOS del builder (instantáneo)
+# 7. AVM + Anchor — COPIADOS del builder
+#    Nota: avm use recrea el symlink en la ruta correcta
 # ─────────────────────────────────────────────────────────────────
 COPY --from=avm-builder --chown=vscode:vscode /root/.cargo/bin/avm ${HOME}/.cargo/bin/avm
 COPY --from=avm-builder --chown=vscode:vscode /root/.avm ${HOME}/.avm
 ENV PATH="${HOME}/.avm/bin:${PATH}"
+
+# Re-activar Anchor para crear symlink correcto (los del builder apuntan a /root)
+RUN avm use ${ANCHOR_VERSION}
 
 # ─────────────────────────────────────────────────────────────────
 # 8. Metadata
