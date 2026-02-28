@@ -1,0 +1,41 @@
+name: Dev Container Prebuild
+
+# Reconstruye la imagen del dev container automáticamente cuando cambia
+# cualquier archivo en .devcontainer/, y también cada lunes a las 02:00 UTC
+# para capturar actualizaciones de seguridad del sistema operativo base.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".devcontainer/**"
+  schedule:
+    # Rebuild semanal — lunes 02:00 UTC
+    - cron: "0 2 * * 1"
+  workflow_dispatch:
+    # Permite lanzar el rebuild manualmente desde la pestaña Actions
+
+jobs:
+  prebuild:
+    name: Prebuild devcontainer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # necesario para push a ghcr.io
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build and push dev container image
+        uses: devcontainers/ci@v0.3
+        with:
+          # Imagen publicada en el GitHub Container Registry del repositorio
+          imageName: ghcr.io/${{ github.repository }}/devcontainer
+          # Cache desde la imagen publicada para builds incrementales rápidos
+          cacheFrom: ghcr.io/${{ github.repository }}/devcontainer
+          # Solo hace push en la rama main (no en PRs)
+          push: filter
+          refFilterForPush: refs/heads/main
+        env:
+          DOCKER_BUILDKIT: "1"

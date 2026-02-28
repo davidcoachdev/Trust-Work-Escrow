@@ -1,0 +1,107 @@
+// ═══════════════════════════════════════════════════════════════
+// Solana Dev Container
+//
+// Template para desarrollo sobre Solana.
+// Rust, Solana CLI y Anchor CLI se instalan en BUILD TIME
+// (Dockerfile). postCreateCommand solo verifica la instalación.
+// ═══════════════════════════════════════════════════════════════
+{
+    "name": "Solana Dev Container",
+    "build": {
+        "dockerfile": "./Dockerfile",
+        "context": ".",
+        "args": {
+            // Cambia esta versión si necesitas actualizar Solana CLI
+            "SOLANA_CLI_VERSION": "v2.1.21",
+            "NODE_VERSION": "20"
+        }
+    },
+    "remoteUser": "vscode",
+    // PATH ya está seteado en el Dockerfile, esto lo refuerza
+    // por si algún shell no lee /etc/environment
+    "remoteEnv": {
+        "PATH": "${containerEnv:PATH}:/home/vscode/.avm/bin:/home/vscode/.local/share/solana/install/active_release/bin:/home/vscode/.cargo/bin"
+    },
+    // ── Puertos ───────────────────────────────────────────────────
+    "forwardPorts": [
+        3000,
+        3001,
+        8080,
+        8899,
+        8900,
+        9900,
+        5432
+    ],
+    "portsAttributes": {
+        "3000": {
+            "label": "Frontend (Next.js)",
+            "onAutoForward": "notify"
+        },
+        "3001": {
+            "label": "Frontend alternativo",
+            "onAutoForward": "silent"
+        },
+        "8080": {
+            "label": "Backend API (Rust)",
+            "onAutoForward": "notify"
+        },
+        "8899": {
+            "label": "Solana RPC",
+            "onAutoForward": "silent"
+        },
+        "8900": {
+            "label": "Solana WebSocket",
+            "onAutoForward": "silent"
+        },
+        "9900": {
+            "label": "Solana Faucet",
+            "onAutoForward": "silent"
+        },
+        "5432": {
+            "label": "PostgreSQL",
+            "onAutoForward": "silent"
+        }
+    },
+    "otherPortsAttributes": {
+        "onAutoForward": "ignore"
+    },
+    // ── Extensiones VS Code ────────────────────────────────────────
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                // Rust
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml",
+                "fill-labs.dependi",
+                // TypeScript / JS
+                "ms-vscode.vscode-typescript-next",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                // Frontend
+                "bradlc.vscode-tailwindcss",
+                // Infraestructura
+                "ms-azuretools.vscode-docker",
+                // Utilidades
+                "EditorConfig.EditorConfig",
+                "mads-hartmann.bash-ide-vscode",
+                "GitHub.copilot"
+            ],
+            "settings": {
+                // Rust Analyzer
+                "rust-analyzer.cargo.features": "all",
+                "rust-analyzer.check.command": "clippy",
+                // Formato
+                "editor.formatOnSave": true,
+                "editor.defaultFormatter": "esbenp.prettier-vscode",
+                "[rust]": {
+                    "editor.defaultFormatter": "rust-lang.rust-analyzer"
+                },
+                "[toml]": {
+                    "editor.defaultFormatter": "tamasfe.even-better-toml"
+                }
+            }
+        }
+    },
+    // ── Post-create: solo verifica herramientas instaladas ────────
+    "postCreateCommand": "bash .devcontainer/scripts/post-create.sh"
+}
