@@ -98,7 +98,7 @@ Incluye GLIBC_2.39, requerida por Anchor ≥ 0.32.
 | Rust stable | Última estable                              |
 | Node.js     | 20.x LTS                                    |
 | Yarn        | 1.x                                         |
-| Solana CLI  | v2.1.21 (configurable en devcontainer.json) |
+| Solana CLI  | v3.0.15 (configurable en devcontainer.json) |
 | Anchor CLI  | latest vía AVM                              |
 
 ---

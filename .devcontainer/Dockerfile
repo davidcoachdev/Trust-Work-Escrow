@@ -8,7 +8,7 @@ FROM ubuntu:24.04
 # ─────────────────────────────────────────────────────────────────
 # Versiones (cámbialas aquí si necesitas actualizar)
 # ─────────────────────────────────────────────────────────────────
-ARG SOLANA_CLI_VERSION="v2.1.21"
+ARG SOLANA_CLI_VERSION="stable"
 ARG NODE_VERSION="20"
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -77,32 +77,25 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
 ENV PATH="${HOME}/.cargo/bin:${PATH}"
 
 # ─────────────────────────────────────────────────────────────────
-# 5. Solana CLI (binario pre-compilado – mucho más rápido que compilar)
+# 5. Solana CLI (instalación oficial vía script de Anza)
 # ─────────────────────────────────────────────────────────────────
-ENV SOLANA_INSTALL_DIR="${HOME}/.local/share/solana/install/active_release"
+RUN sh -c "$(curl -sSfL https://release.anza.xyz/${SOLANA_CLI_VERSION}/install)"
 
-RUN mkdir -p "${SOLANA_INSTALL_DIR}" \
-    && curl -sSfL \
-    "https://github.com/anza-xyz/agave/releases/download/${SOLANA_CLI_VERSION}/solana-release-x86_64-unknown-linux-gnu.tar.bz2" \
-    -o /tmp/solana.tar.bz2 \
-    && tar -xjf /tmp/solana.tar.bz2 -C "${SOLANA_INSTALL_DIR}" --strip-components=1 \
-    && rm /tmp/solana.tar.bz2
-
-ENV PATH="${SOLANA_INSTALL_DIR}/bin:${PATH}"
+ENV PATH="/home/vscode/.local/share/solana/install/active_release/bin:${PATH}"
 
 # Keygen + config para desarrollo local
-RUN mkdir -p "${HOME}/.config/solana" \
+RUN mkdir -p /home/vscode/.config/solana \
     && solana-keygen new --no-bip39-passphrase --silent \
-    --outfile "${HOME}/.config/solana/id.json" \
+    --outfile /home/vscode/.config/solana/id.json \
     && solana config set --url localhost
 
 # ─────────────────────────────────────────────────────────────────
 # 6. Anchor CLI (via AVM – compila desde fuente, ~10 min build)
 #    Se hace aquí para que quede en la imagen y no en postCreate.
 # ─────────────────────────────────────────────────────────────────
-RUN cargo install --git https://github.com/coral-xyz/anchor avm --locked \
-    && avm install latest \
-    && avm use latest
+RUN cargo install --git https://github.com/solana-foundation/anchor avm --force \
+    && avm install 0.32.1 \
+    && avm use 0.32.1
 
 ENV PATH="${HOME}/.avm/bin:${PATH}"
 
