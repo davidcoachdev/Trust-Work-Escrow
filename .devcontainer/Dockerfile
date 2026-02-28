@@ -140,4 +140,7 @@ LABEL maintainer="TrustWork" \
 # ─────────────────────────────────────────────────────────────────
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
+# CMD: mantiene el contenedor vivo (requerido cuando overrideCommand: false)
+CMD ["sleep", "infinity"]
+
 WORKDIR /workspace
