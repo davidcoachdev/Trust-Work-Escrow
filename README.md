@@ -11,8 +11,8 @@
 | -------------- | --------- | ------------------------------------ |
 | **Ubuntu**     | 24.04 LTS | Sistema base                         |
 | **Rust**       | stable    | Lenguaje para smart contracts y APIs |
-| **Solana CLI** | v2.1.21   | Herramientas de línea de comando     |
-| **Anchor**     | 0.31.x    | Framework para programas Solana      |
+| **Solana CLI** | v3.0.15   | Herramientas de línea de comando     |
+| **Anchor**     | 0.32.x    | Framework para programas Solana      |
 | **Node.js**    | 20.x LTS  | Runtime para frontend y tests        |
 | **Yarn**       | latest    | Gestor de paquetes                   |
 

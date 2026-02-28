@@ -11,8 +11,8 @@ El contenedor incluye todas las herramientas necesarias: Rust, Solana CLI, Ancho
 | Herramienta    | Versión   | Uso                                 |
 | -------------- | --------- | ----------------------------------- |
 | **Rust**       | stable    | Smart contracts, APIs, CLIs         |
-| **Solana CLI** | v2.1.21   | Interacción con la blockchain       |
-| **Anchor**     | 0.31.x    | Framework para programas Solana     |
+| **Solana CLI** | stable    | Interacción con la blockchain       |
+| **Anchor**     | 0.32.x    | Framework para programas Solana     |
 | **Node.js**    | 20.x LTS  | Frontend, tests, tooling            |
 | **Yarn**       | latest    | Gestión de paquetes                 |
 | **Ubuntu**     | 24.04 LTS | Sistema base (GLIBC 2.39 requerido) |

@@ -12,7 +12,8 @@
         "context": ".",
         "args": {
             // Cambia esta versión si necesitas actualizar Solana CLI
-            "SOLANA_CLI_VERSION": "v2.1.21",
+            // Usa "stable" para la última estable, o un tag como "v3.1.8"
+            "SOLANA_CLI_VERSION": "stable",
             "NODE_VERSION": "20"
         }
     },
