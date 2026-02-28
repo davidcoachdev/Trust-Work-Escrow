@@ -74,3 +74,10 @@ else
     echo "  npx create-next-app frontend    → Frontend Next.js"
     echo ""
 fi
+
+# ── Alias para validador accesible externamente ─────────────────
+if ! grep -q "solana-validator" ~/.bashrc 2>/dev/null; then
+    echo "" >> ~/.bashrc
+    echo "# Alias para solana-test-validator con bind externo" >> ~/.bashrc
+    echo "alias solana-validator='solana-test-validator --bind-address 0.0.0.0'" >> ~/.bashrc
+fi
