@@ -78,9 +78,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # ─────────────────────────────────────────────────────────────────
 # GitHub CLI repo
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-      | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null \
+    | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-      | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+    | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -107,7 +107,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ─────────────────────────────────────────────────────────────────
 # 2. Node.js LTS + utilidades JS globales
 # ─────────────────────────────────────────────────────────────────
-RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
+RUN curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
+    | gpg --dearmor -o /usr/share/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_VERSION}.x nodistro main" \
+    | tee /etc/apt/sources.list.d/nodesource.list > /dev/null \
+    && apt-get update \
     && apt-get install -y nodejs \
     && npm install -g yarn typescript ts-node \
     && rm -rf /var/lib/apt/lists/*
@@ -116,13 +120,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
 # 3. Usuario no-root "vscode"
 # ─────────────────────────────────────────────────────────────────
 RUN if id -u 1000 > /dev/null 2>&1; then \
-      existing_user=$(getent passwd 1000 | cut -d: -f1); \
-      if [ "$existing_user" != "vscode" ]; then \
-        usermod -l vscode -d /home/vscode -m "$existing_user" 2>/dev/null || true; \
-        groupmod -n vscode "$existing_user" 2>/dev/null || true; \
-      fi; \
+    existing_user=$(getent passwd 1000 | cut -d: -f1); \
+    if [ "$existing_user" != "vscode" ]; then \
+    usermod -l vscode -d /home/vscode -m "$existing_user" 2>/dev/null || true; \
+    groupmod -n vscode "$existing_user" 2>/dev/null || true; \
+    fi; \
     else \
-      useradd -m -u 1000 -s /bin/bash vscode; \
+    useradd -m -u 1000 -s /bin/bash vscode; \
     fi \
     && echo "vscode ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/vscode \
     && chmod 0440 /etc/sudoers.d/vscode \
@@ -150,7 +154,7 @@ ENV PATH="${HOME}/.local/share/solana/install/active_release/bin:${PATH}"
 
 RUN mkdir -p ${HOME}/.config/solana \
     && solana-keygen new --no-bip39-passphrase --silent \
-       --outfile ${HOME}/.config/solana/id.json \
+    --outfile ${HOME}/.config/solana/id.json \
     && solana config set --url localhost
 
 # ─────────────────────────────────────────────────────────────────
@@ -165,10 +169,10 @@ ENV PATH="${HOME}/.avm/bin:${PATH}"
 # 7. Metadata
 # ─────────────────────────────────────────────────────────────────
 LABEL maintainer="TrustWork" \
-      description="Solana Dev Container (multi-stage)" \
-      solana.version="${SOLANA_CLI_VERSION}" \
-      anchor.version="${ANCHOR_VERSION}" \
-      node.version="${NODE_VERSION}"
+    description="Solana Dev Container (multi-stage)" \
+    solana.version="${SOLANA_CLI_VERSION}" \
+    anchor.version="${ANCHOR_VERSION}" \
+    node.version="${NODE_VERSION}"
 
 # ─────────────────────────────────────────────────────────────────
 # 8. tini como init — previene procesos zombie
