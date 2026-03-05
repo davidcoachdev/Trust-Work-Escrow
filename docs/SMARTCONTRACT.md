@@ -230,10 +230,13 @@ pub fn approve_work(ctx: Context<ApproveWork>, job_id: u64) -> Result<()>
 
 **Flujo:**
 
-1. Transfiere `amount` al freelancer
-2. Transfiere `fee_amount` al treasury
-3. Cierra la cuenta Job (rent → client)
-4. Cambia status a Released
+1. Calcula `net_payment = amount - fee_amount` (el freelancer también aporta su 5%)
+2. Transfiere `net_payment` al freelancer
+3. Transfiere `fee_amount * 2` (doble comisión: cliente + freelancer) al treasury
+4. Cierra la cuenta Job (rent → client)
+5. Cambia status a Released
+
+> **Nota de comisiones:** El cliente deposita `amount + fee_amount` (105%). Al completar, el freelancer recibe el 95% neto y el treasury acumula el 10% total (5% de cada parte).
 
 ---
 
@@ -322,11 +325,14 @@ pub fn resolve_dispute(
 
 **Flujo:**
 
-1. Calcula distribución: freelancer_amount = amount \* freelancer_percent / 100
-2. Transfiere freelancer_amount al freelancer
-3. Transfiere fee_amount al treasury
-4. Cierra la cuenta Job (client_amount + rent → client)
-5. Cambia status a Resolved
+1. Calcula `net_amount = amount - fee_amount` (base para el reparto, excluyendo comisión del freelancer)
+2. Calcula distribución: `freelancer_amount = net_amount * freelancer_percent / 100`
+3. Transfiere `freelancer_amount` al freelancer
+4. Transfiere `fee_amount * 2` (doble comisión: cliente + freelancer) al treasury
+5. Cierra la cuenta Job (porción del cliente en net_amount + rent → client)
+6. Cambia status a Resolved
+
+> **Nota de comisiones:** Igual que `approve_work`, el treasury recibe el 10% total (5% de cada parte) sin importar el resultado de la disputa.
 
 ---
 
