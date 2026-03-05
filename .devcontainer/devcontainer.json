@@ -9,116 +9,105 @@
 // Para local:      usa cacheFrom para aprovechar el prebuild
 // ═══════════════════════════════════════════════════════════════
 {
-    "name": "Solana Dev Container",
-    "build": {
-        "dockerfile": "./Dockerfile",
-        "context": ".",
-        "args": {
-            "SOLANA_CLI_VERSION": "stable",
-            "ANCHOR_VERSION": "0.32.1",
-            "NODE_VERSION": "20"
-        }
-    },
-    "remoteUser": "vscode",
-    "remoteEnv": {
-        "PATH": "${containerEnv:PATH}:/home/vscode/.avm/bin:/home/vscode/.local/share/solana/install/active_release/bin:/home/vscode/.cargo/bin",
-        "SOLANA_CLUSTER": "${localEnv:SOLANA_CLUSTER:localhost}"
-    },
-    // ── Overrides para Codespaces ──────────────────────────────────
-    "overrideCommand": false,
-    // ── Puertos ───────────────────────────────────────────────────
-    "forwardPorts": [
-        3000,
-        3001,
-        8080,
-        8899,
-        8900,
-        9900,
-        5432
-    ],
-    "portsAttributes": {
-        "3000": {
-            "label": "Frontend (Next.js)",
-            "onAutoForward": "notify"
-        },
-        "3001": {
-            "label": "Frontend alternativo",
-            "onAutoForward": "silent"
-        },
-        "8080": {
-            "label": "Backend API (Rust)",
-            "onAutoForward": "notify"
-        },
-        "8899": {
-            "label": "Solana RPC",
-            "onAutoForward": "silent"
-        },
-        "8900": {
-            "label": "Solana WebSocket",
-            "onAutoForward": "silent"
-        },
-        "9900": {
-            "label": "Solana Faucet",
-            "onAutoForward": "silent"
-        },
-        "5432": {
-            "label": "PostgreSQL",
-            "onAutoForward": "silent"
-        }
-    },
-    "otherPortsAttributes": {
-        "onAutoForward": "ignore"
-    },
-    // ── Extensiones VS Code ────────────────────────────────────────
-    "customizations": {
-        "vscode": {
-            "extensions": [
-                // Rust
-                "rust-lang.rust-analyzer",
-                "tamasfe.even-better-toml",
-                "fill-labs.dependi",
-                // TypeScript / JS
-                "ms-vscode.vscode-typescript-next",
-                "dbaeumer.vscode-eslint",
-                "esbenp.prettier-vscode",
-                // Frontend
-                "bradlc.vscode-tailwindcss",
-                // Infraestructura
-                "ms-azuretools.vscode-docker",
-                // Utilidades
-                "EditorConfig.EditorConfig",
-                "mads-hartmann.bash-ide-vscode",
-                "GitHub.copilot",
-                "vivaxy.vscode-conventional-commits",
-                // Rust extras
-                "dustypomerleau.rust-syntax",
-                "serayuzgur.crates"
-            ],
-            "settings": {
-                // Rust Analyzer
-                "rust-analyzer.cargo.features": "all",
-                "rust-analyzer.check.command": "clippy",
-                // Formato
-                "editor.formatOnSave": true,
-                "editor.defaultFormatter": "esbenp.prettier-vscode",
-                "[rust]": {
-                    "editor.defaultFormatter": "rust-lang.rust-analyzer"
-                },
-                "[toml]": {
-                    "editor.defaultFormatter": "tamasfe.even-better-toml"
-                }
-            }
-        }
-    },
-    // ── Post-create: solo verifica herramientas instaladas ────────
-    "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
-    // ── Codespaces / Prebuild ─────────────────────────────────────
-    // Espera por personalization extensions antes de completar
-    "waitFor": "onCreateCommand",
-    // Hint para Codespaces: tamaño recomendado
-    "hostRequirements": {
-        "cpus": 4,
-        "memory": "8gb",
-        "storage": "32gb"
+  "name": "Solana Dev Container",
+  "build": {
+    "dockerfile": "./Dockerfile",
+    "context": ".",
+    "args": {
+      "SOLANA_CLI_VERSION": "stable",
+      "ANCHOR_VERSION": "0.32.1",
+      "NODE_VERSION": "20"
     }
+  },
+  "remoteUser": "vscode",
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:/home/vscode/.avm/bin:/home/vscode/.local/share/solana/install/active_release/bin:/home/vscode/.cargo/bin",
+    "SOLANA_CLUSTER": "${localEnv:SOLANA_CLUSTER:localhost}"
+  },
+  // ── Overrides para Codespaces ──────────────────────────────────
+  "overrideCommand": false,
+  // ── Puertos ───────────────────────────────────────────────────
+  "forwardPorts": [3000, 3001, 8080, 8899, 8900, 9900, 5432],
+  "portsAttributes": {
+    "3000": {
+      "label": "Frontend (Next.js)",
+      "onAutoForward": "notify"
+    },
+    "3001": {
+      "label": "Frontend alternativo",
+      "onAutoForward": "silent"
+    },
+    "8080": {
+      "label": "Backend API (Rust)",
+      "onAutoForward": "notify"
+    },
+    "8899": {
+      "label": "Solana RPC",
+      "onAutoForward": "silent"
+    },
+    "8900": {
+      "label": "Solana WebSocket",
+      "onAutoForward": "silent"
+    },
+    "9900": {
+      "label": "Solana Faucet",
+      "onAutoForward": "silent"
+    },
+    "5432": {
+      "label": "PostgreSQL",
+      "onAutoForward": "silent"
+    }
+  },
+  "otherPortsAttributes": {
+    "onAutoForward": "ignore"
+  },
+  // ── Extensiones VS Code ────────────────────────────────────────
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // Rust
+        "Ayushh.vscode-anchor",
+        "dustypomerleau.rust-syntax",
+        // TypeScript / JS
+        "dbaeumer.vscode-eslint",
+        // Frontend
+        "bradlc.vscode-tailwindcss",
+        // Infraestructura
+        "ms-azuretools.vscode-docker",
+        // solana
+        "solana-developers.solana-vs-code-extension-pack",
+        //// Utilidades
+        "natqe.reload",
+        "EditorConfig.EditorConfig",
+        "mads-hartmann.bash-ide-vscode",
+        "GitHub.copilot",
+        "vivaxy.vscode-conventional-commits"
+      ],
+      "settings": {
+        // Rust Analyzer
+        "rust-analyzer.cargo.features": "all",
+        "rust-analyzer.check.command": "clippy",
+        // Formato
+        "editor.formatOnSave": true,
+        "editor.defaultFormatter": "esbenp.prettier-vscode",
+        "[rust]": {
+          "editor.defaultFormatter": "rust-lang.rust-analyzer"
+        },
+        "[toml]": {
+          "editor.defaultFormatter": "tamasfe.even-better-toml"
+        }
+      }
+    }
+  },
+  // ── Post-create: solo verifica herramientas instaladas ────────
+  "postCreateCommand": "bash .devcontainer/scripts/post-create.sh",
+  // ── Codespaces / Prebuild ─────────────────────────────────────
+  // Espera por personalization extensions antes de completar
+  "waitFor": "onCreateCommand",
+  // Hint para Codespaces: tamaño recomendado
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  }
 }

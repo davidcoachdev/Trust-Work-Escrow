@@ -12,7 +12,7 @@
 # No usar set -e: queremos reportar TODAS las herramientas
 # que faltan, no abortar en la primera.
 
-export PATH="$HOME/.avm/bin:$HOME/.cargo/bin:$HOME/.local/share/solana/install/active_release/bin:$PATH"
+export PATH="$HOME/.avm/bin:$HOME/.cargo/bin:$HOME/.local/share/solana/install/active_release/bin:$HOME/.opencode/bin:$PATH"
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -50,6 +50,9 @@ check "Rust"       "rustc --version"
 check "Cargo"      "cargo --version"
 check "Solana"     "solana --version"
 check "Anchor"     "anchor --version"
+check "Surfpool"   "surfpool --version"
+check "GitHub CLI" "gh --version"
+check "OpenCode"   "opencode --version"
 
 echo ""
 

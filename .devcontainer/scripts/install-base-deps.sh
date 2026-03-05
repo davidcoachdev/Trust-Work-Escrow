@@ -26,7 +26,9 @@ apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     unzip \
     xz-utils \
-    tini
+    tini \
+    protobuf-compiler \
+    gzip
 
 rm -rf /var/lib/apt/lists/*
 

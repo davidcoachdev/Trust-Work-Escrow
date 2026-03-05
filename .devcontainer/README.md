@@ -100,6 +100,8 @@ Incluye GLIBC_2.39, requerida por Anchor ≥ 0.32.
 | Yarn        | 1.x                                         |
 | Solana CLI  | v3.0.15 (configurable en devcontainer.json) |
 | Anchor CLI  | latest vía AVM                              |
+| OpenCode    | latest (AI coding agent)                   |
+| Surfpool    | latest (Solana local dev network)          |
 
 ---
 
@@ -129,8 +131,14 @@ anchor build
 # Ejecutar tests
 anchor test
 
-# Iniciar validador local
+# Iniciar validador local (Solana)
 solana-test-validator
+
+# Iniciar red local (Surfpool - alternativas a Solana Test Validator)
+surfpool start
+
+# Usar OpenCode AI coding agent
+opencode
 
 # Crear proyecto Anchor
 anchor init mi-proyecto

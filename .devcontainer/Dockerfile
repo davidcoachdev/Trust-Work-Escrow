@@ -130,8 +130,19 @@ ENV PATH="${HOME}/.avm/bin:${PATH}"
 # Re-activar Anchor para crear symlink correcto (los del builder apuntan a /root)
 RUN avm use ${ANCHOR_VERSION}
 
-# ─────────────────────────────────────────────────────────────────
-# 8. Metadata
+# ═══════════════════════════════════════════════════════════════════
+# 8. OpenCode CLI
+# ═══════════════════════════════════════════════════════════════════
+RUN /tmp/scripts/install-opencode.sh
+
+# ═══════════════════════════════════════════════════════════════════
+# 9. Surfpool CLI
+# ═══════════════════════════════════════════════════════════════════
+RUN /tmp/scripts/install-surfpool.sh
+ENV PATH="${HOME}/.local/bin:${PATH}"
+
+# ═══════════════════════════════════════════════════════════════════
+# 10. Metadata
 # ─────────────────────────────────────────────────────────────────
 LABEL maintainer="TrustWork" \
     description="Solana Dev Container (modular)" \
