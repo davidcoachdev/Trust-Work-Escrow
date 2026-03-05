@@ -3,51 +3,81 @@
 ## Uso General
 
 ```bash
+# Desde trust-escrow/
 cargo run --manifest-path cli/Cargo.toml -- [COMMAND] [OPTIONS]
+
+# O si compilaste el binario:
+escrow [COMMAND] [OPTIONS]
 ```
+
+### Opciones Globales
+
+| Opción | Descripción | Default |
+|--------|-------------|---------|
+| `--keypair <PATH>` | Ruta al keypair del firmante | `~/.config/solana/id.json` |
+| `--url <URL>` | URL del RPC de Solana | `http://127.0.0.1:8899` |
+
+---
 
 ## Comandos Disponibles
 
-### create
+### init
 
-Crea un nuevo trabajo (job) y deposita fondos en escrow.
+Inicializa la configuración del programa (solo admin).
 
 ```bash
-escrow create "Título del trabajo" --amount 2.5 --arbiter <ARBITER_ADDRESS>
+escrow init --treasury <TREASURY_ADDRESS>
 ```
 
 **Opciones:**
-- `TITLE` - Título del trabajo (required)
-- `--amount` - Monto a depositar en SOL (required)
-- `--arbiter` - Dirección del árbitro (required)
-- `--description` - Descripción del trabajo (optional)
+- `--treasury` — Dirección de la cuenta treasury (required)
 
 **Ejemplo:**
 ```bash
-escrow create "Desarrollo de App Web" --amount 2 --arbiter 7x8f9... --description "App en React"
+escrow init --treasury 7x8f9KpJ...
 ```
 
 ---
 
-### list
+### create
 
-Lista todos los trabajos disponibles o los tuyos.
+Crea un nuevo trabajo (job).
 
 ```bash
-escrow list [OPTIONS]
+escrow create <TITLE> --amount <SOL> --arbiter <ADDRESS> --job-id <ID> [--description <DESC>] [--deadline <TIMESTAMP>]
 ```
 
+**Argumentos:**
+- `TITLE` — Título del trabajo (required)
+
 **Opciones:**
-- `--all` - Lista todos los trabajos
-- `--mine` - Lista solo mis trabajos
-- `--available` - Lista trabajos disponibles para aceptar
-- `--status` - Filtra por estado (created, in_progress, submitted, released, disputed, resolved, cancelled)
+- `--amount` — Monto en SOL (required)
+- `--arbiter` — Dirección del árbitro (required)
+- `--job-id` — ID numérico del trabajo (required)
+- `--description` — Descripción (optional, default: "")
+- `--deadline` — Unix timestamp del plazo (optional, default: +7 días)
 
 **Ejemplo:**
 ```bash
-escrow list --all
-escrow list --available
-escrow list --status submitted
+escrow create "Landing Page" --amount 2 --arbiter 7x8f9... --job-id 1 --description "React landing"
+```
+
+---
+
+### deposit
+
+Deposita fondos en un trabajo existente.
+
+```bash
+escrow deposit <JOB_ID>
+```
+
+**Argumentos:**
+- `JOB_ID` — ID del trabajo (required)
+
+**Ejemplo:**
+```bash
+escrow deposit 1
 ```
 
 ---
@@ -57,33 +87,39 @@ escrow list --status submitted
 Acepta un trabajo como freelancer.
 
 ```bash
-escrow accept <JOB_ID>
+escrow accept <JOB_ID> --client <CLIENT_ADDRESS>
 ```
 
 **Argumentos:**
-- `JOB_ID` - ID del trabajo a aceptar (required)
+- `JOB_ID` — ID del trabajo (required)
+
+**Opciones:**
+- `--client` — Dirección del cliente que creó el trabajo (required)
 
 **Ejemplo:**
 ```bash
-escrow accept 1
+escrow accept 1 --client 4zM3...
 ```
 
 ---
 
 ### submit
 
-Marca el trabajo como entregado (completado).
+Marca el trabajo como entregado.
 
 ```bash
-escrow submit <JOB_ID>
+escrow submit <JOB_ID> --client <CLIENT_ADDRESS>
 ```
 
 **Argumentos:**
-- `JOB_ID` - ID del trabajo entregado (required)
+- `JOB_ID` — ID del trabajo (required)
+
+**Opciones:**
+- `--client` — Dirección del cliente (required)
 
 **Ejemplo:**
 ```bash
-escrow submit 1
+escrow submit 1 --client 4zM3...
 ```
 
 ---
@@ -93,94 +129,96 @@ escrow submit 1
 Aprueba el trabajo y libera los fondos al freelancer.
 
 ```bash
-escrow approve <JOB_ID>
+escrow approve <JOB_ID> --freelancer <FREELANCER_ADDRESS>
 ```
 
 **Argumentos:**
-- `JOB_ID` - ID del trabajo a aprobar (required)
+- `JOB_ID` — ID del trabajo (required)
+
+**Opciones:**
+- `--freelancer` — Dirección del freelancer (required)
 
 **Ejemplo:**
 ```bash
-escrow approve 1
+escrow approve 1 --freelancer 9aB7...
 ```
 
 ---
 
 ### reject
 
-Rechaza el trabajo y abre una disputa.
+Rechaza el trabajo y abre una disputa (solo cliente).
 
 ```bash
-escrow reject <JOB_ID> --reason <REASON>
+escrow reject <JOB_ID> <REASON>
 ```
 
 **Argumentos:**
-- `JOB_ID` - ID del trabajo a rechazar (required)
-
-**Opciones:**
-- `--reason` - Razón del rechazo (required)
+- `JOB_ID` — ID del trabajo (required)
+- `REASON` — Razón del rechazo (required)
 
 **Ejemplo:**
 ```bash
-escrow reject 1 --reason "Trabajo incompleto"
+escrow reject 1 "Trabajo incompleto"
 ```
 
 ---
 
-### dispute
+### raise-dispute
 
-Abre una disputa (solo después de submit).
+Levanta una disputa como freelancer.
 
 ```bash
-escrow dispute <JOB_ID> --reason <REASON>
+escrow raise-dispute <JOB_ID> --client <CLIENT_ADDRESS> --reason <REASON>
 ```
 
 **Argumentos:**
-- `JOB_ID` - ID del trabajo en disputa (required)
+- `JOB_ID` — ID del trabajo (required)
 
 **Opciones:**
-- `--reason` - Razón de la disputa (required)
+- `--client` — Dirección del cliente (required)
+- `--reason` — Razón de la disputa (required)
 
 **Ejemplo:**
 ```bash
-escrow dispute 1 --reason "Cliente no responde"
+escrow raise-dispute 1 --client 4zM3... --reason "Cliente no responde"
 ```
 
 ---
 
-### resolve
+### resolve-dispute
 
-Resuelve una disputa (solo árbitro).
+Resuelve una disputa como árbitro.
 
 ```bash
-escrow resolve <JOB_ID> --winner <WINNER>
+escrow resolve-dispute <JOB_ID> --client <CLIENT_ADDRESS> --freelancer <FREELANCER_ADDRESS> --freelancer-percent <0-100>
 ```
 
 **Argumentos:**
-- `JOB_ID` - ID del trabajo a resolver (required)
+- `JOB_ID` — ID del trabajo (required)
 
 **Opciones:**
-- `--winner` - Ganador: `client` o `freelancer` (required)
-- `--split` - División personalizada (optional, ej: 50-50)
+- `--client` — Dirección del cliente (required)
+- `--freelancer` — Dirección del freelancer (required)
+- `--freelancer-percent` — Porcentaje para el freelancer (0-100, required)
 
 **Ejemplo:**
 ```bash
-escrow resolve 1 --winner freelancer
-escrow resolve 1 --split 70-30  # 70% freelancer, 30% cliente
+escrow resolve-dispute 1 --client 4zM3... --freelancer 9aB7... --freelancer-percent 70
 ```
 
 ---
 
 ### cancel
 
-Cancela un trabajo (solo si no ha sido iniciado).
+Cancela un trabajo (solo cliente, antes de in-progress).
 
 ```bash
 escrow cancel <JOB_ID>
 ```
 
 **Argumentos:**
-- `JOB_ID` - ID del trabajo a cancelar (required)
+- `JOB_ID` — ID del trabajo (required)
 
 **Ejemplo:**
 ```bash
@@ -191,18 +229,41 @@ escrow cancel 1
 
 ### show
 
-Muestra los detalles de un trabajo específico.
+Muestra los detalles de un trabajo.
 
 ```bash
-escrow show <JOB_ID>
+escrow show <JOB_ID> --client <CLIENT_ADDRESS>
 ```
 
 **Argumentos:**
-- `JOB_ID` - ID del trabajo a mostrar (required)
+- `JOB_ID` — ID del trabajo (required)
+
+**Opciones:**
+- `--client` — Dirección del cliente que creó el trabajo (required)
 
 **Ejemplo:**
 ```bash
-escrow show 1
+escrow show 1 --client 4zM3...
+```
+
+---
+
+### pause
+
+Pausa el programa (solo admin).
+
+```bash
+escrow pause
+```
+
+---
+
+### unpause
+
+Reactiva el programa (solo admin).
+
+```bash
+escrow unpause
 ```
 
 ---
@@ -211,48 +272,54 @@ escrow show 1
 
 | Estado | Descripción |
 |--------|-------------|
-| `Created` | Creado, esperando que freelancer acepte |
+| `Created` | Creado, esperando depósito o freelancer |
+| `Funded` | Fondos depositados, esperando freelancer |
 | `InProgress` | Freelancer aceptó, trabajando |
 | `Submitted` | Freelancer entregó el trabajo |
-| `Released` | Completado, fondos liberados |
+| `Completed` | Completado, fondos liberados |
 | `Disputed` | En disputa |
 | `Resolved` | Resuelto por árbitro |
-| `Cancelled` | Cancelado (refund) |
+| `Cancelled` | Cancelado (refund al cliente) |
 
 ---
 
 ## Flujo Típico
 
 ```
-Cliente                      Freelancer                    Árbitro
-   │                            │                              │
-   ├── create ────────────────► │                              │
-   │   (depósito funds)         │                              │
-   │                            │                              │
-   │                            ├── accept ──────────────────► │
-   │                            │                              │
-   │                            ├── submit ──────────────────► │
-   │                            │                              │
-   ├── approve ────────────────►│                              │
-   │   (libera fondos)          │                              │
-   │                            │                              │
-   │  (o)                       │                              │
-   │                            │                              │
-   ├── reject + dispute ───────►│◄──── dispute ───────────────┤
-   │                            │                              │
-   │                            │◄──── resolve ───────────────┤
-   │                            │    (árbitro decide)          │
+Cliente                       Freelancer                    Árbitro
+   │                             │                              │
+   ├── init ──────────────────►  │                              │
+   │   (solo 1 vez, admin)       │                              │
+   │                             │                              │
+   ├── create + deposit ───────► │                              │
+   │                             │                              │
+   │                             ├── accept ──────────────────► │
+   │                             │                              │
+   │                             ├── submit ──────────────────► │
+   │                             │                              │
+   ├── approve ─────────────────►│                              │
+   │   (libera fondos)           │                              │
+   │                             │                              │
+   │  ── o en caso de disputa ─  │                              │
+   │                             │                              │
+   ├── reject ─────────────────► │                              │
+   │   (o)                       ├── raise-dispute ───────────► │
+   │                             │                              │
+   │                             │    ◄── resolve-dispute ──────┤
+   │                             │       (árbitro decide %)     │
 ```
 
 ---
 
 ## Errores Comunes
 
-| Código | Descripción |
-|--------|-------------|
-| `1001` | No eres el owner del trabajo |
-| `1002` | Trabajo no encontrado |
-| `1003` | Estado inválido para esta acción |
-| `1004` | Solo el árbitro puede resolver |
-| `1005` | Fondos insuficientes |
-| `1006` | Fecha límite superada |
+| Error Anchor | Descripción |
+|--------------|-------------|
+| `NotAuthorized` | No tienes permisos para esta acción |
+| `InvalidJobStatus` | El trabajo no está en el estado requerido |
+| `NotJobFreelancer` | No eres el freelancer asignado |
+| `InvalidTreasury` | Treasury no coincide con la configuración |
+| `ProgramPaused` | El programa está pausado |
+| `TitleTooLong` | Título excede 100 caracteres |
+| `AmountTooSmall` | Monto menor al mínimo (0.0001 SOL) |
+| `EmptyDisputeReason` | Razón de disputa vacía |

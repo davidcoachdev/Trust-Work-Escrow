@@ -145,10 +145,13 @@ pub mod trust_escrow {
         );
         require!(job.freelancer.is_some(), ErrorCode::NoFreelancerAssigned);
 
-        let payment_amount = job.amount;
         let fee_amount = job.fee_amount;
+        // Freelancer receives the job amount minus their share of the protocol fee
+        let payment_amount = job.amount - fee_amount;
+        // Treasury collects fee from both parties: client fee (deposited) + freelancer fee
+        let total_fee = fee_amount * 2;
 
-        // Pay freelancer their earned amount
+        // Pay freelancer their net earned amount
         **job.to_account_info().lamports.borrow_mut() -= payment_amount;
         **ctx
             .accounts
@@ -157,23 +160,23 @@ pub mod trust_escrow {
             .lamports
             .borrow_mut() += payment_amount;
 
-        // Pay treasury the protocol fee
-        **job.to_account_info().lamports.borrow_mut() -= fee_amount;
+        // Pay treasury the full protocol fee (both sides)
+        **job.to_account_info().lamports.borrow_mut() -= total_fee;
         **ctx
             .accounts
             .treasury
             .to_account_info()
             .lamports
-            .borrow_mut() += fee_amount;
+            .borrow_mut() += total_fee;
 
         // Remaining rent-exempt lamports returned to client via close = client
         job.status = JobStatus::Released;
         job.updated_at = Clock::get()?.unix_timestamp;
 
         msg!(
-            "Work approved. Payment: {} to freelancer, {} fee to treasury",
+            "Work approved. Net payment: {} to freelancer, {} total fee to treasury",
             payment_amount,
-            fee_amount
+            total_fee
         );
         Ok(())
     }
@@ -235,10 +238,14 @@ pub mod trust_escrow {
         );
         require!(freelancer_percent <= 100, ErrorCode::InvalidPercent);
 
-        let freelancer_amount = (job.amount as u128 * freelancer_percent as u128 / 100) as u64;
         let fee_amount = job.fee_amount;
+        // Base for splits is the net amount (job amount minus freelancer's fee share)
+        let net_amount = job.amount - fee_amount;
+        let freelancer_amount = (net_amount as u128 * freelancer_percent as u128 / 100) as u64;
+        // Treasury collects fee from both parties
+        let total_fee = fee_amount * 2;
 
-        // Pay freelancer their portion
+        // Pay freelancer their portion of the net amount
         if freelancer_amount > 0 {
             **job.to_account_info().lamports.borrow_mut() -= freelancer_amount;
             **ctx
@@ -249,23 +256,24 @@ pub mod trust_escrow {
                 .borrow_mut() += freelancer_amount;
         }
 
-        // Pay treasury the protocol fee
-        **job.to_account_info().lamports.borrow_mut() -= fee_amount;
+        // Pay treasury the full protocol fee (both sides)
+        **job.to_account_info().lamports.borrow_mut() -= total_fee;
         **ctx
             .accounts
             .treasury
             .to_account_info()
             .lamports
-            .borrow_mut() += fee_amount;
+            .borrow_mut() += total_fee;
 
-        // Remaining (client_amount + rent) returned to client via close = client
+        // Remaining (client's net portion + rent) returned to client via close = client
         job.status = JobStatus::Resolved;
         job.updated_at = Clock::get()?.unix_timestamp;
 
         msg!(
-            "Dispute resolved: {}% freelancer, {}% client",
+            "Dispute resolved: {}% freelancer, {}% client (net), {} total fee to treasury",
             freelancer_percent,
-            100 - freelancer_percent
+            100 - freelancer_percent,
+            total_fee
         );
         Ok(())
     }

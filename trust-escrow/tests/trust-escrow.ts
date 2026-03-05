@@ -359,12 +359,13 @@ describe("trust-escrow", () => {
         treasury.publicKey,
       );
 
-      const expectedPayment = JOB_AMOUNT.toNumber();
-      const expectedFee = (JOB_AMOUNT.toNumber() * FEE_PERCENT) / 100;
+      const feeAmount = Math.floor((JOB_AMOUNT.toNumber() * FEE_PERCENT) / 100);
+      const expectedPayment = JOB_AMOUNT.toNumber() - feeAmount;
+      const expectedFee = feeAmount * 2;
 
-      // Freelancer receives payment
+      // Freelancer receives net payment (amount minus their fee share)
       expect(freelancerAfter - freelancerBefore).to.equal(expectedPayment);
-      // Treasury receives fee
+      // Treasury receives double fee (client + freelancer sides)
       expect(treasuryAfter - treasuryBefore).to.equal(expectedFee);
 
       // Job account should be closed
@@ -520,13 +521,233 @@ describe("trust-escrow", () => {
         treasury.publicKey,
       );
 
-      const expectedFreelancer = Math.floor((JOB_AMOUNT.toNumber() * 70) / 100);
-      const expectedFee = (JOB_AMOUNT.toNumber() * FEE_PERCENT) / 100;
+      const feeAmount = Math.floor((JOB_AMOUNT.toNumber() * FEE_PERCENT) / 100);
+      const netAmount = JOB_AMOUNT.toNumber() - feeAmount;
+      const expectedFreelancer = Math.floor((netAmount * 70) / 100);
+      const expectedFee = feeAmount * 2;
 
       expect(freelancerAfter - freelancerBefore).to.equal(expectedFreelancer);
       expect(treasuryAfter - treasuryBefore).to.equal(expectedFee);
-      // Client gets 30% of amount + rent via close = client
+      // Client gets 30% of net amount + rent via close = client
       expect(clientAfter).to.be.greaterThan(clientBefore);
+    });
+  });
+
+  // =========================================================================
+  // raise_dispute flow: freelancer raises dispute → arbiter resolves
+  // =========================================================================
+  describe("raise_dispute flow", () => {
+    const RAISE_JOB_ID = new BN(10);
+
+    before(async () => {
+      const jobPDA = getJobPDA(client.publicKey, RAISE_JOB_ID);
+      const deadline = Math.floor(Date.now() / 1000) + 86400;
+
+      // Create → Deposit → Accept → Submit
+      await program.methods
+        .createJob(
+          RAISE_JOB_ID,
+          "Raise Dispute Test",
+          "Testing freelancer-raised disputes",
+          JOB_AMOUNT,
+          new BN(deadline),
+        )
+        .accounts({
+          client: client.publicKey,
+          arbiter: arbiter.publicKey,
+          job: jobPDA,
+          config: getConfigPDA(),
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([client])
+        .rpc();
+
+      await program.methods
+        .depositFunds(RAISE_JOB_ID)
+        .accounts({
+          client: client.publicKey,
+          job: jobPDA,
+          config: getConfigPDA(),
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([client])
+        .rpc();
+
+      await program.methods
+        .acceptJob(RAISE_JOB_ID)
+        .accounts({
+          freelancer: freelancer.publicKey,
+          job: jobPDA,
+          config: getConfigPDA(),
+        })
+        .signers([freelancer])
+        .rpc();
+
+      await program.methods
+        .submitWork(RAISE_JOB_ID)
+        .accounts({
+          freelancer: freelancer.publicKey,
+          job: jobPDA,
+          config: getConfigPDA(),
+        })
+        .signers([freelancer])
+        .rpc();
+    });
+
+    it("freelancer raises dispute", async () => {
+      const jobPDA = getJobPDA(client.publicKey, RAISE_JOB_ID);
+
+      await program.methods
+        .raiseDispute(RAISE_JOB_ID, "Client unresponsive")
+        .accounts({
+          freelancer: freelancer.publicKey,
+          job: jobPDA,
+          config: getConfigPDA(),
+        })
+        .signers([freelancer])
+        .rpc();
+
+      const job = await program.account.job.fetch(jobPDA);
+      expect(Object.keys(job.status)[0]).to.equal("disputed");
+      expect(job.disputeReason).to.equal("Client unresponsive");
+    });
+
+    it("non-freelancer cannot raise dispute", async () => {
+      // Create a new job for this test since the previous one is already disputed
+      const otherJobId = new BN(11);
+      const otherJobPDA = getJobPDA(client.publicKey, otherJobId);
+      const deadline = Math.floor(Date.now() / 1000) + 86400;
+
+      await program.methods
+        .createJob(otherJobId, "Other Job", "desc", JOB_AMOUNT, new BN(deadline))
+        .accounts({
+          client: client.publicKey,
+          arbiter: arbiter.publicKey,
+          job: otherJobPDA,
+          config: getConfigPDA(),
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([client])
+        .rpc();
+
+      await program.methods
+        .depositFunds(otherJobId)
+        .accounts({
+          client: client.publicKey,
+          job: otherJobPDA,
+          config: getConfigPDA(),
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([client])
+        .rpc();
+
+      await program.methods
+        .acceptJob(otherJobId)
+        .accounts({ freelancer: freelancer.publicKey, job: otherJobPDA, config: getConfigPDA() })
+        .signers([freelancer])
+        .rpc();
+
+      await program.methods
+        .submitWork(otherJobId)
+        .accounts({ freelancer: freelancer.publicKey, job: otherJobPDA, config: getConfigPDA() })
+        .signers([freelancer])
+        .rpc();
+
+      const imposter = Keypair.generate();
+      const sig = await provider.connection.requestAirdrop(imposter.publicKey, LAMPORTS_PER_SOL);
+      await provider.connection.confirmTransaction(sig);
+
+      try {
+        await program.methods
+          .raiseDispute(otherJobId, "Fake dispute")
+          .accounts({
+            freelancer: imposter.publicKey,
+            job: otherJobPDA,
+            config: getConfigPDA(),
+          })
+          .signers([imposter])
+          .rpc();
+        expect.fail("Should have thrown");
+      } catch (err) {
+        // Expected — not the job freelancer
+      }
+    });
+
+    it("cannot raise dispute with empty reason", async () => {
+      const emptyJobId = new BN(12);
+      const emptyJobPDA = getJobPDA(client.publicKey, emptyJobId);
+      const deadline = Math.floor(Date.now() / 1000) + 86400;
+
+      await program.methods
+        .createJob(emptyJobId, "Empty Reason", "desc", JOB_AMOUNT, new BN(deadline))
+        .accounts({
+          client: client.publicKey,
+          arbiter: arbiter.publicKey,
+          job: emptyJobPDA,
+          config: getConfigPDA(),
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([client])
+        .rpc();
+
+      await program.methods
+        .depositFunds(emptyJobId)
+        .accounts({ client: client.publicKey, job: emptyJobPDA, config: getConfigPDA(), systemProgram: SystemProgram.programId })
+        .signers([client])
+        .rpc();
+
+      await program.methods
+        .acceptJob(emptyJobId)
+        .accounts({ freelancer: freelancer.publicKey, job: emptyJobPDA, config: getConfigPDA() })
+        .signers([freelancer])
+        .rpc();
+
+      await program.methods
+        .submitWork(emptyJobId)
+        .accounts({ freelancer: freelancer.publicKey, job: emptyJobPDA, config: getConfigPDA() })
+        .signers([freelancer])
+        .rpc();
+
+      try {
+        await program.methods
+          .raiseDispute(emptyJobId, "")
+          .accounts({
+            freelancer: freelancer.publicKey,
+            job: emptyJobPDA,
+            config: getConfigPDA(),
+          })
+          .signers([freelancer])
+          .rpc();
+        expect.fail("Should have thrown");
+      } catch (err) {
+        expect(err.toString()).to.include("EmptyDisputeReason");
+      }
+    });
+
+    it("arbiter resolves freelancer-raised dispute (100% freelancer)", async () => {
+      const jobPDA = getJobPDA(client.publicKey, RAISE_JOB_ID);
+
+      const freelancerBefore = await provider.connection.getBalance(freelancer.publicKey);
+
+      await program.methods
+        .resolveDispute(RAISE_JOB_ID, 100)
+        .accounts({
+          arbiter: arbiter.publicKey,
+          client: client.publicKey,
+          job: jobPDA,
+          freelancer: freelancer.publicKey,
+          treasury: treasury.publicKey,
+          config: getConfigPDA(),
+        })
+        .signers([arbiter])
+        .rpc();
+
+      const freelancerAfter = await provider.connection.getBalance(freelancer.publicKey);
+      const feeAmount2 = Math.floor((JOB_AMOUNT.toNumber() * FEE_PERCENT) / 100);
+      const netAmount2 = JOB_AMOUNT.toNumber() - feeAmount2;
+      // 100% of net amount (fee is taken from both sides)
+      const expectedFreelancer = Math.floor((netAmount2 * 100) / 100);
+      expect(freelancerAfter - freelancerBefore).to.equal(expectedFreelancer);
     });
   });
 

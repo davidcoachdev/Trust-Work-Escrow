@@ -41,9 +41,11 @@ Una plataforma **escrow basada en blockchain de Solana** donde:
 ### ¿Qué tecnologías de Solana vas a integrar?
 
 - **Anchor Framework** (Rust) - Smart contracts
-- **SPL Tokens** - Pagos en USDC o SOL
+- **SPL Tokens** - (Futuro) Pagos en USDC
 - **PDA** (Program Derived Addresses) - Vaults seguros
 - **CLI con Clap** - Interfaz de terminal en Rust
+- **TUI con Ratatui** - Interfaz gráfica de terminal
+- **escrow-core** - Librería compartida Rust
 
 ---
 
@@ -101,28 +103,21 @@ Una plataforma **escrow basada en blockchain de Solana** donde:
 └────────────────┘  └─────────────────┘  └─────────────────┘
 ```
 
-### Estructura de Carpetas Propuesta
+### Estructura de Carpetas
 
 ```
-trust-work-escrow/
+trust-escrow/
 ├── programs/
-│   └── escrow/
-│       ├── src/
-│       │   ├── lib.rs           # Entry point + instructions
-│       │   ├── state.rs         # Account structs
-│       │   ├── errors.rs        # Custom errors
-│       │   └── constants.rs     # Seeds, fees
-│       └── Cargo.toml
-├── cli/                         # CLI con Clap
-│   ├── src/
-│   │   ├── main.rs
-│   │   ├── commands.rs
-│   │   └── constants.rs
-│   └── Cargo.toml
-├── docs/                        # Documentación
+│   └── trust-escrow/
+│       └── src/lib.rs       # Smart contract (12 instrucciones)
+├── escrow-core/             # Librería compartida
+│   └── src/lib.rs           # Helpers + 13 ops + 14 tests
+├── cli/                     # CLI con Clap
+│   └── src/main.rs          # 13 subcomandos
+├── tui/                     # TUI con Ratatui
+│   └── src/                 # app, ui, config, main
 ├── tests/
-│   └── escrow.ts                # Integration tests
-├── README.md
+│   └── trust-escrow.ts      # 23 tests de integración
 ├── Anchor.toml
 └── package.json
 ```
@@ -179,7 +174,8 @@ pub enum JobStatus {
 | `raise_dispute` | Freelancer abre disputa | status → Disputed |
 | `resolve_dispute` | Árbiter decide | Distribuye fondos, status → Resolved |
 | `cancel_job` | Cancela (solo si no started) | Refund al cliente |
-| `refund_timeout` | Auto-refund si expire | Refund por inactividad |
+| `pause_program` | Admin pausa el programa | Bloquea todas las instrucciones |
+| `unpause_program` | Admin reactiva | Desbloquea instrucciones |
 
 ---
 
@@ -224,15 +220,19 @@ pub enum JobStatus {
 
 ## 📋 Checklist de Inicio
 
-- [ ] Inicializar proyecto Anchor: `anchor init trust-escrow`
-- [ ] Configurar Token Program en Anchor.toml
-- [ ] Diseñar account structs (Job, Config)
-- [ ] Implementar instrucción `create_job`
-- [ ] Implementar instrucción `accept_job`
-- [ ] Implementar `submit_work` + `approve_work`
-- [ ] Implementar `raise_dispute` + `resolve_dispute`
-- [ ] Escribir tests de integración
-- [ ] Setup CLI con Clap
+- [x] Inicializar proyecto Anchor: `anchor init trust-escrow`
+- [x] Configurar System Program en Anchor.toml
+- [x] Diseñar account structs (Job, Config)
+- [x] Implementar instrucción `create_job`
+- [x] Implementar instrucción `accept_job`
+- [x] Implementar `submit_work` + `approve_work`
+- [x] Implementar `raise_dispute` + `resolve_dispute`
+- [x] Implementar `reject_work` + `cancel_job`
+- [x] Implementar `pause_program` + `unpause_program`
+- [x] Escribir tests de integración (23 tests)
+- [x] Setup CLI con Clap (13 comandos)
+- [x] Crear TUI con Ratatui (4 roles, 4 temas)
+- [x] Crear escrow-core (librería compartida, 14 tests unitarios)
 - [ ] Deploy a devnet
 
 ---

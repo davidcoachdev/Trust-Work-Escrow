@@ -11,31 +11,39 @@
 │  │   Cliente   │      │  Freelancer │      │   Árbitro   │                 │
 │  └──────┬──────┘      └──────┬──────┘      └──────┬──────┘                 │
 │         │                     │                     │                        │
-│         │    ┌────────────────┼────────────────┘   │                        │
-│         │    │                │                    │                        │
-│         ▼    ▼                ▼                    ▼                        │
+│         └─────────────────────┼─────────────────────┘                        │
+│                               │                                              │
+│              ┌────────────────┼────────────────┐                            │
+│              ▼                                 ▼                            │
+│  ┌────────────────────┐            ┌────────────────────┐                   │
+│  │   CLI (Clap)       │            │   TUI (Ratatui)    │                   │
+│  │   13 comandos      │            │   Menús + Forms    │                   │
+│  └─────────┬──────────┘            └──────────┬─────────┘                   │
+│            │                                   │                            │
+│            └──────────────┬────────────────────┘                            │
+│                           ▼                                                  │
 │  ┌─────────────────────────────────────────────────────────────┐            │
-│  │                     CLI (Rust + Clap)                        │            │
-│  │   create │ accept │ submit │ approve │ dispute │ resolve    │            │
+│  │                  escrow-core (librería Rust)                 │            │
+│  │   helpers • PDAs • 13 operaciones • 14 tests unitarios      │            │
 │  └──────────────────────────┬──────────────────────────────────┘            │
 │                             │                                               │
 │                             ▼                                               │
 │  ┌─────────────────────────────────────────────────────────────┐            │
 │  │                    RPC Connection                            │            │
-│  │              (Solana Devnet/Mainnet)                       │            │
+│  │              (Solana Localnet/Devnet)                       │            │
 │  └──────────────────────────┬──────────────────────────────────┘            │
 │                             │                                               │
 │         ┌──────────────────┼──────────────────┐                           │
 │         ▼                  ▼                  ▼                            │
 │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                     │
-│  │   Program   │   │    Token    │   │   System    │                     │
-│  │   (Anchor)  │   │   Program   │   │   Program   │                     │
-│  └──────┬──────┘   └──────┬──────┘   └─────────────┘                     │
-│         │                  │                                               │
-│         ▼                  ▼                                               │
+│  │   Program   │   │   System    │   │   Config    │                     │
+│  │   (Anchor)  │   │   Program   │   │    PDA      │                     │
+│  └──────┬──────┘   └─────────────┘   └─────────────┘                     │
+│         │                                                                   │
+│         ▼                                                                   │
 │  ┌─────────────┐   ┌─────────────┐                                         │
-│  │  Job PDA    │   │   Vault     │                                         │
-│  │  (State)    │   │   (Funds)   │                                         │
+│  │  Job PDA    │   │  Treasury   │                                         │
+│  │  (State)    │   │  (Fees 5%)  │                                         │
 │  └─────────────┘   └─────────────┘                                         │
 │                                                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -60,27 +68,52 @@
 #### Responsabilidades
 - Interfaz de usuario por terminal
 - Parsear comandos y argumentos
-- Comunicarse con el programa via RPC
-- Gestionar wallet y transacciones
+- Comunicarse con el programa via RPC (usa escrow-core)
 
 #### Estructura
 ```
 cli/
 ├── src/
-│   ├── main.rs          # Entry point
-│   ├── commands/        # Comandos CLI
-│   │   ├── create.rs
-│   │   ├── accept.rs
-│   │   ├── submit.rs
-│   │   ├── approve.rs
-│   │   ├── dispute.rs
-│   │   └── resolve.rs
-│   ├── constants.rs     # Constantes
-│   └── utils.rs         # Utilidades
-└── Cargo.toml
+│   └── main.rs          # Entry point + 13 subcomandos Clap
+└── Cargo.toml           # Deps: escrow-core, clap, anyhow
 ```
 
-### 3. Wallet
+### 3. TUI (Ratatui)
+
+#### Responsabilidades
+- Interfaz gráfica interactiva de terminal
+- Gestión multi-wallet con roles
+- Temas y configuración persistente
+- Comunicarse con el programa via RPC (usa escrow-core)
+
+#### Estructura
+```
+tui/
+├── src/
+│   ├── main.rs          # Entry point, setup terminal
+│   ├── app.rs           # Estado, eventos, navegación, forms
+│   ├── ui.rs            # Renderizado de pantallas
+│   └── config.rs        # Temas, settings, persistencia
+└── Cargo.toml           # Deps: escrow-core, ratatui, crossterm
+```
+
+### 4. escrow-core (Librería compartida)
+
+#### Responsabilidades
+- Centralizar lógica de interacción con el smart contract
+- Derivación de PDAs
+- Construcción y envío de transacciones
+- Eliminación de duplicación entre CLI y TUI
+
+#### Estructura
+```
+escrow-core/
+├── src/
+│   └── lib.rs           # Helpers + 13 operaciones + 14 tests
+└── Cargo.toml           # Deps: anchor-client, solana-rpc-client, borsh
+```
+
+### 5. Wallet
 
 #### Tipos soportados
 - CLI keypair (archivo JSON)

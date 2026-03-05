@@ -9,7 +9,9 @@ Documentación completa del proyecto para la certificación WayLearn Solana Deve
 ## 📁 Archivos de Documentación
 
 ### [PROYECTO.md](./PROYECTO.md)
+
 Documentación general del proyecto.
+
 - Ideación y problemática
 - Propuesta de solución
 - Tecnologías utilizadas
@@ -17,7 +19,9 @@ Documentación general del proyecto.
 - Checklist de implementación
 
 ### [ARQUITECTURA.md](./ARQUITECTURA.md)
+
 Arquitectura técnica detallada.
+
 - Diagramas de flujo
 - Componentes del sistema
 - Estructura de datos
@@ -25,7 +29,9 @@ Arquitectura técnica detallada.
 - Métricas y límites
 
 ### [SMARTCONTRACT.md](./SMARTCONTRACT.md)
+
 Documentación del smart contract.
+
 - Cuentas (accounts)
 - Instrucciones
 - Errores personalizados
@@ -34,14 +40,18 @@ Documentación del smart contract.
 - Testing
 
 ### [CLI.md](./CLI.md)
+
 Guía de comandos de la CLI.
+
 - Todos los comandos disponibles
 - Opciones y argumentos
 - Ejemplos de uso
 - Flujo típico de trabajo
 
 ### [INSTALL.md](./INSTALL.md)
+
 Guía de instalación y configuración.
+
 - Requisitos del sistema
 - Instalación de herramientas
 - Configuración inicial
@@ -49,12 +59,33 @@ Guía de instalación y configuración.
 - Solución de problemas
 
 ### [FASE3_TREASURY.md](./FASE3_TREASURY.md)
+
 Fase 3 - Treasury y Seguridad Avanzada.
+
 - Vault/Treasury del programa
 - Retención de pagos del cliente
 - Funciones de admin
 - Medidas de seguridad adicionales
 - Para hackatón/investor day
+
+### [ESCROW_CORE.md](./ESCROW_CORE.md)
+
+Documentación de escrow-core (librería compartida).
+
+- Funciones disponibles
+- PDAs y helpers
+- Integración con CLI y TUI
+- Tests unitarios
+
+### [TUI.md](./TUI.md)
+
+Interfaz gráfica de terminal (Ratatui).
+
+- Navegación y atajos de teclado
+- Roles (Admin, Client, Freelancer, Arbiter)
+- Gestión de wallets
+- Temas y configuración
+- Flujo típico de uso
 
 ---
 
@@ -65,8 +96,10 @@ Fase 3 - Treasury y Seguridad Avanzada.
 1. **[PROYECTO.md](./PROYECTO.md)** - Para entender qué es el proyecto
 2. **[ARQUITECTURA.md](./ARQUITECTURA.md)** - Para entender cómo funciona
 3. **[INSTALL.md](./INSTALL.md)** - Para configurar el entorno
-4. **[CLI.md](./CLI.md)** - Para usar la aplicación
-5. **[SMARTCONTRACT.md](./SMARTCONTRACT.md)** - Para desarrollar
+4. **[CLI.md](./CLI.md)** - Para usar la CLI
+5. **[TUI.md](./TUI.md)** - Para usar la interfaz gráfica de terminal
+6. **[ESCROW_CORE.md](./ESCROW_CORE.md)** - Para entender la librería compartida
+7. **[SMARTCONTRACT.md](./SMARTCONTRACT.md)** - Para desarrollar
 
 ---
 
@@ -105,9 +138,10 @@ Fase 3 - Treasury y Seguridad Avanzada.
 ## 📞 Contacto
 
 Para preguntas sobre el proyecto:
+
 - GitHub Issues
 - Discord de la comunidad
 
 ---
 
-*Última actualización: 2026-03-04*
+_Última actualización: 2026-03-04_

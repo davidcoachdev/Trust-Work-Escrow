@@ -15,11 +15,11 @@
 
 | Herramienta | Versión | Comando de verificación |
 |-------------|---------|--------------------------|
-| **Rust** | 1.65+ | `rustc --version` |
-| **Cargo** | 1.65+ | `cargo --version` |
-| **Solana CLI** | 1.16+ | `solana --version` |
-| **Anchor** | 0.30+ | `anchor --version` |
-| **Node.js** | 18+ | `node --version` |
+| **Rust** | 1.89+ | `rustc --version` |
+| **Cargo** | 1.89+ | `cargo --version` |
+| **Solana CLI** | 3.0+ | `solana --version` |
+| **Anchor** | 0.32+ | `anchor --version` |
+| **Node.js** | 20+ | `node --version` |
 | **Yarn** | 1.22+ | `yarn --version` |
 
 ## 🛠️ Instalación
