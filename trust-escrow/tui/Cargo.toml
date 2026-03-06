@@ -15,6 +15,13 @@ dirs = "6"
 anyhow = "1"
 ratatui = "0.28"
 crossterm = "0.28"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = [
+    "env-filter",
+    "fmt",
+    "ansi",
+] }
+tracing-appender = "0.2"
 
 [[bin]]
 name = "escrow-tui"

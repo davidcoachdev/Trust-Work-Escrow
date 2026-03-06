@@ -85,17 +85,34 @@ impl Theme {
         }
     }
 
+    pub fn dcdev() -> Self {
+        Self {
+            name: "dcdev".into(),
+            bg: Color::Rgb(18, 8, 8),
+            fg: Color::Rgb(240, 210, 210),
+            accent: Color::Rgb(255, 60, 60),
+            highlight: Color::Rgb(120, 20, 20),
+            error: Color::Rgb(255, 30, 30),
+            success: Color::Rgb(180, 255, 100),
+            warning: Color::Rgb(255, 160, 40),
+            border: Color::Rgb(160, 30, 30),
+            title: Color::Rgb(255, 80, 80),
+            muted: Color::Rgb(140, 70, 70),
+        }
+    }
+
     pub fn by_name(name: &str) -> Self {
         match name {
             "light" => Self::light(),
             "hacker" => Self::hacker(),
             "ocean" => Self::ocean(),
+            "dcdev" => Self::dcdev(),
             _ => Self::dark(),
         }
     }
 
     pub fn names() -> &'static [&'static str] {
-        &["dark", "light", "hacker", "ocean"]
+        &["dark", "light", "hacker", "ocean", "dcdev"]
     }
 }
 
@@ -116,20 +133,78 @@ pub struct Settings {
     pub rpc_url: String,
     pub wallets: Vec<WalletConfig>,
     pub active_wallet: usize,
+    #[serde(default = "Settings::default_mainnet_password")]
+    pub mainnet_password: String,
 }
 
 impl Default for Settings {
     fn default() -> Self {
+        Self::default_for_network("http://127.0.0.1:8899")
+    }
+}
+
+impl Settings {
+    fn default_mainnet_password() -> String {
+        "mainnet".into()
+    }
+
+    /// Genera la configuración inicial según la red.
+    /// - localhost → ~/.config/solana/{role}.json
+    /// - devnet    → ~/.config/solana/devnet-{role}.json
+    /// - mainnet   → ~/.config/solana/mainnet-{role}.json
+    pub fn default_for_network(rpc_url: &str) -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+        let sol = format!("{home}/.config/solana");
+
+        let (prefix, suffix) = if rpc_url.contains("devnet") {
+            ("devnet-", "")
+        } else if rpc_url.contains("mainnet") {
+            ("mainnet-", "")
+        } else {
+            // localhost: admin usa id.json, resto usa {role}.json
+            ("", "")
+        };
+
+        let wallet_path = |role: &str| -> String {
+            if prefix.is_empty() && role == "admin" {
+                format!("{sol}/id.json")
+            } else {
+                format!("{sol}/{prefix}{role}{suffix}.json")
+            }
+        };
+
         Self {
             theme: "dark".into(),
-            rpc_url: "http://127.0.0.1:8899".into(),
-            wallets: vec![WalletConfig {
-                name: "Default".into(),
-                path: format!("{home}/.config/solana/id.json"),
-                role: "admin".into(),
-            }],
+            rpc_url: rpc_url.into(),
+            wallets: vec![
+                WalletConfig {
+                    name: "Admin".into(),
+                    path: wallet_path("admin"),
+                    role: "admin".into(),
+                },
+                WalletConfig {
+                    name: "Client".into(),
+                    path: wallet_path("client"),
+                    role: "client".into(),
+                },
+                WalletConfig {
+                    name: "Freelancer".into(),
+                    path: wallet_path("freelancer"),
+                    role: "freelancer".into(),
+                },
+                WalletConfig {
+                    name: "Arbiter".into(),
+                    path: wallet_path("arbiter"),
+                    role: "arbiter".into(),
+                },
+                WalletConfig {
+                    name: "Treasury".into(),
+                    path: wallet_path("treasury"),
+                    role: "treasury".into(),
+                },
+            ],
             active_wallet: 0,
+            mainnet_password: "mainnet".into(),
         }
     }
 }
@@ -161,8 +236,7 @@ impl Settings {
 
     pub fn save(&self) -> Result<()> {
         let dir = Self::config_dir();
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| anyhow!("Cannot create config dir: {e}"))?;
+        std::fs::create_dir_all(&dir).map_err(|e| anyhow!("Cannot create config dir: {e}"))?;
         let content =
             toml::to_string_pretty(self).map_err(|e| anyhow!("Cannot serialize config: {e}"))?;
         std::fs::write(Self::config_path(), content)

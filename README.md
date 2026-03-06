@@ -28,27 +28,27 @@ En el trabajo remoto, tanto freelancers como clientes enfrentan riesgos:
 3. El **cliente aprueba** → el pago se libera automáticamente
 4. Si hay **desacuerdo** → un **árbitro** resuelve la disputa con distribución porcentual
 
-| Escrow Tradicional | Trust Work Escrow |
-|---|---|
-| Centralizado (banco/tercero) | Descentralizado (código = confianza) |
-| Comisiones altas (3-10%) | Comisión fija del 5% |
-| Lento (días/semanas) | Instantáneo en Solana |
-| Requiere KYC | Solo wallet |
-| Decisión unilateral | Arbitraje con porcentaje configurable |
+| Escrow Tradicional           | Trust Work Escrow                     |
+| ---------------------------- | ------------------------------------- |
+| Centralizado (banco/tercero) | Descentralizado (código = confianza)  |
+| Comisiones altas (3-10%)     | Comisión fija del 5%                  |
+| Lento (días/semanas)         | Instantáneo en Solana                 |
+| Requiere KYC                 | Solo wallet                           |
+| Decisión unilateral          | Arbitraje con porcentaje configurable |
 
 ---
 
 ## 🛠️ Tecnologías
 
-| Tecnología | Versión | Uso |
-|---|---|---|
-| **Rust** | 1.89 | Lenguaje base |
-| **Anchor** | 0.32.1 | Smart contract framework |
-| **Solana CLI** | 3.0.15 | Interacción con la blockchain |
-| **Ratatui** | 0.28 | TUI (interfaz gráfica de terminal) |
-| **Clap** | 4.5 | CLI (interfaz de línea de comandos) |
-| **Node.js** | 20 LTS | Tests de integración (TypeScript) |
-| **Borsh** | 1 | Serialización de datos on-chain |
+| Tecnología     | Versión | Uso                                 |
+| -------------- | ------- | ----------------------------------- |
+| **Rust**       | 1.89    | Lenguaje base                       |
+| **Anchor**     | 0.32.1  | Smart contract framework            |
+| **Solana CLI** | 3.0.15  | Interacción con la blockchain       |
+| **Ratatui**    | 0.28    | TUI (interfaz gráfica de terminal)  |
+| **Clap**       | 4.5     | CLI (interfaz de línea de comandos) |
+| **Node.js**    | 20 LTS  | Tests de integración (TypeScript)   |
+| **Borsh**      | 1       | Serialización de datos on-chain     |
 
 ---
 
@@ -129,21 +129,21 @@ cargo run --manifest-path cli/Cargo.toml -- [COMANDO] [OPCIONES]
 
 ### Comandos disponibles (13)
 
-| Comando | Rol | Descripción |
-|---------|-----|-------------|
-| `init --treasury <ADDR>` | Admin | Inicializar configuración |
-| `create <TITLE> --amount <SOL> --arbiter <ADDR> --job-id <ID>` | Client | Crear trabajo |
-| `deposit <JOB_ID>` | Client | Depositar fondos |
-| `accept <JOB_ID> --client <ADDR>` | Freelancer | Aceptar trabajo |
-| `submit <JOB_ID> --client <ADDR>` | Freelancer | Entregar trabajo |
-| `approve <JOB_ID> --freelancer <ADDR>` | Client | Aprobar y pagar |
-| `reject <JOB_ID> <REASON>` | Client | Rechazar → disputa |
-| `raise-dispute <JOB_ID> --client <ADDR> --reason <TEXT>` | Freelancer | Levantar disputa |
-| `resolve-dispute <JOB_ID> --client <ADDR> --freelancer <ADDR> --freelancer-percent <0-100>` | Arbiter | Resolver disputa |
-| `cancel <JOB_ID>` | Client | Cancelar trabajo |
-| `show <JOB_ID> --client <ADDR>` | Todos | Ver detalles |
-| `pause` | Admin | Pausar programa |
-| `unpause` | Admin | Reanudar programa |
+| Comando                                                                                     | Rol        | Descripción               |
+| ------------------------------------------------------------------------------------------- | ---------- | ------------------------- |
+| `init --treasury <ADDR>`                                                                    | Admin      | Inicializar configuración |
+| `create <TITLE> --amount <SOL> --arbiter <ADDR> --job-id <ID>`                              | Client     | Crear trabajo             |
+| `deposit <JOB_ID>`                                                                          | Client     | Depositar fondos          |
+| `accept <JOB_ID> --client <ADDR>`                                                           | Freelancer | Aceptar trabajo           |
+| `submit <JOB_ID> --client <ADDR>`                                                           | Freelancer | Entregar trabajo          |
+| `approve <JOB_ID> --freelancer <ADDR>`                                                      | Client     | Aprobar y pagar           |
+| `reject <JOB_ID> <REASON>`                                                                  | Client     | Rechazar → disputa        |
+| `raise-dispute <JOB_ID> --client <ADDR> --reason <TEXT>`                                    | Freelancer | Levantar disputa          |
+| `resolve-dispute <JOB_ID> --client <ADDR> --freelancer <ADDR> --freelancer-percent <0-100>` | Arbiter    | Resolver disputa          |
+| `cancel <JOB_ID>`                                                                           | Client     | Cancelar trabajo          |
+| `show <JOB_ID> --client <ADDR>`                                                             | Todos      | Ver detalles              |
+| `pause`                                                                                     | Admin      | Pausar programa           |
+| `unpause`                                                                                   | Admin      | Reanudar programa         |
 
 ### Ejemplo de flujo completo
 
@@ -189,20 +189,20 @@ cargo run --manifest-path tui/Cargo.toml
 
 ### 12 Instrucciones
 
-| Instrucción | Descripción |
-|---|---|
-| `initialize_config` | Configurar treasury y fee (5%) |
-| `create_job` | Crear trabajo con PDA único |
-| `deposit_funds` | Depositar SOL en el vault PDA |
-| `accept_job` | Freelancer acepta el trabajo |
-| `submit_work` | Freelancer marca como entregado |
-| `approve_work` | Cliente aprueba → pago al freelancer - 5% fee |
-| `reject_work` | Cliente rechaza → abre disputa |
-| `raise_dispute` | Freelancer levanta disputa |
-| `resolve_dispute` | Árbitro resuelve con % configurable |
-| `cancel_job` | Cancelar y devolver fondos |
-| `pause_program` | Admin pausa todo el programa |
-| `unpause_program` | Admin reactiva el programa |
+| Instrucción         | Descripción                                   |
+| ------------------- | --------------------------------------------- |
+| `initialize_config` | Configurar treasury y fee (5%)                |
+| `create_job`        | Crear trabajo con PDA único                   |
+| `deposit_funds`     | Depositar SOL en el vault PDA                 |
+| `accept_job`        | Freelancer acepta el trabajo                  |
+| `submit_work`       | Freelancer marca como entregado               |
+| `approve_work`      | Cliente aprueba → pago al freelancer - 5% fee |
+| `reject_work`       | Cliente rechaza → abre disputa                |
+| `raise_dispute`     | Freelancer levanta disputa                    |
+| `resolve_dispute`   | Árbitro resuelve con % configurable           |
+| `cancel_job`        | Cancelar y devolver fondos                    |
+| `pause_program`     | Admin pausa todo el programa                  |
+| `unpause_program`   | Admin reactiva el programa                    |
 
 ### Estados del Trabajo
 
@@ -245,17 +245,25 @@ cd escrow-core && cargo test
 
 ## 📖 Documentación
 
-| Documento | Contenido |
-|---|---|
-| [docs/PROYECTO.md](./docs/PROYECTO.md) | Ideación, problemática, MVP |
-| [docs/ARQUITECTURA.md](./docs/ARQUITECTURA.md) | Diagramas, flujo de fondos, seguridad |
-| [docs/SMARTCONTRACT.md](./docs/SMARTCONTRACT.md) | Cuentas, instrucciones, errores, PDAs |
-| [docs/CLI.md](./docs/CLI.md) | 13 comandos con ejemplos |
-| [docs/TUI.md](./docs/TUI.md) | Navegación, roles, temas, config |
-| [docs/ESCROW_CORE.md](./docs/ESCROW_CORE.md) | API de la librería compartida |
-| [docs/LIBRERIA.md](./docs/LIBRERIA.md) | Explicación del smart contract |
-| [docs/INSTALL.md](./docs/INSTALL.md) | Guía de instalación |
-| [docs/FASE3_TREASURY.md](./docs/FASE3_TREASURY.md) | Roadmap fase 3 |
+| Documento                                          | Contenido                             |
+| -------------------------------------------------- | ------------------------------------- |
+| [docs/PROYECTO.md](./docs/PROYECTO.md)             | Ideación, problemática, MVP           |
+| [docs/ARQUITECTURA.md](./docs/ARQUITECTURA.md)     | Diagramas, flujo de fondos, seguridad |
+| [docs/SMARTCONTRACT.md](./docs/SMARTCONTRACT.md)   | Cuentas, instrucciones, errores, PDAs |
+| [docs/CLI.md](./docs/CLI.md)                       | 13 comandos con ejemplos              |
+| [docs/TUI.md](./docs/TUI.md)                       | Navegación, roles, temas, config      |
+| [docs/ESCROW_CORE.md](./docs/ESCROW_CORE.md)       | API de la librería compartida         |
+| [docs/LIBRERIA.md](./docs/LIBRERIA.md)             | Explicación del smart contract        |
+| [docs/INSTALL.md](./docs/INSTALL.md)               | Guía de instalación                   |
+| [docs/FASE3_TREASURY.md](./docs/FASE3_TREASURY.md) | Roadmap fase 3                        |
+
+### 🖥️ Guías de usuario
+
+| Guía                                           | Contenido                                                   |
+| ---------------------------------------------- | ----------------------------------------------------------- |
+| [docs/DEPLOY_LOCAL.md](./docs/DEPLOY_LOCAL.md) | Deploy e inicialización del programa en local (obligatorio) |
+| [docs/GUIA_CLI.md](./docs/GUIA_CLI.md)         | Instrucciones paso a paso para el cliente de terminal (CLI) |
+| [docs/GUIA_TUI.md](./docs/GUIA_TUI.md)         | Instrucciones paso a paso para la UI de terminal (TUI)      |
 
 ---
 

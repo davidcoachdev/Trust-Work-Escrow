@@ -11,17 +11,14 @@ pub fn render(f: &mut Frame, app: &App) {
     let bg = app.theme.bg;
     // Fill background
     let full = f.area();
-    f.render_widget(
-        Block::default().style(Style::default().bg(bg)),
-        full,
-    );
+    f.render_widget(Block::default().style(Style::default().bg(bg)), full);
 
     // Main layout: header + body + status bar
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3), // header
-            Constraint::Min(1),   // body
+            Constraint::Min(1),    // body
             Constraint::Length(3), // status bar
         ])
         .split(full);
@@ -30,12 +27,52 @@ pub fn render(f: &mut Frame, app: &App) {
     render_status_bar(f, app, chunks[2]);
 
     match &app.screen {
-        Screen::WalletSelect | Screen::SettingsWallets => render_list_screen(f, app, chunks[1], "Select Wallet", "↑↓ Navigate  Enter: Select  d: Delete  q: Quit"),
-        Screen::RoleSelect => render_list_screen(f, app, chunks[1], "Select Role", "↑↓ Navigate  Enter: Select  Esc: Back"),
-        Screen::MainMenu => render_list_screen(f, app, chunks[1], &format!("Main Menu — {}", app.role.label()), "↑↓ Navigate  Enter: Select  q: Quit"),
-        Screen::SettingsMenu => render_list_screen(f, app, chunks[1], "Settings", "↑↓ Navigate  Enter: Select  Esc: Back"),
-        Screen::SettingsTheme => render_list_screen(f, app, chunks[1], "Select Theme", "↑↓ Navigate  Enter: Apply  Esc: Back"),
+        Screen::WalletSelect | Screen::SettingsWallets => render_list_screen(
+            f,
+            app,
+            chunks[1],
+            "Select Wallet",
+            "↑↓ Navigate  Enter: Select  d: Delete  q: Quit",
+        ),
+        Screen::RoleSelect => render_list_screen(
+            f,
+            app,
+            chunks[1],
+            "Selecciona tu Rol",
+            "↑↓ Navegar  Enter: Entrar  Esc: Salir",
+        ),
+        Screen::MainMenu => render_list_screen(
+            f,
+            app,
+            chunks[1],
+            &format!("Main Menu — {}", app.role.label()),
+            "↑↓ Navigate  Enter: Select  q: Quit",
+        ),
+        Screen::SettingsMenu => render_list_screen(
+            f,
+            app,
+            chunks[1],
+            "Settings",
+            "↑↓ Navigate  Enter: Select  Esc: Back",
+        ),
+        Screen::SettingsTheme => render_list_screen(
+            f,
+            app,
+            chunks[1],
+            "Select Theme",
+            "↑↓ Navigate  Enter: Apply  Esc: Back",
+        ),
+        Screen::SettingsNetwork => render_list_screen(
+            f,
+            app,
+            chunks[1],
+            "Network (RPC)",
+            "↑↓ Navigate  Enter: Select  Esc: Back",
+        ),
         Screen::Result => render_result(f, app, chunks[1]),
+        Screen::JobList => render_job_list(f, app, chunks[1]),
+        Screen::BalancesScreen => render_balances(f, app, chunks[1]),
+        Screen::TxHistoryScreen => render_tx_history(f, app, chunks[1]),
         // All form screens
         _ => render_form(f, app, chunks[1]),
     }
@@ -76,22 +113,23 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let t = &app.theme;
     let wallet_name = app.active_wallet_name();
     let pubkey = if app.active_pubkey.len() > 16 {
-        format!("{}…{}", &app.active_pubkey[..8], &app.active_pubkey[app.active_pubkey.len()-8..])
+        format!(
+            "{}…{}",
+            &app.active_pubkey[..8],
+            &app.active_pubkey[app.active_pubkey.len() - 8..]
+        )
     } else {
         app.active_pubkey.clone()
     };
 
     let status = Line::from(vec![
         Span::styled(" 👛 ", Style::default().fg(t.accent)),
-        Span::styled(&wallet_name, Style::default().fg(t.fg).add_modifier(Modifier::BOLD)),
         Span::styled(
-            format!(" [{}]", t.name),
-            Style::default().fg(t.muted),
+            &wallet_name,
+            Style::default().fg(t.fg).add_modifier(Modifier::BOLD),
         ),
-        Span::styled(
-            format!(" ({pubkey})"),
-            Style::default().fg(t.muted),
-        ),
+        Span::styled(format!(" [{}]", t.name), Style::default().fg(t.muted)),
+        Span::styled(format!(" ({pubkey})"), Style::default().fg(t.muted)),
         Span::styled(" │ ", Style::default().fg(t.border)),
         Span::styled(
             format!("🔗 {}", app.settings.rpc_url),
@@ -181,8 +219,10 @@ fn render_form(f: &mut Frame, app: &App, area: Rect) {
         Screen::ShowForm => "Show Job",
         Screen::UpdateJobLookupForm => "Update Job — Buscar",
         Screen::UpdateJobEditForm => "Update Job — Editar",
-        Screen::SettingsNetwork => "Network Settings",
+        Screen::SettingsNetworkPassword => "⚠️  Mainnet — Contraseña requerida",
+        Screen::ChangeMainnetPassword => "🔑 Cambiar Contraseña de Mainnet",
         Screen::AddWalletForm => "Add Wallet",
+        Screen::WithdrawTreasuryForm => "💰 Withdraw Treasury Funds",
         _ => "Form",
     };
 
@@ -198,47 +238,87 @@ fn render_form(f: &mut Frame, app: &App, area: Rect) {
 
         // Label
         let label_style = if is_active {
-            Style::default()
-                .fg(t.accent)
-                .add_modifier(Modifier::BOLD)
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(t.muted)
         };
         lines.push(Line::from(Span::styled(
-            format!(
-                "  {} {}",
-                if is_active { "▸" } else { " " },
-                field.label
-            ),
+            format!("  {} {}", if is_active { "▸" } else { " " }, field.label),
             label_style,
         )));
 
-        // Input field
-        let display_value = if field.value.is_empty() {
-            field.placeholder.clone()
+        // Input field — readonly vs select vs texto libre
+        if field.readonly {
+            // Campo de solo lectura: muestra nombre/short con ícono 🔒
+            let short = if field.value.len() >= 10 {
+                format!(
+                    "{}...{}",
+                    &field.value[..6],
+                    &field.value[field.value.len() - 4..]
+                )
+            } else {
+                field.value.clone()
+            };
+            let display = if field.placeholder.is_empty() {
+                short
+            } else {
+                field.placeholder.clone()
+            };
+            lines.push(Line::from(vec![
+                Span::styled("    ", Style::default()),
+                Span::styled("│ 🔒 ", Style::default().fg(t.muted)),
+                Span::styled(display, Style::default().fg(t.muted)),
+            ]));
+        } else if !field.options.is_empty() {
+            // Campo select: ◀ valor ▶
+            let arrow_style = if is_active {
+                Style::default().fg(t.accent).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(t.muted)
+            };
+            let val_style = if is_active {
+                Style::default().fg(t.fg).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(t.fg)
+            };
+            let bar = if is_active { "┃" } else { "│" };
+            // Mostrar label amigable si existe, si no el valor directo
+            let display = field.current_label().to_string();
+            lines.push(Line::from(vec![
+                Span::styled("    ", Style::default()),
+                Span::styled(format!("{bar} "), Style::default().fg(t.muted)),
+                Span::styled("◀  ", arrow_style.clone()),
+                Span::styled(display, val_style),
+                Span::styled("  ▶", arrow_style),
+            ]));
         } else {
-            field.value.clone()
-        };
-        let value_style = if field.value.is_empty() {
-            Style::default().fg(t.muted)
-        } else if is_active {
-            Style::default().fg(t.fg).add_modifier(Modifier::UNDERLINED)
-        } else {
-            Style::default().fg(t.fg)
-        };
-
-        let cursor = if is_active { "█" } else { "" };
-        lines.push(Line::from(vec![
-            Span::styled("    ", Style::default()),
-            Span::styled(
-                if is_active {
-                    format!("┃ {display_value}{cursor}")
-                } else {
-                    format!("│ {display_value}")
-                },
-                value_style,
-            ),
-        ]));
+            let display_value = if field.value.is_empty() {
+                field.placeholder.clone()
+            } else if field.masked {
+                "*".repeat(field.value.len())
+            } else {
+                field.value.clone()
+            };
+            let value_style = if field.value.is_empty() {
+                Style::default().fg(t.muted)
+            } else if is_active {
+                Style::default().fg(t.fg).add_modifier(Modifier::UNDERLINED)
+            } else {
+                Style::default().fg(t.fg)
+            };
+            let cursor = if is_active { "█" } else { "" };
+            lines.push(Line::from(vec![
+                Span::styled("    ", Style::default()),
+                Span::styled(
+                    if is_active {
+                        format!("┃ {display_value}{cursor}")
+                    } else {
+                        format!("│ {display_value}")
+                    },
+                    value_style,
+                ),
+            ]));
+        }
         lines.push(Line::from(""));
     }
 
@@ -264,7 +344,114 @@ fn render_form(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(form, chunks[0]);
 
     let help = Paragraph::new(Line::from(Span::styled(
-        " Tab/↑↓: Navigate fields  Enter: Submit  Esc: Back",
+        " Tab/↑↓: Navigate fields  ←/→: Select option  Enter: Submit  Esc: Back",
+        Style::default().fg(t.muted),
+    )))
+    .style(Style::default().bg(t.bg));
+    f.render_widget(help, chunks[1]);
+}
+
+// ─── Job List Screen ─────────────────────────────────────────────────────────
+
+fn render_job_list(f: &mut Frame, app: &App, area: Rect) {
+    let t = &app.theme;
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(area);
+
+    let items: Vec<ListItem> = if app.job_list.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            "  No se encontraron jobs para esta wallet.",
+            Style::default().fg(t.muted),
+        )))]
+    } else {
+        app.job_list
+            .iter()
+            .enumerate()
+            .map(|(i, job)| {
+                let selected = i == app.list_index;
+                let status_color = match job.status.as_str() {
+                    "Created" => t.muted,
+                    "Funded" => t.warning,
+                    "InProgress" => t.accent,
+                    "Submitted" => t.warning,
+                    "Released" => t.success,
+                    "Disputed" => t.error,
+                    "Resolved" => t.success,
+                    _ => t.muted,
+                };
+                let prefix = if selected { "▶ " } else { "  " };
+                let amount_sol = job.amount as f64 / 1e9;
+                let title_trimmed = if job.title.len() > 28 {
+                    format!("{}…", &job.title[..27])
+                } else {
+                    format!("{:<28}", job.title)
+                };
+                let line = Line::from(vec![
+                    Span::styled(
+                        prefix,
+                        Style::default().fg(if selected { t.accent } else { t.muted }),
+                    ),
+                    Span::styled(
+                        title_trimmed,
+                        Style::default()
+                            .fg(if selected { t.fg } else { t.muted })
+                            .add_modifier(if selected {
+                                Modifier::BOLD
+                            } else {
+                                Modifier::empty()
+                            }),
+                    ),
+                    Span::styled(
+                        format!("  {:>8.4} SOL", amount_sol),
+                        Style::default().fg(t.accent),
+                    ),
+                    Span::styled(
+                        format!("  [{:<10}]", job.status),
+                        Style::default().fg(status_color),
+                    ),
+                ]);
+                ListItem::new(line)
+            })
+            .collect()
+    };
+
+    let n = app.job_list.len();
+    let title = match app.job_list_action.as_deref() {
+        Some("deposit") => format!(" 💰 Selecciona job para depositar ({n}) "),
+        Some("cancel") => format!(" 🚫 Selecciona job para cancelar ({n}) "),
+        Some("approve") => format!(" ✅ Selecciona job para aprobar ({n}) "),
+        Some("reject") => format!(" ❌ Selecciona job para rechazar ({n}) "),
+        Some("update") => format!(" ✏️  Selecciona job para actualizar ({n}) "),
+        Some("accept") => format!(" 🤝 Selecciona job para aceptar ({n}) "),
+        Some("submit") => format!(" 📦 Selecciona job para entregar ({n}) "),
+        Some("raise_dispute") => format!(" ⚠️  Selecciona job para disputar ({n}) "),
+        Some("resolve") => format!(" ⚖️  Selecciona job para resolver ({n}) "),
+        _ => format!(" 📋 Mis Jobs ({n}) "),
+    };
+    let enter_label = if app.job_list_action.is_some() {
+        "Enter: Seleccionar"
+    } else {
+        "Enter: Ver detalles"
+    };
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.border))
+                .title(Span::styled(
+                    title,
+                    Style::default().fg(t.title).add_modifier(Modifier::BOLD),
+                ))
+                .style(Style::default().bg(t.bg)),
+        )
+        .style(Style::default().bg(t.bg));
+    f.render_widget(list, chunks[0]);
+
+    let help = Paragraph::new(Line::from(Span::styled(
+        format!(" ↑↓/jk: Navegar  {enter_label}  r: Refrescar  Esc: Volver"),
         Style::default().fg(t.muted),
     )))
     .style(Style::default().bg(t.bg));
@@ -300,6 +487,176 @@ fn render_result(f: &mut Frame, app: &App, area: Rect) {
 
     let help = Paragraph::new(Line::from(Span::styled(
         " Enter/Esc: Back to menu",
+        Style::default().fg(t.muted),
+    )))
+    .style(Style::default().bg(t.bg));
+    f.render_widget(help, chunks[1]);
+}
+
+// ─── Balances Screen ─────────────────────────────────────────────────────────
+
+fn render_balances(f: &mut Frame, app: &App, area: Rect) {
+    let t = &app.theme;
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(area);
+
+    let content = if let Some((role, pubkey, lamports)) = app.wallet_balances.first() {
+        let sol = *lamports as f64 / 1e9;
+        let short = if pubkey.len() > 10 {
+            format!("{}...{}", &pubkey[..6], &pubkey[pubkey.len() - 4..])
+        } else {
+            pubkey.clone()
+        };
+        let balance_color = if sol >= 1.0 {
+            t.success
+        } else if sol > 0.0 {
+            t.warning
+        } else {
+            t.error
+        };
+        vec![
+            Line::from(vec![
+                Span::styled("  Rol:      ", Style::default().fg(t.muted)),
+                Span::styled(
+                    role.as_str(),
+                    Style::default().fg(t.fg).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("  Pubkey:   ", Style::default().fg(t.muted)),
+                Span::styled(short.clone(), Style::default().fg(t.fg)),
+            ]),
+            Line::from(vec![]),
+            Line::from(vec![
+                Span::styled("  Saldo:    ", Style::default().fg(t.muted)),
+                Span::styled(
+                    format!("{:.6} SOL", sol),
+                    Style::default()
+                        .fg(balance_color)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("  Lamports: ", Style::default().fg(t.muted)),
+                Span::styled(format!("{lamports}"), Style::default().fg(t.muted)),
+            ]),
+        ]
+    } else {
+        vec![Line::from(Span::styled(
+            "  Cargando...",
+            Style::default().fg(t.muted),
+        ))]
+    };
+
+    let is_mainnet = app.rpc_url().contains("mainnet");
+    let fund_hint = if is_mainnet {
+        ""
+    } else {
+        "  f: Fondear (+1 SOL)"
+    };
+    let help_text = format!(" r: Refrescar  h: Historial{}  Esc: Volver", fund_hint);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(t.border))
+        .title(Span::styled(
+            " 💰 Mi Wallet ",
+            Style::default().fg(t.title).add_modifier(Modifier::BOLD),
+        ))
+        .style(Style::default().bg(t.bg));
+
+    let paragraph = Paragraph::new(content)
+        .block(block)
+        .style(Style::default().fg(t.fg).bg(t.bg));
+    f.render_widget(paragraph, chunks[0]);
+
+    let help = Paragraph::new(Line::from(Span::styled(
+        help_text,
+        Style::default().fg(t.muted),
+    )))
+    .style(Style::default().bg(t.bg));
+    f.render_widget(help, chunks[1]);
+}
+
+// ─── Transaction History Screen ──────────────────────────────────────────
+
+fn render_tx_history(f: &mut Frame, app: &App, area: Rect) {
+    let t = &app.theme;
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(area);
+
+    let items: Vec<ListItem> = if app.tx_history.is_empty() {
+        vec![ListItem::new(Line::from(Span::styled(
+            "  No hay transacciones recientes.",
+            Style::default().fg(t.muted),
+        )))]
+    } else {
+        app.tx_history
+            .iter()
+            .map(|tx| {
+                let status = if tx.success { "✅" } else { "❌" };
+                let sig_short = if tx.signature.len() > 12 {
+                    format!(
+                        "{}…{}",
+                        &tx.signature[..8],
+                        &tx.signature[tx.signature.len() - 4..]
+                    )
+                } else {
+                    tx.signature.clone()
+                };
+                let time_str = tx
+                    .block_time
+                    .map(crate::app::fmt_date_tui)
+                    .unwrap_or_else(|| "—".into());
+                let (delta_str, delta_color) = if tx.delta_lamports > 0 {
+                    (
+                        format!("+{:.4} SOL", tx.delta_lamports as f64 / 1e9),
+                        t.success,
+                    )
+                } else if tx.delta_lamports < 0 {
+                    (
+                        format!("{:.4} SOL", tx.delta_lamports as f64 / 1e9),
+                        t.error,
+                    )
+                } else {
+                    ("       —  ".into(), t.muted)
+                };
+                let line = Line::from(vec![
+                    Span::styled(format!(" {} ", status), Style::default().fg(t.fg)),
+                    Span::styled(format!("{:<14} ", sig_short), Style::default().fg(t.muted)),
+                    Span::styled(
+                        format!("{:<12} ", delta_str),
+                        Style::default()
+                            .fg(delta_color)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(time_str, Style::default().fg(t.muted)),
+                ]);
+                ListItem::new(line)
+            })
+            .collect()
+    };
+
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(t.border))
+                .title(Span::styled(
+                    " 🗓  Últimas transacciones ",
+                    Style::default().fg(t.title).add_modifier(Modifier::BOLD),
+                ))
+                .style(Style::default().bg(t.bg)),
+        )
+        .style(Style::default().fg(t.fg).bg(t.bg));
+    f.render_widget(list, chunks[0]);
+
+    let help = Paragraph::new(Line::from(Span::styled(
+        " r: Refrescar  Esc: Volver",
         Style::default().fg(t.muted),
     )))
     .style(Style::default().bg(t.bg));

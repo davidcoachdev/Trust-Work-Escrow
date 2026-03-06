@@ -57,6 +57,8 @@ pub mod trust_escrow {
         job.created_at = clock.unix_timestamp;
         job.updated_at = clock.unix_timestamp;
         job.dispute_reason = String::new();
+        job.delivery_notes = String::new();
+        job.resolution_notes = String::new();
         job.bump = ctx.bumps.job;
 
         msg!("Job created: {} - Amount: {} lamports", job.key(), amount);
@@ -113,7 +115,7 @@ pub mod trust_escrow {
         Ok(())
     }
 
-    pub fn submit_work(ctx: Context<SubmitWork>, _job_id: u64) -> Result<()> {
+    pub fn submit_work(ctx: Context<SubmitWork>, _job_id: u64, notes: String) -> Result<()> {
         let job = &mut ctx.accounts.job;
 
         require!(
@@ -125,6 +127,7 @@ pub mod trust_escrow {
             ErrorCode::NotJobFreelancer
         );
 
+        job.delivery_notes = notes;
         job.status = JobStatus::Submitted;
         job.updated_at = Clock::get()?.unix_timestamp;
 
@@ -195,19 +198,26 @@ pub mod trust_escrow {
 
         require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
 
-        job.status = JobStatus::Disputed;
+        // Vuelve a InProgress para que el freelancer pueda corregir y reenviar,
+        // o abrir una disputa directamente si no está de acuerdo.
+        job.status = JobStatus::InProgress;
         job.dispute_reason = reason;
         job.updated_at = Clock::get()?.unix_timestamp;
 
-        msg!("Work rejected, dispute opened for job: {}", job.key());
+        msg!(
+            "Work rejected, returned to InProgress for revision: {}",
+            job.key()
+        );
         Ok(())
     }
 
     pub fn raise_dispute(ctx: Context<RaiseDispute>, _job_id: u64, reason: String) -> Result<()> {
         let job = &mut ctx.accounts.job;
 
+        // El freelancer puede disputar desde Submitted (antes de que el cliente actúe)
+        // o desde InProgress (después de que el cliente rechazó el trabajo).
         require!(
-            job.status == JobStatus::Submitted,
+            job.status == JobStatus::Submitted || job.status == JobStatus::InProgress,
             ErrorCode::InvalidJobStatus
         );
         require!(
@@ -229,6 +239,7 @@ pub mod trust_escrow {
         ctx: Context<ResolveDispute>,
         _job_id: u64,
         freelancer_percent: u8,
+        notes: String,
     ) -> Result<()> {
         let job = &mut ctx.accounts.job;
 
@@ -266,6 +277,7 @@ pub mod trust_escrow {
             .borrow_mut() += total_fee;
 
         // Remaining (client's net portion + rent) returned to client via close = client
+        job.resolution_notes = notes;
         job.status = JobStatus::Resolved;
         job.updated_at = Clock::get()?.unix_timestamp;
 
@@ -324,6 +336,30 @@ pub mod trust_escrow {
 
         config.paused = false;
         msg!("Program unpaused");
+        Ok(())
+    }
+
+    /// Permite al tesorero retirar lamports acumulados en la treasury.
+    /// Solo la wallet `treasury` registrada en el config puede firmar.
+    pub fn withdraw_treasury(ctx: Context<WithdrawTreasury>, amount: u64) -> Result<()> {
+        require!(amount > 0, ErrorCode::AmountTooSmall);
+        let balance = ctx.accounts.treasury.get_lamports();
+        require!(balance >= amount, ErrorCode::InsufficientFunds);
+
+        // CPI al system_program: treasury es una wallet del sistema (no PDA),
+        // por lo que la única forma válida de transferir es vía CPI.
+        system_program::transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.treasury.to_account_info(),
+                    to: ctx.accounts.destination.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+
+        msg!("Treasury withdrew {} lamports", amount);
         Ok(())
     }
 }
@@ -534,6 +570,23 @@ pub struct UnpauseProgram<'info> {
     pub config: Account<'info, Config>,
 }
 
+#[derive(Accounts)]
+pub struct WithdrawTreasury<'info> {
+    /// La wallet treasury: debe coincidir con config.treasury y ser el firmante.
+    #[account(
+        mut,
+        constraint = treasury.key() == config.treasury @ ErrorCode::NotAuthorized
+    )]
+    pub treasury: Signer<'info>,
+    /// Destino de los fondos (puede ser la misma treasury u otra wallet del tesorero).
+    /// CHECK: Cualquier cuenta destino es válida; el tesorero decide.
+    #[account(mut)]
+    pub destination: UncheckedAccount<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    pub system_program: Program<'info, System>,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
@@ -563,6 +616,10 @@ pub struct Job {
     pub updated_at: i64,
     #[max_len(200)]
     pub dispute_reason: String,
+    #[max_len(500)]
+    pub delivery_notes: String,
+    #[max_len(500)]
+    pub resolution_notes: String,
     pub bump: u8,
 }
 
@@ -608,4 +665,6 @@ pub enum ErrorCode {
     NotAuthorized,
     #[msg("Treasury inválido")]
     InvalidTreasury,
+    #[msg("Fondos insuficientes en la treasury")]
+    InsufficientFunds,
 }
