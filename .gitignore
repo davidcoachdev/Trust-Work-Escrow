@@ -52,3 +52,6 @@ scripts/setup-github.sh
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# bacup de seguridad
+.backup/
