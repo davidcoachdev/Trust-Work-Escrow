@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
-declare_id!("TesT3XPqD3WFFVTY4BTwZ3sJpY7C7hF3Z6K2oX3i7jB");
+declare_id!("28QTH6qfG2iKDVXNY8nUTKDjx8yrBrQpnvXCPyJsrwuA");
 
 // =============================================================================
 // CONSTANTS
