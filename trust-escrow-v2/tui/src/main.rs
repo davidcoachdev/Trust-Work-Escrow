@@ -9,7 +9,7 @@ use ratatui::{
     backend::CrosstermBackend,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Gauge},
     Frame, Terminal,
 };
 use trust_escrow_shared::EscrowConfig;
@@ -68,8 +68,10 @@ async fn run_app(
     // Initialize navigation manager for focus management
     let mut navigation_manager = ui::navigation::NavigationManager::new();
     
-    // Start in Dashboard view for better UX
-    app.state_mut().navigate_to(app::AppView::Dashboard);
+    // Start loading state
+    let mut loading = true;
+    let mut loading_message = "🚀 Inicializando Trust Work Escrow TUI...".to_string();
+    let mut loading_progress = 0;
     
     // Welcome message for Task 3.4 layout system
     app.set_status("🎯 Trust Work Escrow TUI v2 - Navegación: Tab=Focus, Flechas=Navegar, d=Dashboard, j=Jobs, h=Help, q=quit");
@@ -78,8 +80,35 @@ async fn run_app(
     loop {
         // Draw the current frame using enhanced UI system
         terminal.draw(|frame| {
-            draw(frame, &app);
+            if loading {
+                draw_loading_screen(frame, &loading_message, loading_progress);
+            } else {
+                draw(frame, &app);
+            }
         })?;
+        
+        // Simulate loading progress
+        if loading {
+            loading_progress += 1;
+            if loading_progress < 30 {
+                loading_message = match loading_progress % 10 {
+                    0 => "🚀 Inicializando Trust Work Escrow TUI...".to_string(),
+                    1 => "🌐 Conectando a la red Solana Devnet...".to_string(),
+                    2 => "💼 Cargando configuración del programa...".to_string(),
+                    3 => "👤 Verificando wallet y saldo...".to_string(),
+                    4 => "🔄 Sincronizando datos blockchain...".to_string(),
+                    5 => "📊 Preparando dashboard...".to_string(),
+                    6 => "✅ ¡Conexión establecida! Cargando interfaz...".to_string(),
+                    _ => "⏳ Casi listo...".to_string(),
+                };
+            } else {
+                loading = false;
+                app.state_mut().navigate_to(app::AppView::Dashboard);
+                app.set_status("🎯 Trust Work Escrow TUI v2 - ¡Conectado! Tab=Focus, Flechas=Navegar, d=Dashboard, j=Jobs, h=Help, q=quit");
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            continue;
+        }
         
         // Get next event from the event handler
         let event = event_handler.next_event().await?;
@@ -562,4 +591,58 @@ fn draw_welcome_screen(frame: &mut Frame, app: &App) {
         );
     
     frame.render_widget(paragraph, area);
+}
+
+/// Draw loading screen with progress
+fn draw_loading_screen(frame: &mut Frame, message: &str, progress: u16) {
+    use ratatui::widgets::Gauge;
+    use ratatui::layout::{Constraint, Direction, Layout};
+    
+    let area = frame.area();
+    
+    // Create vertical layout with title, gauge, and message
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(20),
+            Constraint::Percentage(10),
+            Constraint::Percentage(30),
+            Constraint::Percentage(40),
+        ])
+        .split(area);
+    
+    // Title
+    let title = Paragraph::new("🚀 Trust Work Escrow TUI v2")
+        .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+        .alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(title, chunks[0]);
+    
+    // Progress gauge (0-100%)
+    let percentage = (progress as f64 / 30.0 * 100.0) as u16;
+    let gauge = Gauge::default()
+        .block(Block::default().title("Progreso de Conexión").borders(Borders::ALL))
+        .gauge_style(Style::default().fg(Color::Green).bg(Color::Black))
+        .percent(percentage.min(100))
+        .label(format!("{}%", percentage.min(100)));
+    frame.render_widget(gauge, chunks[1]);
+    
+    // Message
+    let message_paragraph = Paragraph::new(message)
+        .style(Style::default().fg(Color::Yellow))
+        .alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(message_paragraph, chunks[2]);
+    
+    // Loading animation
+    let loading_text = match progress % 4 {
+        0 => "⣾ ",
+        1 => "⣽ ",
+        2 => "⣻ ",
+        3 => "⢿ ",
+        _ => "⣾ ",
+    };
+    
+    let loading_paragraph = Paragraph::new(format!("{}Cargando...{}", loading_text, loading_text))
+        .style(Style::default().fg(Color::Magenta))
+        .alignment(ratatui::layout::Alignment::Center);
+    frame.render_widget(loading_paragraph, chunks[3]);
 }
