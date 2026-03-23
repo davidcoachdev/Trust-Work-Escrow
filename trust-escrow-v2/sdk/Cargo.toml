@@ -1,18 +1,24 @@
 [package]
 name = "trust-escrow-sdk"
-version = "0.1.0"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.75"
-description = "Rust SDK for Trust Work Escrow v2 - Type-safe Solana escrow operations"
+description = "Rust SDK for Trust Work Escrow v2 - Type-safe Solana escrow operations with comprehensive testing and educational documentation"
 license = "MIT"
-repository = "https://github.com/trust-work/trust-escrow-v2"
-keywords = ["solana", "escrow", "blockchain", "anchor", "web3"]
-categories = ["cryptography::cryptocurrencies"]
+repository = "https://github.com/davidcoachdev/Trust-Work-Escrow"
+documentation = "https://docs.rs/trust-escrow-sdk"
+keywords = ["solana", "escrow", "blockchain", "freelance", "payments"]
+categories = ["api-bindings", "cryptography::cryptocurrencies"]
 readme = "README.md"
+authors = ["Trust Work Team <dev@trustwork.com>"]
+exclude = ["tests/", "benches/", "examples/", "docs/"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
 
 [lib]
 name = "trust_escrow_sdk"
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 # Anchor & Solana core - Match v2 contract versions
@@ -39,14 +45,53 @@ dashmap = "6.0"
 
 # Development dependencies
 [dev-dependencies]
+# Testing framework
 tokio-test = "0.4"
 pretty_assertions = "1.4"
+serial_test = "3.0"
+test-case = "3.3"
+mockall = "0.12"
+rstest = "0.21"
+
+# Test helpers for Solana
+solana-test-validator = "1.18"
+solana-program-test = "1.18"
+litesvm = "0.2"
+
+# Performance benchmarking  
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+tynm = "0.1"
+
+# Property testing
+proptest = "1.4"
+proptest-derive = "0.5"
+
+# Documentation testing
+doc-comment = "0.3"
+
+# Mock data generation
+fake = { version = "2.9", features = ["derive"] }
+rand = "0.8"
+
+# Async utilities for testing
+futures = "0.3"
+tokio-stream = "0.1"
+
+# Better test output
+env_logger = "0.11"
 
 [features]
 default = ["tokio", "serde"]
 serde = ["dep:serde"]
 async = ["tokio"]
-dev = []
+
+[[bench]]
+name = "pda_derivation"
+harness = false
+
+[[bench]]
+name = "client_operations"  
+harness = false
 
 [build-dependencies]
 # For IDL client generation
