@@ -21,8 +21,8 @@ trust-escrow-sdk = { path = "../sdk" }
 ratatui = "0.30"
 crossterm = "0.28"
 
-# Async runtime
-tokio = { version = "1.0", features = ["full"] }
+# Async runtime with sync primitives for channels
+tokio = { version = "1.0", features = ["full", "sync", "rt-multi-thread"] }
 
 # Error handling
 anyhow = "1.0"
