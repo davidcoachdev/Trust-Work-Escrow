@@ -10,11 +10,15 @@
 //! operations. It wraps the lower-level Anchor client and provides convenient methods
 //! for managing users, jobs, teams, disputes, and milestones.
 
-use anchor_client::{Client, Program};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
-    commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature, signer::Signer,
+    commitment_config::CommitmentConfig,
+    instruction::{AccountMeta, Instruction},
+    pubkey::Pubkey,
+    signature::Signature,
+    signer::Signer,
     system_program,
+    transaction::Transaction,
 };
 use std::sync::Arc;
 
@@ -427,15 +431,61 @@ impl CofreClient {
 
         // Derive PDAs
         let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
-        let (_config_pda, _config_bump) = pda::derive_config_pda()?;
+        let (config_pda, _config_bump) = pda::derive_config_pda()?;
 
-        // TODO: Implement actual Anchor instruction call
-        // For now return placeholder values to demonstrate API
-        let placeholder_signature = Signature::default();
+        // Get recent blockhash
+        let recent_blockhash = TransactionUtils::get_recent_blockhash(&self.rpc).await?;
 
-        Err(EscrowError::sdk_error(
-            "create_escrow not yet implemented - needs Anchor client integration",
-        ))
+        // Build instruction data manually
+        // create_job discriminator from IDL: [178, 130, 217, 110, 100, 27, 82, 119]
+        let mut instruction_data = vec![178, 130, 217, 110, 100, 27, 82, 119];
+
+        // Add instruction arguments
+        instruction_data.extend_from_slice(&job_id.to_le_bytes());
+
+        // Add title (string - length + data)
+        let title_bytes = title.as_bytes();
+        instruction_data.extend_from_slice(&(title_bytes.len() as u32).to_le_bytes());
+        instruction_data.extend_from_slice(title_bytes);
+
+        // Add description (string - length + data)
+        let description_bytes = description.as_bytes();
+        instruction_data.extend_from_slice(&(description_bytes.len() as u32).to_le_bytes());
+        instruction_data.extend_from_slice(description_bytes);
+
+        // Add amount and deadline
+        instruction_data.extend_from_slice(&amount.to_le_bytes());
+        instruction_data.extend_from_slice(&deadline.to_le_bytes());
+
+        // Build instruction with accounts from IDL
+        let instruction = Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                AccountMeta::new(self.payer().pubkey(), true), // client
+                AccountMeta::new(job_pda, false),              // job
+                AccountMeta::new_readonly(config_pda, false),  // config
+                AccountMeta::new_readonly(system_program::ID, false), // system_program
+            ],
+            data: instruction_data,
+        };
+
+        // Build and sign transaction
+        let transaction = Transaction::new_signed_with_payer(
+            &[instruction],
+            Some(&self.payer().pubkey()),
+            &[&*self.payer()],
+            recent_blockhash,
+        );
+
+        // Send transaction
+        let signature = TransactionUtils::send_and_confirm_transaction(
+            &self.rpc,
+            &transaction,
+            DEFAULT_COMMITMENT,
+        )
+        .await?;
+
+        Ok((job_pda, signature))
     }
 
     /// 2. Fund escrow by depositing required funds
@@ -460,12 +510,39 @@ impl CofreClient {
         let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
         let (config_pda, _config_bump) = pda::derive_config_pda()?;
 
-        // Build and send transaction
-        // TODO: Implement manual transaction building without Anchor client
-        // For now return placeholder to make compilation work
-        Err(EscrowError::sdk_error(
-            "fund_escrow implementation pending - manual transaction building required",
-        ))
+        // Get recent blockhash
+        let recent_blockhash = TransactionUtils::get_recent_blockhash(&self.rpc).await?;
+
+        // Build instruction data manually
+        // deposit_funds discriminator from IDL: [202, 39, 52, 211, 53, 20, 250, 88]
+        let mut instruction_data = vec![202, 39, 52, 211, 53, 20, 250, 88];
+
+        // Add job_id argument
+        instruction_data.extend_from_slice(&job_id.to_le_bytes());
+
+        // Build instruction with accounts from IDL
+        let instruction = Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                AccountMeta::new(self.payer().pubkey(), true), // client
+                AccountMeta::new(job_pda, false),              // job
+                AccountMeta::new_readonly(config_pda, false),  // config
+                AccountMeta::new_readonly(system_program::ID, false), // system_program
+            ],
+            data: instruction_data,
+        };
+
+        // Build and sign transaction
+        let transaction = Transaction::new_signed_with_payer(
+            &[instruction],
+            Some(&self.payer().pubkey()),
+            &[&*self.payer()],
+            recent_blockhash,
+        );
+
+        // Send transaction
+        TransactionUtils::send_and_confirm_transaction(&self.rpc, &transaction, DEFAULT_COMMITMENT)
+            .await
     }
 
     /// 3. Release payment to freelancer (approve work)
@@ -492,11 +569,40 @@ impl CofreClient {
         let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
         let (config_pda, _config_bump) = pda::derive_config_pda()?;
 
-        // Build and send transaction
-        // TODO: Implement manual transaction building without Anchor client
-        Err(EscrowError::sdk_error(
-            "release_payment implementation pending - manual transaction building required",
-        ))
+        // Get recent blockhash
+        let recent_blockhash = TransactionUtils::get_recent_blockhash(&self.rpc).await?;
+
+        // Build instruction data manually
+        // approve_work discriminator from IDL: [181, 118, 45, 143, 204, 88, 237, 109]
+        let mut instruction_data = vec![181, 118, 45, 143, 204, 88, 237, 109];
+
+        // Add job_id argument
+        instruction_data.extend_from_slice(&job_id.to_le_bytes());
+
+        // Build instruction with accounts from IDL
+        let instruction = Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                AccountMeta::new_readonly(self.payer().pubkey(), true), // client
+                AccountMeta::new(job_pda, false),                       // job
+                AccountMeta::new(config_pda, false),                    // config
+                AccountMeta::new(freelancer, false),                    // freelancer
+                AccountMeta::new_readonly(system_program::ID, false),   // system_program
+            ],
+            data: instruction_data,
+        };
+
+        // Build and sign transaction
+        let transaction = Transaction::new_signed_with_payer(
+            &[instruction],
+            Some(&self.payer().pubkey()),
+            &[&*self.payer()],
+            recent_blockhash,
+        );
+
+        // Send transaction
+        TransactionUtils::send_and_confirm_transaction(&self.rpc, &transaction, DEFAULT_COMMITMENT)
+            .await
     }
 
     /// 4. Refund escrow back to client (cancel job)
@@ -521,11 +627,39 @@ impl CofreClient {
         let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
         let (config_pda, _config_bump) = pda::derive_config_pda()?;
 
-        // Build and send transaction
-        // TODO: Implement manual transaction building without Anchor client
-        Err(EscrowError::sdk_error(
-            "refund_escrow implementation pending - manual transaction building required",
-        ))
+        // Get recent blockhash
+        let recent_blockhash = TransactionUtils::get_recent_blockhash(&self.rpc).await?;
+
+        // Build instruction data manually
+        // cancel_job discriminator from IDL: [126, 241, 155, 241, 50, 236, 83, 118]
+        let mut instruction_data = vec![126, 241, 155, 241, 50, 236, 83, 118];
+
+        // Add job_id argument
+        instruction_data.extend_from_slice(&job_id.to_le_bytes());
+
+        // Build instruction with accounts from IDL
+        let instruction = Instruction {
+            program_id: PROGRAM_ID,
+            accounts: vec![
+                AccountMeta::new_readonly(self.payer().pubkey(), true), // client
+                AccountMeta::new(job_pda, false),                       // job
+                AccountMeta::new_readonly(config_pda, false),           // config
+                AccountMeta::new_readonly(system_program::ID, false),   // system_program
+            ],
+            data: instruction_data,
+        };
+
+        // Build and sign transaction
+        let transaction = Transaction::new_signed_with_payer(
+            &[instruction],
+            Some(&self.payer().pubkey()),
+            &[&*self.payer()],
+            recent_blockhash,
+        );
+
+        // Send transaction
+        TransactionUtils::send_and_confirm_transaction(&self.rpc, &transaction, DEFAULT_COMMITMENT)
+            .await
     }
 
     /// 5. Update escrow details (placeholder - not supported by v2 contract)
@@ -596,10 +730,32 @@ impl CofreClient {
         let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
 
         // Fetch account data using RPC client directly
-        // TODO: Implement manual account fetching and deserialization without Anchor client
-        Err(EscrowError::sdk_error(
-            "get_escrow implementation pending - manual account fetching required",
-        ))
+        let account = self.rpc.get_account(&job_pda).map_err(|e| {
+            EscrowError::network_error(format!("Failed to fetch job account: {}", e))
+        })?;
+
+        // Verify account is owned by our program
+        if account.owner != PROGRAM_ID {
+            return Err(EscrowError::invalid_account(
+                "Account is not owned by Trust Escrow program",
+            ));
+        }
+
+        // Deserialize account data manually
+        // Skip the 8-byte discriminator at the beginning
+        if account.data.len() < 8 {
+            return Err(EscrowError::invalid_account("Account data too short"));
+        }
+
+        let data_slice = &account.data[8..];
+
+        // Use borsh to deserialize the Job struct
+        use borsh::BorshDeserialize;
+        let job = Job::try_from_slice(data_slice).map_err(|e| {
+            EscrowError::deserialization_error(format!("Failed to deserialize Job: {}", e))
+        })?;
+
+        Ok(job)
     }
 
     /// 8. List multiple escrows for the current payer
@@ -622,12 +778,84 @@ impl CofreClient {
     /// # }
     /// ```
     pub async fn list_escrows(&self, limit: Option<usize>) -> Result<Vec<(Pubkey, Job)>> {
-        let _limit = limit.unwrap_or(10);
+        let limit = limit.unwrap_or(10);
 
-        // TODO: Implement using getProgramAccounts with proper filters and manual deserialization
-        Err(EscrowError::sdk_error(
-            "list_escrows implementation pending - requires manual account deserialization",
-        ))
+        use solana_client::rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig};
+
+        // Get all program accounts for jobs created by this client
+        let payer_pubkey = self.payer().pubkey();
+
+        // Create filter to get only job accounts for this client
+        // Job accounts have seeds: [b"job", client_pubkey, job_id]
+        let mut memcmp_data = vec![0u8; 8]; // Skip discriminator (8 bytes)
+        memcmp_data.extend_from_slice(&[0u8; 8]); // Skip job_id field position (8 bytes for u64)
+        memcmp_data.extend_from_slice(payer_pubkey.as_ref()); // Client pubkey (32 bytes)
+
+        let config = RpcProgramAccountsConfig {
+            filters: Some(vec![
+                // Filter by account size (approximate Job struct size)
+                solana_client::rpc_filter::RpcFilterType::DataSize(200), // Approximate size
+                // Filter by client pubkey at the correct offset in job data
+                solana_client::rpc_filter::RpcFilterType::Memcmp(
+                    solana_client::rpc_filter::Memcmp::new_base58_encoded(
+                        16, // Offset: skip discriminator (8) + job_id (8) = 16 bytes
+                        payer_pubkey.as_ref(),
+                    ),
+                ),
+            ]),
+            account_config: RpcAccountInfoConfig {
+                encoding: Some(solana_account_decoder::UiAccountEncoding::Base64),
+                data_slice: None,
+                commitment: Some(DEFAULT_COMMITMENT),
+                min_context_slot: None,
+            },
+            with_context: Some(false),
+        };
+
+        let accounts = self
+            .rpc
+            .get_program_accounts_with_config(&PROGRAM_ID, config)
+            .map_err(|e| {
+                EscrowError::network_error(format!("Failed to get program accounts: {}", e))
+            })?;
+
+        let mut jobs = Vec::new();
+
+        for (pubkey, account) in accounts {
+            // Verify account is owned by our program
+            if account.owner != PROGRAM_ID {
+                continue;
+            }
+
+            // Skip if account data is too short
+            if account.data.len() < 8 {
+                continue;
+            }
+
+            // Deserialize job data
+            let data_slice = &account.data[8..]; // Skip discriminator
+
+            use borsh::BorshDeserialize;
+            match Job::try_from_slice(data_slice) {
+                Ok(job) => {
+                    // Verify the job belongs to this client
+                    if job.client == payer_pubkey {
+                        jobs.push((pubkey, job));
+                    }
+                }
+                Err(_) => continue, // Skip accounts that can't be deserialized as Job
+            }
+
+            // Apply limit
+            if jobs.len() >= limit {
+                break;
+            }
+        }
+
+        // Sort by creation time (most recent first)
+        jobs.sort_by(|(_, a), (_, b)| b.created_at.cmp(&a.created_at));
+
+        Ok(jobs)
     }
 
     // ===== ACCOUNT FETCHING =====
