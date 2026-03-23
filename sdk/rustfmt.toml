@@ -1,0 +1,17 @@
+# rustfmt configuration for Trust Escrow SDK
+# Stable Rust edition settings
+
+# Basic formatting
+max_width = 100                    # Line width (slightly wider for blockchain code)
+hard_tabs = false                  # Use spaces
+tab_spaces = 4                     # 4 space indentation
+edition = "2021"                   # Rust 2021 edition formatting
+
+# Reordering and grouping  
+reorder_imports = true            # Sort imports
+reorder_modules = true            # Sort modules
+
+# Arrays and chains
+array_width = 60                  # Max array width before wrapping
+chain_width = 60                  # Max method chain width
+single_line_if_else_max_width = 50 # Max width for single line if-else

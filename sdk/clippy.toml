@@ -1,0 +1,17 @@
+# Clippy configuration for Trust Escrow SDK
+# Optimized for Solana development best practices
+
+# Solana-specific lints
+arithmetic-side-effects-allowed = ["u64", "usize", "i64", "f64"]
+disallowed-methods = [
+    "std::panic::panic_any",
+    "std::unimplemented",
+    "std::unreachable", 
+    "std::todo",
+]
+
+# Allow some pedantic lints that can be too strict
+avoid-breaking-exported-api = false
+cognitive-complexity-threshold = 30
+too-many-arguments-threshold = 8
+type-complexity-threshold = 250
