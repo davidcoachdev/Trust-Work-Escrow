@@ -131,4 +131,4 @@ Cada task debe:
 👷‍♂️ **Responsable**: @developer  
 📂 **Entregables**: Disputes, Milestones, Treasury  
 🔀 **Rama**: `feat/contract/disputes`  
-📅 **Estado**: Por iniciar
+📅 **Estado**: ✅ Completada

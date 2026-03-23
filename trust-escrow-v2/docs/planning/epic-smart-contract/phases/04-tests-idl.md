@@ -18,20 +18,20 @@ Garantar que el contrato funcione correctamente y esté documentado para uso del
 ## 🔧 Tasks asignadas a esta fase
 
 ### Tests de Integración
-- [ ] `test(contract): add config tests` - Tests de initialize_config, update_config, pause
-- [ ] `test(contract): add user tests` - Tests de create_user, add_wallet, update_user
-- [ ] `test(contract): add team tests` - Tests de create_team, add_member, remove_member
-- [ ] `test(contract): add job tests` - Tests de create_job, publish_job, accept_job
-- [ ] `test(contract): add work tests` - Tests de submit_work, approve_work, reject_work
-- [ ] `test(contract): add dispute tests` - Tests de raise_dispute, resolve_dispute
-- [ ] `test(contract): add treasury tests` - Tests de withdraw_treasury
+- [x] `test(contract): add config tests` - Tests de initialize_config, update_config, pause
+- [x] `test(contract): add user tests` - Tests de create_user, add_wallet, update_user
+- [x] `test(contract): add team tests` - Tests de create_team, add_member, remove_member
+- [x] `test(contract): add job tests` - Tests de create_job, publish_job, accept_job
+- [x] `test(contract): add work tests` - Tests de submit_work, approve_work, reject_work
+- [x] `test(contract): add dispute tests` - Tests de raise_dispute, resolve_dispute
+- [x] `test(contract): add treasury tests` - Tests de withdraw_treasury
 
 ### IDL y Documentación
-- [ ] `docs(contract): generate IDL` - Generar IDL del contrato
-- [ ] `docs(contract): add account structs documentation` - Documentar cuentas del contrato
-- [ ] `docs(contract): add instructions documentation` - Documentar cada instrucción
-- [ ] `docs(contract): add errors documentation` - Documentar errores custom
-- [ ] `docs(contract): add security checks documentation` - Documentar validaciones de seguridad
+- [x] `docs(contract): generate IDL` - Generar IDL del contrato
+- [x] `docs(contract): add account structs documentation` - Documentar cuentas del contrato
+- [x] `docs(contract): add instructions documentation` - Documentar cada instrucción
+- [x] `docs(contract): add errors documentation` - Documentar errores custom
+- [x] `docs(contract): add security checks documentation` - Documentar validaciones de seguridad
 
 ---
 
@@ -73,18 +73,18 @@ programs/trust-escrow-v2/
 
 | Task | Rama | Estado |
 |------|------|--------|
-| config tests | feat/contract/tests-idl/config | ⏳ |
-| user tests | feat/contract/tests-idl/user | ⏳ |
-| team tests | feat/contract/tests-idl/team | ⏳ |
-| job tests | feat/contract/tests-idl/job | ⏳ |
-| work tests | feat/contract/tests-idl/work | ⏳ |
-| dispute tests | feat/contract/tests-idl/dispute | ⏳ |
-| treasury tests | feat/contract/tests-idl/treasury | ⏳ |
-| generate IDL | feat/contract/tests-idl/idl | ⏳ |
-| accounts docs | feat/contract/tests-idl/docs | ⏳ |
-| instructions docs | feat/contract/tests-idl/docs | ⏳ |
-| errors docs | feat/contract/tests-idl/docs | ⏳ |
-| security docs | feat/contract/tests-idl/docs | ⏳ |
+| config tests | feat/contract/tests-idl/config | ✅ |
+| user tests | feat/contract/tests-idl/user | ✅ |
+| team tests | feat/contract/tests-idl/team | ✅ |
+| job tests | feat/contract/tests-idl/job | ✅ |
+| work tests | feat/contract/tests-idl/work | ✅ |
+| dispute tests | feat/contract/tests-idl/dispute | ✅ |
+| treasury tests | feat/contract/tests-idl/treasury | ✅ |
+| generate IDL | feat/contract/tests-idl/idl | ✅ |
+| accounts docs | feat/contract/tests-idl/docs | ✅ |
+| instructions docs | feat/contract/tests-idl/docs | ✅ |
+| errors docs | feat/contract/tests-idl/docs | ✅ |
+| security docs | feat/contract/tests-idl/docs | ✅ |
 
 ---
 
@@ -122,4 +122,4 @@ cat target/idl/trust_escrow_v2.json | jq '.instructions | length'
 👷‍♂️ **Responsable**: @developer  
 📂 **Entregables**: Tests, IDL, Docs  
 🔀 **Rama**: `feat/contract/tests-idl`  
-📅 **Estado**: Por iniciar
+📅 **Estado**: ✅ Completada

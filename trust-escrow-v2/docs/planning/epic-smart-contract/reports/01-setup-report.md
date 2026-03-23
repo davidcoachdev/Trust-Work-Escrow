@@ -17,16 +17,16 @@ Se implementaron las instrucciones base del smart contract para configuración g
 
 | Task | Commit | Estado |
 |------|--------|--------|
-| `feat(contract): add initialize_config instruction` | f1e269f | ✅ |
-| `feat(contract): add update_config instruction` | f1e269f | ✅ |
-| `feat(contract): add pause instruction` | f1e269f | ✅ |
-| `feat(contract): add unpause instruction` | f1e269f | ✅ |
-| `feat(contract): add create_user instruction` | f1e269f | ✅ |
-| `feat(contract): add update_user instruction` | f1e269f | ✅ |
-| `feat(contract): add add_wallet instruction` | f1e269f | ✅ |
-| `feat(contract): add set_active_wallet instruction` | f1e269f | ✅ |
-| `feat(contract): add remove_wallet instruction` | f1e269f | ✅ |
-| `docs(contract): add instructions documentation` | 0c8f239 | ✅ |
+| `feat(contract): add initialize_config instruction` | f1e269f | ✅ Completada |
+| `feat(contract): add update_config instruction` | f1e269f | ✅ Completada |
+| `feat(contract): add pause instruction` | f1e269f | ✅ Completada |
+| `feat(contract): add unpause instruction` | f1e269f | ✅ Completada |
+| `feat(contract): add create_user instruction` | f1e269f | ✅ Completada |
+| `feat(contract): add update_user instruction` | f1e269f | ✅ Completada |
+| `feat(contract): add add_wallet instruction` | f1e269f | ✅ Completada |
+| `feat(contract): add set_active_wallet instruction` | f1e269f | ✅ Completada |
+| `feat(contract): add remove_wallet instruction` | f1e269f | ✅ Completada |
+| `docs(contract): add instructions documentation` | 0c8f239 | ✅ Completada |
 
 ---
 

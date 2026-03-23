@@ -18,19 +18,19 @@ Permitir inicializar el programa, crear usuarios con perfiles y vincular hasta 5
 ## 🔧 Tasks asignadas a esta fase
 
 ### Config
-- [ ] `feat(contract): add initialize_config instruction` - Inicializar configuración global del programa
-- [ ] `feat(contract): add update_config instruction` - Actualizar parámetros de configuración
-- [ ] `feat(contract): add pause instruction` - Pausar el programa (admin)
-- [ ] `feat(contract): add unpause instruction` - Reanudar el programa (admin)
+- [x] `feat(contract): add initialize_config instruction` - Inicializar configuración global del programa
+- [x] `feat(contract): add update_config instruction` - Actualizar parámetros de configuración
+- [x] `feat(contract): add pause instruction` - Pausar el programa (admin)
+- [x] `feat(contract): add unpause instruction` - Reanudar el programa (admin)
 
 ### Users
-- [ ] `feat(contract): add create_user instruction` - Crear perfil de usuario
-- [ ] `feat(contract): add update_user instruction` - Actualizar perfil (username, bio, skills)
+- [x] `feat(contract): add create_user instruction` - Crear perfil de usuario
+- [x] `feat(contract): add update_user instruction` - Actualizar perfil (username, bio, skills)
 
 ### Wallets (Multi-wallet)
-- [ ] `feat(contract): add add_wallet instruction` - Agregar wallet secundaria (sign-message verification)
-- [ ] `feat(contract): add set_active_wallet instruction` - Cambiar wallet activa
-- [ ] `feat(contract): add remove_wallet instruction` - Eliminar wallet secundaria
+- [x] `feat(contract): add add_wallet instruction` - Agregar wallet secundaria (sign-message verification)
+- [x] `feat(contract): add set_active_wallet instruction` - Cambiar wallet activa
+- [x] `feat(contract): add remove_wallet instruction` - Eliminar wallet secundaria
 
 ---
 
@@ -70,15 +70,15 @@ programs/trust-escrow-v2/
 
 | Task | Rama | Estado |
 |------|------|--------|
-| initialize_config | feat/contract/setup/config | ⏳ |
-| update_config | feat/contract/setup/config | ⏳ |
-| pause | feat/contract/setup/config | ⏳ |
-| unpause | feat/contract/setup/config | ⏳ |
-| create_user | feat/contract/setup/user | ⏳ |
-| update_user | feat/contract/setup/user | ⏳ |
-| add_wallet | feat/contract/setup/wallet | ⏳ |
-| set_active_wallet | feat/contract/setup/wallet | ⏳ |
-| remove_wallet | feat/contract/setup/wallet | ⏳ |
+| initialize_config | feat/contract/setup/config | ✅ |
+| update_config | feat/contract/setup/config | ✅ |
+| pause | feat/contract/setup/config | ✅ |
+| unpause | feat/contract/setup/config | ✅ |
+| create_user | feat/contract/setup/user | ✅ |
+| update_user | feat/contract/setup/user | ✅ |
+| add_wallet | feat/contract/setup/wallet | ✅ |
+| set_active_wallet | feat/contract/setup/wallet | ✅ |
+| remove_wallet | feat/contract/setup/wallet | ✅ |
 
 ---
 
@@ -108,4 +108,4 @@ Cada task debe:
 👷‍♂️ **Responsable**: @developer  
 📂 **Entregables**: Config, Users, Wallets  
 🔀 **Rama**: `feat/contract/setup`  
-📅 **Estado**: Por iniciar
+📅 **Estado**: ✅ Completada
