@@ -50,8 +50,8 @@ pub use pda::*;
 pub use types::*;
 
 /// The Trust Escrow v2 Program ID on Solana
-/// This matches the deployed program ID
-pub const PROGRAM_ID: Pubkey = solana_sdk::pubkey!("28QTH6qfG2iKDVXNY8nUTKDjx8yrBrQpnvXCPyJsrwuA");
+/// This matches the deployed program ID from the IDL
+pub const PROGRAM_ID: Pubkey = solana_sdk::pubkey!("TesT3XPqD3WFFVTY4BTwZ3sJpY7C7hF3Z6K2oX3i7jB");
 
 /// Minimum job amount in lamports (0.0001 SOL)
 pub const MIN_JOB_AMOUNT: u64 = 100_000;

@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "programs/*",
-    "../sdk"
+    "sdk"
 ]
 resolver = "2"
 

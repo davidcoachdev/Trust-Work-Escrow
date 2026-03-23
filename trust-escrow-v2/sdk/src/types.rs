@@ -3,6 +3,7 @@
 //! This module provides enhanced types that extend the auto-generated Anchor client types
 //! with additional business logic validation and utility methods.
 
+use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
 
@@ -124,7 +125,9 @@ impl User {
 }
 
 /// Job states matching the smart contract JobStatus enum
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(
+    Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq,
+)]
 pub enum JobStatus {
     Created,
     ApplicationsOpen,
@@ -167,7 +170,7 @@ pub enum ApplicationStatus {
 }
 
 /// Job posting with enhanced validation
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct Job {
     /// Unique job ID for this client
     pub job_id: u64,

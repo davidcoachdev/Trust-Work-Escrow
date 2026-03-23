@@ -108,6 +108,16 @@ impl EscrowError {
     pub fn sdk_error(msg: impl Into<String>) -> Self {
         EscrowError::Sdk { msg: msg.into() }
     }
+
+    /// Create a new deserialization error
+    pub fn deserialization_error(msg: impl Into<String>) -> Self {
+        EscrowError::Serialization(msg.into())
+    }
+
+    /// Create a new invalid account error
+    pub fn invalid_account(msg: impl Into<String>) -> Self {
+        EscrowError::Account { msg: msg.into() }
+    }
 }
 
 /// Trust Escrow v2 contract error codes that map to EscrowError::Contract

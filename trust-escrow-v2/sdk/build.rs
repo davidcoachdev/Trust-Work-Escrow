@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 fn main() {
-    // Path to the v2 contract IDL
-    let idl_path = PathBuf::from("../trust-escrow-v2/target/idl/trust_escrow_v2.json");
+    // Path to the v2 contract IDL (now relative from trust-escrow-v2/sdk/)
+    let idl_path = PathBuf::from("../target/idl/trust_escrow_v2.json");
 
     // Tell cargo to rerun if the IDL changes
     println!("cargo:rerun-if-changed={}", idl_path.display());
