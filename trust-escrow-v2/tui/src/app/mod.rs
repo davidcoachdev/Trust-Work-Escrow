@@ -10,7 +10,10 @@ pub mod config;
 pub mod events;
 
 // Re-export key types for easier access
-pub use state::{AppState, UserContext, DataState, NetworkState, UIState, AppView, StatusType};
+pub use state::{
+    AppState, UserContext, DataState, NetworkState, UIState, AppView, StatusType,
+    UserRole, UIFocus, AuthStatus, NotificationType, NotificationPriority
+};
 pub use config::TuiConfig;
 pub use events::{
     AppEvent, EventHandler, BlockchainEvent, LifecycleEvent, NavigationEvent, UIEvent,

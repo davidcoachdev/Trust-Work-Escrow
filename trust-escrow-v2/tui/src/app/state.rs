@@ -22,7 +22,7 @@ use trust_escrow_sdk::types::{
 use super::config::TuiConfig;
 
 /// Different views/screens in the TUI (comprehensive state version)
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppView {
     Welcome,
     Dashboard,

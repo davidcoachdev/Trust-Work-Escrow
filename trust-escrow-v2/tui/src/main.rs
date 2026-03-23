@@ -16,8 +16,10 @@ use trust_escrow_shared::EscrowConfig;
 
 mod app;
 mod ui;
+mod ui_legacy;
 
 use app::{App, AppEvent, EventHandler};
+use ui_legacy::{initialize_ui, draw, toggle_layout_mode, is_enhanced_mode, get_terminal_size};
 
 /// Main entry point for TUI application with enhanced layout system
 #[tokio::main]
@@ -26,7 +28,7 @@ async fn main() -> Result<()> {
     let config = EscrowConfig::load().unwrap_or_default();
     
     // Initialize UI system (Task 3.4)
-    ui::initialize_ui();
+    initialize_ui();
     
     // Initialize terminal with modern Ratatui v0.30+ pattern
     let mut terminal = ratatui::init();
@@ -58,7 +60,7 @@ async fn run_app(
     let mut event_handler = EventHandler::new();
     
     // Initialize navigation manager for focus management
-    let mut navigation_manager = ui::navigation::NavigationManager::new(true, true);
+    let mut navigation_manager = ui::navigation::NavigationManager::new();
     
     // Welcome message for Task 3.4 layout system
     app.set_status("🎯 Trust Work Escrow TUI v2 - Layout System Ready! Tab=Focus, L=Toggle Layout, q=quit");
@@ -67,7 +69,7 @@ async fn run_app(
     loop {
         // Draw the current frame using enhanced UI system
         terminal.draw(|frame| {
-            ui::draw(frame, &app);
+            draw(frame, &app);
         })?;
         
         // Get next event from the event handler
@@ -76,7 +78,7 @@ async fn run_app(
         // Check for quit events first
         if event_handler.should_quit(&event) {
             app.set_status("👋 Shutting down gracefully...");
-            terminal.draw(|frame| ui::draw(frame, &app))?;
+            terminal.draw(|frame| draw(frame, &app))?;
             // Brief pause to show goodbye message
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
             break;
@@ -171,8 +173,11 @@ async fn handle_blockchain_event(
     use app::BlockchainEvent;
     
     match blockchain_event {
-        BlockchainEvent::TransactionUpdate { tx_id, status, message } => {
-            app.set_status(&format!("📊 Transaction {}: {} - {}", tx_id, format!("{:?}", status), message));
+        BlockchainEvent::TransactionUpdate { signature, status, confirmations } => {
+            app.set_status(&format!("📊 Transaction {}: {:?} ({} confirmations)", signature, status, confirmations));
+        }
+        BlockchainEvent::TransactionUpdateLegacy { tx_id, status, message } => {
+            app.set_status(&format!("📊 Transaction {}: {:?} - {}", tx_id, status, message));
         }
         BlockchainEvent::NewJob { job_id, title, client } => {
             app.set_status(&format!("💼 New job #{}: {} by {}", job_id, title, client));
@@ -183,26 +188,27 @@ async fn handle_blockchain_event(
         BlockchainEvent::WorkSubmitted { job_id, submitter } => {
             app.set_status(&format!("📋 Work submitted for job #{} by {}", job_id, submitter));
         }
-        BlockchainEvent::DisputeRaised { job_id, dispute_id, reason } => {
-            app.set_status(&format!("⚠️ Dispute #{} raised for job #{}: {}", dispute_id, job_id, reason));
+        BlockchainEvent::DisputeRaised { job_id, disputer, reason } => {
+            app.set_status(&format!("⚠️ Dispute raised for job #{} by {}: {}", job_id, disputer, reason));
         }
-        BlockchainEvent::MilestoneUpdate { job_id, milestone_index, status } => {
-            app.set_status(&format!("🎯 Milestone {} of job #{}: {}", milestone_index, job_id, status));
+        BlockchainEvent::MilestoneUpdate { milestone_id, job_id, status } => {
+            app.set_status(&format!("🎯 Milestone {} of job #{}: {}", milestone_id, job_id, status));
         }
-        BlockchainEvent::BalanceUpdate { new_balance, old_balance: _ } => {
+        BlockchainEvent::BalanceUpdate { wallet, new_balance } => {
             let sol_balance = *new_balance as f64 / 1_000_000_000.0;
-            app.set_status(&format!("💰 Balance updated: {:.6} SOL", sol_balance));
+            app.set_status(&format!("💰 Balance updated for {}: {:.6} SOL", wallet, sol_balance));
         }
-        BlockchainEvent::NetworkStatus { connected, rpc_url, block_height } => {
-            let status = if *connected {
-                format!("🌐 Connected to {} (block: {:?})", rpc_url, block_height)
-            } else {
-                format!("🔌 Disconnected from {}", rpc_url)
-            };
-            app.set_status(&status);
+        BlockchainEvent::NetworkStatus { status, message } => {
+            app.set_status(&format!("🌐 Network: {:?} - {}", status, message));
         }
         BlockchainEvent::AsyncError { operation, error } => {
             app.set_status(&format!("❌ Error in {}: {}", operation, error));
+        }
+        BlockchainEvent::DataUpdate { data_type, loading_status } => {
+            app.set_status(&format!("📦 Data update: {:?} - {:?}", data_type, loading_status));
+        }
+        BlockchainEvent::TaskUpdate { task_name, status } => {
+            app.set_status(&format!("⚙️ Task {}: {:?}", task_name, status));
         }
     }
     Ok(())
@@ -216,7 +222,7 @@ async fn handle_navigation_event(
     use app::{NavigationEvent, ViewTarget};
     
     match nav_event {
-        NavigationEvent::GoTo(target) => {
+        NavigationEvent::GoTo(target) | NavigationEvent::View(target) => {
             let message = match target {
                 ViewTarget::Welcome => "🏠 Navigated to Welcome",
                 ViewTarget::Dashboard => "📊 Navigated to Dashboard",
@@ -249,6 +255,12 @@ async fn handle_navigation_event(
         }
         NavigationEvent::Select => {
             app.set_status("✅ Selected current item");
+        }
+        NavigationEvent::Submit => {
+            app.set_status("📤 Submitted");
+        }
+        NavigationEvent::Command(cmd) => {
+            app.set_status(&format!("⌨️ Command: {}", cmd));
         }
         NavigationEvent::Cancel => {
             app.set_status("❌ Cancelled current operation");
@@ -299,6 +311,9 @@ async fn handle_ui_event(
         UIEvent::Search(query) => {
             app.set_status(&format!("🔍 Searching for: {}", query));
         }
+        UIEvent::Filter(criteria) => {
+            app.set_status(&format!("🔍 Filtering by: {}", criteria));
+        }
         UIEvent::Sort(criteria) => {
             app.set_status(&format!("📊 Sorting by: {:?}", criteria));
         }
@@ -313,6 +328,39 @@ async fn handle_ui_event(
         }
         UIEvent::ContextMenu => {
             app.set_status("📋 Context menu (not implemented yet)");
+        }
+        UIEvent::FocusNext => {
+            app.set_status("⏭️ Focus next");
+        }
+        UIEvent::FocusPrevious => {
+            app.set_status("⏮️ Focus previous");
+        }
+        UIEvent::SelectNext => {
+            app.set_status("⬇️ Select next");
+        }
+        UIEvent::SelectPrevious => {
+            app.set_status("⬆️ Select previous");
+        }
+        UIEvent::SelectFirst => {
+            app.set_status("⏫ Select first");
+        }
+        UIEvent::SelectLast => {
+            app.set_status("⏬ Select last");
+        }
+        UIEvent::Edit => {
+            app.set_status("✏️ Edit mode");
+        }
+        UIEvent::Delete => {
+            app.set_status("🗑️ Delete");
+        }
+        UIEvent::ShowForm(form_type) => {
+            app.set_status(&format!("📝 Show form: {}", form_type));
+        }
+        UIEvent::Confirm(action) => {
+            app.set_status(&format!("✅ Confirm: {}", action));
+        }
+        UIEvent::Custom(action) => {
+            app.set_status(&format!("🔧 Custom: {}", action));
         }
     }
     Ok(())
@@ -373,14 +421,14 @@ async fn handle_layout_shortcuts(
         }
         // Toggle layout mode (enhanced vs legacy)
         (KeyCode::Char('L'), KeyModifiers::NONE) => {
-            ui::toggle_layout_mode();
-            let mode = if ui::is_enhanced_mode() { "Enhanced" } else { "Legacy" };
+            toggle_layout_mode();
+            let mode = if is_enhanced_mode() { "Enhanced" } else { "Legacy" };
             app.set_status(&format!("🔄 Layout mode: {}", mode));
             Ok(true)
         }
         // Show terminal size info
         (KeyCode::Char('T'), KeyModifiers::NONE) => {
-            if let Some(size) = ui::get_terminal_size() {
+            if let Some(size) = get_terminal_size() {
                 app.set_status(&format!("📐 Terminal size: {:?}", size));
             } else {
                 app.set_status("📐 Terminal size: Unknown (Legacy mode)");

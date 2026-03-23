@@ -12,6 +12,7 @@
 
 pub mod app;
 pub mod ui;
+pub mod ui_legacy;
 
 // Re-export commonly used types
 pub use app::{

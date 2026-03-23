@@ -35,6 +35,8 @@
 //! ```
 
 pub mod layout;
+pub mod navigation;
+pub mod async_integration;
 
 // Re-export key layout types for easy access
 pub use layout::{
@@ -42,8 +44,19 @@ pub use layout::{
     RoleLayoutConfig, TerminalSize,
 };
 
-use crate::app::state::UserRole;
-use crate::app::App;
+// Re-export navigation types
+pub use navigation::{
+    NavigationManager, FocusManager, HelpSystem, FormManager, MenuManager, MenuItem,
+    KeyBinding, NavigationAction,
+};
+
+// Re-export async integration types
+pub use async_integration::{
+    AsyncManager, TaskScheduler, DataLoader, ConnectionMonitor, AsyncTask,
+    RefreshTask, ConnectionCheckTask, TransactionMonitorTask, AsyncStateExt,
+};
+
+use crate::app::{App, UserRole};
 use ratatui::Frame;
 
 /// Enhanced UI renderer with layout system integration
@@ -100,15 +113,15 @@ impl UIRenderer {
 
     /// Render legacy single-panel UI for compatibility
     fn render_legacy_ui(&self, frame: &mut Frame, app: &App) {
-        // Use the existing draw function from ui.rs
-        crate::ui::draw(frame, app);
+        // Use the existing draw function from ui_legacy.rs
+        super::ui_legacy::draw(frame, app);
     }
 
     /// Check if layout should be updated (terminal size change)
     fn should_update_layout(&self, current_area: ratatui::layout::Rect) -> bool {
         if let Some(ref layout) = self.dashboard_layout {
             // Check if terminal size changed significantly
-            let config_area = layout.config.area;
+            let config_area = layout.get_area();
             config_area.width != current_area.width || config_area.height != current_area.height
         } else {
             true
@@ -129,83 +142,13 @@ impl UIRenderer {
     pub fn get_terminal_size(&self) -> Option<TerminalSize> {
         self.dashboard_layout
             .as_ref()
-            .map(|layout| layout.config.size)
+            .map(|layout| layout.get_terminal_size())
     }
 }
 
 impl Default for UIRenderer {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// Enhanced keyboard navigation support
-pub mod navigation {
-    use crate::app::{AppState, UIFocus};
-
-    /// Navigation helper for focus management
-    pub struct NavigationManager {
-        /// Available focus targets in current layout
-        focus_cycle: Vec<UIFocus>,
-        /// Current position in focus cycle
-        current_index: usize,
-    }
-
-    impl NavigationManager {
-        /// Create navigation manager for current layout
-        pub fn new(has_left_panel: bool, has_right_panel: bool) -> Self {
-            let mut focus_cycle = vec![UIFocus::MainContent];
-
-            if has_left_panel {
-                focus_cycle.insert(0, UIFocus::JobList);
-            }
-
-            if has_right_panel {
-                focus_cycle.push(UIFocus::NotificationPanel);
-            }
-
-            Self {
-                focus_cycle,
-                current_index: if has_left_panel { 1 } else { 0 }, // Start with main content
-            }
-        }
-
-        /// Move focus to next panel (Tab)
-        pub fn next_focus(&mut self, app_state: &mut AppState) {
-            if !self.focus_cycle.is_empty() {
-                self.current_index = (self.current_index + 1) % self.focus_cycle.len();
-                app_state.ui_state.focus = self.focus_cycle[self.current_index];
-            }
-        }
-
-        /// Move focus to previous panel (Shift+Tab)
-        pub fn previous_focus(&mut self, app_state: &mut AppState) {
-            if !self.focus_cycle.is_empty() {
-                self.current_index = if self.current_index > 0 {
-                    self.current_index - 1
-                } else {
-                    self.focus_cycle.len() - 1
-                };
-                app_state.ui_state.focus = self.focus_cycle[self.current_index];
-            }
-        }
-
-        /// Set specific focus
-        pub fn set_focus(&mut self, target: UIFocus, app_state: &mut AppState) {
-            if let Some(index) = self.focus_cycle.iter().position(|&f| f == target) {
-                self.current_index = index;
-                app_state.ui_state.focus = target;
-            }
-        }
-
-        /// Get current focus
-        pub fn current_focus(&self) -> UIFocus {
-            if self.current_index < self.focus_cycle.len() {
-                self.focus_cycle[self.current_index]
-            } else {
-                UIFocus::MainContent
-            }
-        }
     }
 }
 
@@ -299,8 +242,9 @@ pub mod modal {
 
 // Utility functions for UI rendering
 pub mod utils {
+    use crate::app::UserRole;
     use ratatui::{
-        layout::{Constraint, Direction, Layout, Rect},
+        layout::{Constraint, Layout, Rect},
         style::{Color, Style},
     };
 
@@ -322,18 +266,18 @@ pub mod utils {
     }
 
     /// Get color for user role
-    pub fn role_color(role: crate::app::UserRole) -> Color {
+    pub fn role_color(role: UserRole) -> Color {
         match role {
-            crate::app::UserRole::Freelancer => Color::Green,
-            crate::app::UserRole::Client => Color::Blue,
-            crate::app::UserRole::TeamOwner => Color::Magenta,
-            crate::app::UserRole::Arbiter => Color::Yellow,
+            UserRole::Freelancer => Color::Green,
+            UserRole::Client => Color::Blue,
+            UserRole::TeamOwner => Color::Magenta,
+            UserRole::Arbiter => Color::Yellow,
             _ => Color::White,
         }
     }
 
     /// Create style with role-appropriate color
-    pub fn role_style(role: crate::app::UserRole) -> Style {
+    pub fn role_style(role: UserRole) -> Style {
         Style::default().fg(role_color(role))
     }
 

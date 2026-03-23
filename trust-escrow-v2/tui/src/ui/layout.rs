@@ -1231,6 +1231,21 @@ impl DashboardLayout {
 
         format!("{}{}", base_shortcuts, view_shortcuts)
     }
+
+    /// Get the layout configuration
+    pub fn get_config(&self) -> &LayoutConfig {
+        &self.config
+    }
+
+    /// Get the terminal area from config
+    pub fn get_area(&self) -> Rect {
+        self.config.area
+    }
+
+    /// Get the terminal size category
+    pub fn get_terminal_size(&self) -> TerminalSize {
+        self.config.size
+    }
 }
 
 // Extension traits for app state to provide layout-specific methods

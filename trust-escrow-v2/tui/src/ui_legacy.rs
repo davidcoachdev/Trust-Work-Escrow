@@ -6,13 +6,13 @@
 //! capabilities.
 //!
 //! ## Layout Modes
-//! 
+//!
 //! ### Enhanced Mode (Default)
 //! - Three-panel responsive dashboard
 //! - Role-specific layouts
 //! - Focus management
 //! - Modal support
-//! 
+//!
 //! ### Legacy Mode (Compatibility)
 //! - Original single-panel layout
 //! - Task 3.1 welcome screen
@@ -27,10 +27,7 @@ use ratatui::{
 };
 
 use crate::app::{state::AppView, App};
-
-// Import the new UI system
-pub mod ui;
-pub use ui::{UIRenderer, TerminalSize, navigation, modal, utils};
+use crate::ui::{modal, navigation, utils, TerminalSize, UIRenderer};
 
 // Global UI renderer instance (will be initialized in main.rs)
 thread_local! {
@@ -47,7 +44,7 @@ pub fn initialize_ui() {
 /// Main UI drawing function - enhanced with layout system
 pub fn draw_enhanced(f: &mut Frame, app: &App) {
     UI_RENDERER.with(|renderer| {
-        if let Some(ref mut ui_renderer) = *renderer.borrow_mut() {
+        if let Some(ref mut ui_renderer) = renderer.borrow_mut().as_mut() {
             ui_renderer.render(f, app);
         } else {
             // Fallback to legacy if renderer not initialized
@@ -59,7 +56,7 @@ pub fn draw_enhanced(f: &mut Frame, app: &App) {
 /// Toggle between enhanced and legacy layout modes
 pub fn toggle_layout_mode() {
     UI_RENDERER.with(|renderer| {
-        if let Some(ref mut ui_renderer) = *renderer.borrow_mut() {
+        if let Some(ref mut ui_renderer) = renderer.borrow_mut().as_mut() {
             ui_renderer.toggle_layout_mode();
         }
     });
@@ -68,7 +65,8 @@ pub fn toggle_layout_mode() {
 /// Check if using enhanced layout
 pub fn is_enhanced_mode() -> bool {
     UI_RENDERER.with(|renderer| {
-        renderer.borrow()
+        renderer
+            .borrow()
             .as_ref()
             .map(|ui| ui.is_enhanced_mode())
             .unwrap_or(false)
@@ -78,7 +76,8 @@ pub fn is_enhanced_mode() -> bool {
 /// Get current terminal size category
 pub fn get_terminal_size() -> Option<TerminalSize> {
     UI_RENDERER.with(|renderer| {
-        renderer.borrow()
+        renderer
+            .borrow()
             .as_ref()
             .and_then(|ui| ui.get_terminal_size())
     })

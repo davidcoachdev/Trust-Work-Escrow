@@ -84,6 +84,13 @@ pub enum MouseEventKind {
 pub enum BlockchainEvent {
     /// Transaction status update
     TransactionUpdate {
+        signature: String,
+        status: TransactionStatus,
+        confirmations: u32,
+    },
+    
+    /// Legacy transaction update format
+    TransactionUpdateLegacy {
         tx_id: String,
         status: TransactionStatus,
         message: String,
@@ -111,34 +118,45 @@ pub enum BlockchainEvent {
     /// Dispute raised notification
     DisputeRaised {
         job_id: u64,
-        dispute_id: u64,
+        disputer: String,
         reason: String,
     },
     
-    /// Milestone update
+    /// Milestone status update
     MilestoneUpdate {
+        milestone_id: u64,
         job_id: u64,
-        milestone_index: u32,
         status: String,
     },
     
-    /// Wallet balance update
+    /// Balance change notification
     BalanceUpdate {
+        wallet: String,
         new_balance: u64,
-        old_balance: u64,
     },
     
     /// Network status change
     NetworkStatus {
-        connected: bool,
-        rpc_url: String,
-        block_height: Option<u64>,
+        status: crate::app::state::ConnectionStatus,
+        message: String,
     },
     
-    /// Error from async operations
+    /// Generic async error
     AsyncError {
         operation: String,
         error: String,
+    },
+    
+    /// Data update notification (for async loading)
+    DataUpdate {
+        data_type: crate::app::state::DataType,
+        loading_status: crate::app::state::LoadingStatus,
+    },
+    
+    /// Background task status update
+    TaskUpdate {
+        task_name: String,
+        status: crate::app::state::TaskStatus,
     },
 }
 
@@ -179,6 +197,9 @@ pub enum NavigationEvent {
     /// Navigate to specific view
     GoTo(ViewTarget),
     
+    /// Navigate to specific view using the new pattern
+    View(ViewTarget),
+    
     /// Go back to previous view
     Back,
     
@@ -202,6 +223,12 @@ pub enum NavigationEvent {
     
     /// Enter/select current item
     Select,
+    
+    /// Submit form or confirm action
+    Submit,
+    
+    /// Execute command
+    Command(String),
     
     /// Cancel current operation
     Cancel,
@@ -253,6 +280,9 @@ pub enum UIEvent {
     /// Filter/search action
     Search(String),
     
+    /// Filter action with criteria
+    Filter(String),
+    
     /// Sort data
     Sort(SortCriteria),
     
@@ -267,6 +297,40 @@ pub enum UIEvent {
     
     /// Show context menu
     ContextMenu,
+    
+    // Navigation-specific events
+    /// Focus next component
+    FocusNext,
+    
+    /// Focus previous component
+    FocusPrevious,
+    
+    /// Select next item in list
+    SelectNext,
+    
+    /// Select previous item in list
+    SelectPrevious,
+    
+    /// Select first item in list
+    SelectFirst,
+    
+    /// Select last item in list
+    SelectLast,
+    
+    /// Edit selected item
+    Edit,
+    
+    /// Delete selected item
+    Delete,
+    
+    /// Show form with given form type
+    ShowForm(String),
+    
+    /// Confirm action with optional parameter
+    Confirm(String),
+    
+    /// Custom UI event
+    Custom(String),
 }
 
 /// Sort criteria for data display
@@ -522,9 +586,9 @@ impl EventHandler {
         message: String,
     ) -> AppEvent {
         AppEvent::BlockchainUpdate(BlockchainEvent::TransactionUpdate {
-            tx_id,
+            signature: tx_id,
             status,
-            message,
+            confirmations: 1, // Default to 1 confirmation
         })
     }
     
@@ -534,10 +598,15 @@ impl EventHandler {
         rpc_url: String,
         block_height: Option<u64>,
     ) -> AppEvent {
+        let status = if connected {
+            crate::app::state::ConnectionStatus::Connected
+        } else {
+            crate::app::state::ConnectionStatus::Disconnected
+        };
+        
         AppEvent::BlockchainUpdate(BlockchainEvent::NetworkStatus {
-            connected,
-            rpc_url,
-            block_height,
+            status,
+            message: format!("RPC: {}, Height: {:?}", rpc_url, block_height),
         })
     }
 }
