@@ -12,7 +12,7 @@ pub struct Pause<'info> {
 
 pub fn handler(ctx: Context<Pause>) -> Result<()> {
     let config = &mut ctx.accounts.config;
-    
+
     // Verify authority is admin
     require!(
         ctx.accounts.authority.key() == config.admin,

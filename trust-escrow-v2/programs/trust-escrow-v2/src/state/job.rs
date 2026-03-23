@@ -1,63 +1,83 @@
-//! Job account - Work/escrow state
-
 use anchor_lang::prelude::*;
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+pub enum JobStatus {
+    Created,
+    ApplicationsOpen,
+    InProgress,
+    Submitted,
+    Approved,
+    Disputed,
+    Cancelled,
+}
+
+impl anchor_lang::Space for JobStatus {
+    const INIT_SPACE: usize = 1;
+}
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
+pub enum ApplicationStatus {
+    Pending,
+    Accepted,
+    Rejected,
+    Withdrawn,
+}
+
+impl anchor_lang::Space for ApplicationStatus {
+    const INIT_SPACE: usize = 1;
+}
 
 #[account]
 #[derive(InitSpace)]
 pub struct Job {
-    /// Client (from User.active_wallet)
     pub client: Pubkey,
-    /// Freelancer (if accepted)
-    pub freelancer: Option<Pubkey>,
-    /// Assigned arbiter
-    pub arbiter: Option<Pubkey>,
-    /// Total amount (lamports)
-    pub amount: u64,
-    /// Fee percentage (from config)
-    pub fee_percent: u8,
-    /// Fee amount calculated
-    pub fee_amount: u64,
-    /// Job status
-    pub status: JobStatus,
-    /// Title (max 100 chars)
-    #[max_len(MAX_TITLE_LENGTH)]
+    #[max_len(64)]
     pub title: String,
-    /// Description (max 500 chars)
-    #[max_len(MAX_DESCRIPTION_LENGTH)]
+    #[max_len(1024)]
     pub description: String,
-    /// Deadline timestamp
+    pub amount: u64,
+    pub entry_fee: u64,
+    pub total_deposited: u64,
     pub deadline: i64,
-    /// Creation timestamp
-    pub created_at: i64,
-    /// Last update timestamp
-    pub updated_at: i64,
-    /// Dispute reason (max 200 chars)
-    #[max_len(MAX_DISPUTE_REASON_LENGTH)]
-    pub dispute_reason: String,
-    /// PDA bump
+    pub status: JobStatus,
+    pub freelancer: Option<Pubkey>,
+    pub team: Option<Pubkey>,
+    #[max_len(50)]
+    pub applications: Vec<Application>,
     pub bump: u8,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub submitted_at: Option<i64>,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
-pub enum JobStatus {
-    /// Created, waiting for deposit
-    Created,
-    /// Funds deposited, waiting for freelancer
-    Funded,
-    /// In progress
-    InProgress,
-    /// Work submitted
-    Submitted,
-    /// Completed - funds released
-    Released,
-    /// Disputed
-    Disputed,
-    /// Resolved by arbiter
-    Resolved,
-    /// Cancelled - funds refunded
-    Cancelled,
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
+pub struct Application {
+    pub applicant: Pubkey,
+    pub is_team: bool,
+    #[max_len(512)]
+    pub proposal: String,
+    pub applied_at: i64,
+    pub status: ApplicationStatus,
 }
 
-impl Job {
-    pub const SEED: &'static [u8] = b"job";
+impl Default for Job {
+    fn default() -> Self {
+        Self {
+            client: Pubkey::default(),
+            title: String::new(),
+            description: String::new(),
+            amount: 0,
+            entry_fee: 0,
+            total_deposited: 0,
+            deadline: 0,
+            status: JobStatus::Created,
+            freelancer: None,
+            team: None,
+            applications: Vec::new(),
+            bump: 0,
+            created_at: 0,
+            updated_at: 0,
+            submitted_at: None,
+        }
+    }
 }

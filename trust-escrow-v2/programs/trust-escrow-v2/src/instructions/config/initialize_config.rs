@@ -37,10 +37,7 @@ pub fn handler(
         multisig_threshold >= 1 && multisig_threshold <= multisig_owners.len() as u8,
         crate::ErrorCode::InvalidMultisigThreshold
     );
-    require!(
-        fee_percent <= 100,
-        crate::ErrorCode::InvalidFeePercentage
-    );
+    require!(fee_percent <= 100, crate::ErrorCode::InvalidFeePercentage);
 
     let config = &mut ctx.accounts.config;
     config.admin = multisig_owners[0];

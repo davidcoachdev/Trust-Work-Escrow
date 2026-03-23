@@ -1,37 +1,28 @@
-[profile.dev]
-incremental = true
-limit = 512
+[toolchain]
+package_manager = "yarn"
 
-[profile.release]
-overflow-checks = true
-lto = true
-opt-level = "s"
-panic = "abort"
-strip = true
+[features]
+resolution = true
+skip-lint = false
 
-[provider]
-cluster = "devnet"
-wallet = "~/.config/solana/id.json"
+[programs.localnet]
+trust-escrow-v2 = "TesT3XPqD3WFFVTY4BTwZ3sJpY7C7hF3Z6K2oX3i7jB"
+
+[programs.devnet]
+trust-escrow-v2 = "TesT3XPqD3WFFVTY4BTwZ3sJpY7C7hF3Z6K2oX3i7jB"
+
+[programs.mainnet-beta]
+trust-escrow-v2 = ""
 
 [registry]
 url = "https://api.apr.dev"
 
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
 [test]
 validator = { }
-startup_wait = 5000
-
-[test.validator]
-# Freeze the genesis hash to avoid canonical chain divergence
-# freeze_genesis = true
-
-[programs.localnet]
-trust-escrow-v2 = "TRUST2XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-
-[programs.devnet]
-trust-escrow-v2 = "TRUST2XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-
-[programs.mainnet-beta]
-trust-escrow-v2 = ""
 
 [workspace]
 members = ["programs/trust-escrow-v2"]

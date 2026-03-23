@@ -12,7 +12,7 @@ pub struct Unpause<'info> {
 
 pub fn handler(ctx: Context<Unpause>) -> Result<()> {
     let config = &mut ctx.accounts.config;
-    
+
     require!(
         ctx.accounts.authority.key() == config.admin,
         crate::ErrorCode::NotAdmin

@@ -5,22 +5,15 @@ use anchor_lang::prelude::*;
 #[account]
 #[derive(InitSpace)]
 pub struct User {
-    /// Primary wallet (set during creation)
     pub wallet_principal: Pubkey,
-    /// Associated wallets (max 10)
-    #[max_len(MAX_WALLETS)]
+    #[max_len(5)]
     pub wallets_asociadas: Vec<Pubkey>,
-    /// Currently active wallet for this session
     pub active_wallet: Pubkey,
-    /// Username (max 32 chars)
-    #[max_len(MAX_USERNAME_LENGTH)]
+    #[max_len(32)]
     pub username: String,
-    /// Bio (optional, max 500 chars)
-    #[max_len(MAX_BIO_LENGTH)]
+    #[max_len(500)]
     pub bio: Option<String>,
-    /// Account creation timestamp
     pub created_at: i64,
-    /// PDA bump
     pub bump: u8,
 }
 

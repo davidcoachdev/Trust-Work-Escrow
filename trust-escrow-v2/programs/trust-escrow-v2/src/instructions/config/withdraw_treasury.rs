@@ -35,7 +35,7 @@ pub fn handler(ctx: Context<WithdrawTreasury>, amount: u64) -> Result<()> {
     // Transfer funds
     let treasury = &mut ctx.accounts.treasury;
     let recipient = &mut ctx.accounts.recipient;
-    
+
     **treasury.lamports.borrow_mut() -= amount;
     **recipient.lamports.borrow_mut() += amount;
 
