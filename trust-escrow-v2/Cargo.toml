@@ -1,7 +1,10 @@
 [workspace]
 members = [
     "programs/*",
-    "sdk"
+    "sdk",
+    "cli",
+    "tui", 
+    "shared"
 ]
 resolver = "2"
 
