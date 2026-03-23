@@ -77,8 +77,8 @@ Cliente deposita → Freelancer entrega → Cliente aprueba → Pago instantáne
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    SMART CONTRACT                       │
-│              Anchor 0.32 + Rust + Solana               │
-│                   1,485 líneas de código               │
+│              Anchor 0.32 + Rust + Solana                │
+│                   1,485 líneas de código                │
 │                   31 instrucciones                      │
 │                   502KB programa compilado              │
 └─────────────────────────────────────────────────────────┘

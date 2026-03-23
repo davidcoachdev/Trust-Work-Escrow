@@ -33,7 +33,7 @@
 │  escrow-core  │          │  PostgreSQL   │        │    Solana     │
 │   (Rust)      │          │   MongoDB     │        │   + Anchor    │
 │               │          │    Redis      │        │               │
-└───────────────┘          └───────────────┘                             └───────────────┘
+└───────────────┘          └───────────────┘        └───────────────┘
 ```
 
 ---
@@ -177,7 +177,7 @@
 │  │  • Atomic transactions                                           │   │
 │  │  • Re-entrancy protection                                        │   │
 │  │  • Authority checks                                              │   │
-│  │  • Árbitro ≠ cliente Y árbitro ≠ freelancer                     │   │
+│  │  • Árbitro ≠ cliente Y árbitro ≠ freelancer                      │   │
 │  └──────────────────────────────────────────────────────────────────┘   │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
