@@ -2,9 +2,11 @@
 
 [![Crates.io](https://img.shields.io/crates/v/trust-escrow-sdk.svg)](https://crates.io/crates/trust-escrow-sdk)
 [![Documentation](https://docs.rs/trust-escrow-sdk/badge.svg)](https://docs.rs/trust-escrow-sdk)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Rust](https://img.shields.io/badge/rust-1.75+-blue.svg)](https://www.rust-lang.org)
+[![Solana](https://img.shields.io/badge/solana-1.18+-purple.svg)](https://solana.com)
 
-A comprehensive Rust SDK for interacting with the Trust Work Escrow v2 smart contract on Solana. This SDK provides type-safe, high-level operations for escrow functionality including user management, job lifecycle operations, dispute handling, milestone-based payments, and multi-wallet support.
+A comprehensive Rust SDK for building escrow-powered applications on Solana. Provides type-safe, high-level operations for freelance platforms, service marketplaces, and collaborative projects with comprehensive testing and educational documentation.
 
 ## Features
 
