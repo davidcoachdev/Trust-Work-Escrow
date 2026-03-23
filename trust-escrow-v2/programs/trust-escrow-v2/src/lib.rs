@@ -1287,6 +1287,7 @@ pub struct ApplyToJob<'info> {
     pub applicant: Signer<'info>,
     #[account(mut, seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
     pub job: Account<'info, Job>,
+    /// CHECK: Client account validated by job PDA
     pub client: UncheckedAccount<'info>,
     /// CHECK: Optional team account
     pub team: Option<UncheckedAccount<'info>>,
@@ -1307,6 +1308,7 @@ pub struct SubmitWork<'info> {
     pub freelancer: Signer<'info>,
     #[account(mut, seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
     pub job: Account<'info, Job>,
+    /// CHECK: Client account validated by job PDA
     pub client: UncheckedAccount<'info>,
 }
 
@@ -1375,6 +1377,7 @@ pub struct RaiseDispute<'info> {
     pub job: Account<'info, Job>,
     #[account(init, payer = raiser, space = Dispute::INIT_SPACE + 8, seeds = [b"dispute", job.key().as_ref()], bump)]
     pub dispute: Account<'info, Dispute>,
+    /// CHECK: Client account validated by job PDA
     pub client: UncheckedAccount<'info>,
     pub system_program: Program<'info, System>,
 }
@@ -1388,6 +1391,7 @@ pub struct SubmitEvidence<'info> {
     pub dispute: Account<'info, Dispute>,
     #[account(mut, seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
     pub job: Account<'info, Job>,
+    /// CHECK: Client account validated by job PDA
     pub client: UncheckedAccount<'info>,
 }
 
@@ -1401,6 +1405,7 @@ pub struct AssignArbiter<'info> {
     pub pool: Account<'info, ArbiterPool>,
     #[account(mut, seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
     pub job: Account<'info, Job>,
+    /// CHECK: Client account validated by job PDA
     pub client: UncheckedAccount<'info>,
 }
 
@@ -1412,6 +1417,7 @@ pub struct ResolveDispute<'info> {
     pub dispute: Account<'info, Dispute>,
     #[account(mut, seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
     pub job: Account<'info, Job>,
+    /// CHECK: Client account validated by job PDA
     pub client: UncheckedAccount<'info>,
 }
 
@@ -1451,6 +1457,7 @@ pub struct SubmitMilestone<'info> {
     pub milestone: Account<'info, Milestone>,
     #[account(mut, seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
     pub job: Account<'info, Job>,
+    /// CHECK: Client account validated by job PDA
     pub client: UncheckedAccount<'info>,
 }
 
