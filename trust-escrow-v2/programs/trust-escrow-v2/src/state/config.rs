@@ -1,31 +1,43 @@
-//! Config account - Global configuration
-
 use anchor_lang::prelude::*;
 
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
-    /// Admin (first owner of multisig)
+    /// Admin wallet that can pause/update config
     pub admin: Pubkey,
-    /// Treasury wallet for fees
-    pub treasury: Pubkey,
-    /// Multisig owners (max 5)
-    #[max_len(MAX_MULTISIG_OWNERS)]
-    pub multisig_owners: Vec<Pubkey>,
-    /// Required signatures for multisig (2 default)
-    pub multisig_threshold: u8,
-    /// Fee percentage (5 = 5%)
-    pub fee_percent: u8,
-    /// Program paused flag
+    /// Treasury wallet where fees are collected
+    pub treasury_wallet: Pubkey,
+    /// Treasurer wallet that can withdraw from treasury
+    pub treasurer: Pubkey,
+    /// Fee percentage charged to client on publish (in basis points, 500 = 5%)
+    pub entry_fee_bps: u16,
+    /// Fee percentage charged to freelancer on payout (in basis points)
+    pub exit_fee_bps: u16,
+    /// Dispute stake percentage (in basis points, 250 = 2.5%)
+    pub dispute_stake_bps: u16,
+    /// Maximum days for a job deadline
+    pub max_job_duration_days: u32,
+    /// Auto-approve days after submit (7 days)
+    pub auto_approve_days: u8,
+    /// Pause state
     pub paused: bool,
-    /// PDA bump
+    /// Bump for PDA
     pub bump: u8,
 }
 
-impl Config {
-    pub const SEED: &'static [u8] = b"config";
-
-    pub fn seeds(&self) -> [&[u8]; 2] {
-        [Self::SEED, &[self.bump]]
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            admin: Pubkey::default(),
+            treasury_wallet: Pubkey::default(),
+            treasurer: Pubkey::default(),
+            entry_fee_bps: 500,     // 5%
+            exit_fee_bps: 500,      // 5%
+            dispute_stake_bps: 250, // 2.5%
+            max_job_duration_days: 90,
+            auto_approve_days: 7,
+            paused: false,
+            bump: 0,
+        }
     }
 }

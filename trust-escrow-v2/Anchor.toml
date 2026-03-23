@@ -1,37 +1,19 @@
-[profile.dev]
-incremental = true
-limit = 512
+[toolchain]
+package_manager = "yarn"
 
-[profile.release]
-overflow-checks = true
-lto = true
-opt-level = "s"
-panic = "abort"
-strip = true
+[features]
+resolution = true
+skip-lint = false
 
-[provider]
-cluster = "devnet"
-wallet = "~/.config/solana/id.json"
+[programs.localnet]
+trust_escrow_v2 = "GQ6uWQkHMac6vzKNk32pwKsxb1YW8HitK9VCSxN39ivP"
 
 [registry]
 url = "https://api.apr.dev"
 
-[test]
-validator = { }
-startup_wait = 5000
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
 
-[test.validator]
-# Freeze the genesis hash to avoid canonical chain divergence
-# freeze_genesis = true
-
-[programs.localnet]
-trust-escrow-v2 = "TRUST2XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-
-[programs.devnet]
-trust-escrow-v2 = "TRUST2XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-
-[programs.mainnet-beta]
-trust-escrow-v2 = ""
-
-[workspace]
-members = ["programs/trust-escrow-v2"]
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\""
