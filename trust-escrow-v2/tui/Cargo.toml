@@ -1,0 +1,36 @@
+[package]
+name = "trust-escrow-tui"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Terminal user interface for Trust Work Escrow v2"
+authors = ["Trust Work Team <dev@trustwork.com>"]
+
+[[bin]]
+name = "trust-escrow-tui"
+path = "src/main.rs"
+
+[dependencies]
+# Shared utilities
+trust-escrow-shared = { path = "../shared" }
+
+# Epic #2 SDK
+trust-escrow-sdk = { path = "../sdk" }
+
+# TUI framework
+ratatui = "0.30"
+crossterm = "0.28"
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1.0", features = ["derive"] }
+
+# Solana SDK
+solana-sdk = "1.18"
