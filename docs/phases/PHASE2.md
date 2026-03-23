@@ -1,12 +1,12 @@
-# Phase 2: Core Implementation - Trust Work Escrow v2
+# Phase 2: Jobs, Teams & Applications - Trust Work Escrow v2
 
 ## Descripción
 
-Implementación de las 17 instrucciones del smart contract.
+Implementación de Jobs, Teams y sistema de aplicaciones.
 
 ## Fecha
 
-2026-03-21
+2026-03-23
 
 ## Estado
 
@@ -14,59 +14,141 @@ Implementación de las 17 instrucciones del smart contract.
 
 ---
 
+## Archivos Modificados
+
+```
+trust-escrow-v2/programs/trust-escrow-v2/src/
+├── lib.rs                    # Consolidado - TODO el contrato
+└── src/                      # Módulos eliminados (monolítico)
+    ├── instructions/          # ❌ Eliminado - merge a lib.rs
+    └── state/                # ❌ Eliminado - merge a lib.rs
+```
+
+---
+
 ## Instrucciones Implementadas
-
-### Config Instructions (4)
-
-| Instrución | Descripción |
-|------------|-------------|
-| `initialize_config` | Inicializa la configuración global con admin, treasury, multisig owners y fee_percent |
-| `pause` | Pausa el programa (solo admin) |
-| `unpause` | Reanuda el programa (solo admin) |
-| `withdraw_treasury` | Retira fondos del treasury (solo admin) |
 
 ### User Instructions (4)
 
-| Instrución | Descripción |
+| Instrucción | Descripción |
 |------------|-------------|
-| `create_user` | Crea una cuenta de usuario como PDA derivada de la wallet |
-| `add_wallet` | Agrega una wallet secundaria a la cuenta del usuario |
-| `set_active_wallet` | Cambia la wallet activa para la sesión |
-| `update_user` | Actualiza el perfil del usuario (bio) |
+| `create_user` | Crea cuenta de usuario (username, multi-wallet) |
+| `add_wallet` | Agrega wallet secundaria (max 5) |
+| `set_active_wallet` | Cambia wallet activa |
+| `update_user` | Actualiza bio del perfil |
 
-### Job Instructions (7)
+### Team Instructions (2)
 
-| Instrución | Descripción |
+| Instrucción | Descripción |
 |------------|-------------|
-| `create_job` | Crea un nuevo trabajo/escrow |
-| `deposit_funds` | Deposita fondos en el escrow |
-| `accept_job` | El freelancer acepta el trabajo |
-| `submit_work` | El freelancer envía el trabajo completado |
-| `approve_work` | El cliente aprueba y libera fondos al freelancer |
-| `reject_work` | El cliente rechaza y abre disputa |
-| `cancel_job` | El cliente cancela antes de aceptación |
+| `create_team` | Crea equipo de freelancers |
+| `add_team_member` | Agrega miembro al equipo |
 
-### Arbiter Instructions (3)
+### Job Instructions (8)
 
-| Instrución | Descripción |
+| Instrucción | Descripción |
 |------------|-------------|
-| `register_arbiters` | Admin registra árbitros en el pool |
-| `raise_dispute` | Freelancer eleva una disputa |
-| `resolve_dispute` | Arbiter resuelve la disputa (distribución 70-30) |
+| `create_job` | Crea job con título, descripción, monto y deadline |
+| `deposit_funds` | Cliente deposita fondos + fee en escrow |
+| `apply_to_job` | Freelancer/Team aplica con propuesta |
+| `accept_application` | Cliente acepta aplicación y asigna freelancer |
+| `submit_work` | Freelancer entrega trabajo completado |
+| `approve_work` | Cliente aprueba y transfiere fondos + fee |
+| `reject_work` | Cliente rechaza trabajo |
+| `cancel_job` | Cliente cancela (refund si no hay freelancer) |
+
+---
+
+## Estructuras de Datos
+
+### User
+```rust
+pub struct User {
+    pub wallet_principal: Pubkey,
+    pub wallets: Vec<Pubkey>,           // max 5
+    pub active_wallet: Pubkey,
+    pub username: String,               // max 32
+    pub bio: Option<String>,            // max 500
+    pub created_at: i64,
+    pub bump: u8,
+}
+```
+
+### Job
+```rust
+pub struct Job {
+    pub client: Pubkey,
+    pub freelancer: Option<Pubkey>,
+    pub team: Option<Pubkey>,
+    pub title: String,                  // max 64
+    pub description: String,             // max 1024
+    pub amount: u64,
+    pub fee: u64,
+    pub total_deposited: u64,
+    pub deadline: i64,
+    pub status: JobStatus,               // Created, ApplicationsOpen, InProgress, Submitted, Approved, Disputed, Cancelled
+    pub applications: Vec<Application>,
+    pub bump: u8,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub submitted_at: Option<i64>,
+}
+```
+
+### Application
+```rust
+pub struct Application {
+    pub applicant: Pubkey,
+    pub is_team: bool,
+    pub proposal: String,                 // max 512
+    pub applied_at: i64,
+    pub status: ApplicationStatus,       // Pending, Accepted, Rejected, Withdrawn
+}
+```
+
+---
+
+## Flujo de un Job
+
+```
+CREATED → APPLICATIONS_OPEN → IN_PROGRESS → SUBMITTED → APPROVED
+                       ↓                              ↓
+                  CANCELLED                      DISPUTED → RESOLVED
+                   (refund)                     (Phase 03)
+```
+
+---
+
+## Seeds de PDAs
+
+| Cuenta | Seed | Creador |
+|--------|------|---------|
+| Config | `b"config"` | initialize_config |
+| User | `b"user", authority` | create_user |
+| Team | `b"team", owner` | create_team |
+| Job | `b"job", client, job_id` | create_job |
 
 ---
 
 ## Features de Seguridad
 
-- Validación de estado del job
-- Verificación de ownership (client, freelancer, arbiter)
-- Prevention de self-accept (freelancer no puede aceptar su propio job)
-- Pause mechanism para emergencias
-- Límites en longitudes de campos
-- Validación de montos mínimos
+- ✅ Validación de estado del job
+- ✅ Verificación de ownership (client, freelancer)
+- ✅ Prevención de self-accept (freelancer ≠ client)
+- ✅ Pause mechanism (admin puede pausar)
+- ✅ Límites en longitudes de campos
+- ✅ Validación de montos mínimos (100_000 lamports)
+- ✅ Validación de deadlines (must be future)
+
+---
+
+## Bug Conocido: Anchor 0.32 `#[program]` Macro
+
+**Problema:** Módulos anidados triggers bug #3690
+**Solución:** Contrato monolítico en un solo `lib.rs`
 
 ---
 
 ## Siguiente
 
-Phase 3: Testing - Tests de integración
+Phase 3: Disputes, Milestones & Treasury
