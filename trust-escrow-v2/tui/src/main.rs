@@ -13,6 +13,7 @@ use ratatui::{
     Frame, Terminal,
 };
 use trust_escrow_shared::EscrowConfig;
+use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
 
 mod app;
 mod ui;
@@ -29,6 +30,11 @@ async fn main() -> Result<()> {
     
     // Initialize UI system (Task 3.4)
     initialize_ui();
+    
+    // Ensure enhanced layout mode is active
+    if !is_enhanced_mode() {
+        toggle_layout_mode();
+    }
     
     // Initialize terminal with modern Ratatui v0.30+ pattern
     let mut terminal = ratatui::init();
@@ -62,8 +68,11 @@ async fn run_app(
     // Initialize navigation manager for focus management
     let mut navigation_manager = ui::navigation::NavigationManager::new();
     
+    // Start in Dashboard view for better UX
+    app.state_mut().navigate_to(app::AppView::Dashboard);
+    
     // Welcome message for Task 3.4 layout system
-    app.set_status("🎯 Trust Work Escrow TUI v2 - Layout System Ready! Tab=Focus, L=Toggle Layout, q=quit");
+    app.set_status("🎯 Trust Work Escrow TUI v2 - Navegación: Tab=Focus, Flechas=Navegar, d=Dashboard, j=Jobs, h=Help, q=quit");
 
     // Main event loop with enhanced layout support
     loop {
@@ -87,6 +96,35 @@ async fn run_app(
         // Process the event through the application state
         match &event {
             AppEvent::Key(key_input) => {
+                // Handle navigation with NavigationManager first
+                let nav_events = navigation_manager.handle_key_event(
+                    crossterm::event::KeyEvent {
+                        code: key_input.code,
+                        modifiers: key_input.modifiers,
+                        kind: crossterm::event::KeyEventKind::Press,
+                        state: crossterm::event::KeyEventState::empty(),
+                    },
+                    app.get_current_view(),
+                );
+                
+                // Process navigation events
+                for nav_event in &nav_events {
+                    match nav_event {
+                        AppEvent::Navigation(nav_event) => {
+                            handle_navigation_event(&mut app, nav_event).await?;
+                        }
+                        AppEvent::UI(ui_event) => {
+                            handle_ui_event(&mut app, ui_event).await?;
+                        }
+                        _ => {}
+                    }
+                }
+                
+                // If navigation events were generated, continue to next iteration
+                if !nav_events.is_empty() {
+                    continue;
+                }
+                
                 // Handle layout-specific keyboard shortcuts
                 if handle_layout_shortcuts(key_input, &mut app, &mut navigation_manager).await? {
                     continue; // Event was handled by layout system
