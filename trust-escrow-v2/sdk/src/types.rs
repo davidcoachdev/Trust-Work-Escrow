@@ -6,6 +6,7 @@
 use borsh::{BorshDeserialize, BorshSerialize};
 use serde::{Deserialize, Serialize};
 use solana_sdk::pubkey::Pubkey;
+use std::time::Duration;
 
 use crate::error::{EscrowError, Result};
 use crate::{MAX_ARBITERS, MAX_MILESTONES, MAX_WALLETS, MIN_JOB_AMOUNT};
@@ -262,29 +263,41 @@ impl Job {
     }
 }
 
-/// Team member role
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+/// Team member role (matches IDL)
+#[derive(
+    Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone, Copy, PartialEq, Eq,
+)]
 pub enum MemberRole {
     Owner,
-    Admin,
-    Member,
+    ProjectManager,
+    Contributor,
 }
 
-/// Team account with member management
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+/// Team member (matches IDL)
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
+pub struct Member {
+    pub user: Pubkey,
+    pub role: MemberRole,
+    pub joined_at: i64,
+}
+
+/// Team account with member management (matches IDL)
+#[derive(Serialize, Deserialize, BorshSerialize, BorshDeserialize, Debug, Clone, PartialEq)]
 pub struct Team {
     /// Team owner
     pub owner: Pubkey,
+    /// Team members with roles
+    pub members: Vec<Member>,
     /// Team name
     pub name: String,
     /// Team description
     pub description: String,
-    /// Team members with roles
-    pub members: Vec<(Pubkey, MemberRole)>,
-    /// Creation timestamp
-    pub created_at: i64,
     /// Account bump seed
     pub bump: u8,
+    /// Creation timestamp
+    pub created_at: i64,
+    /// Last update timestamp
+    pub updated_at: i64,
 }
 
 impl Team {
@@ -316,170 +329,209 @@ impl Team {
 
     /// Check if user is team member
     pub fn is_member(&self, user: &Pubkey) -> bool {
-        self.members.iter().any(|(member, _)| member == user)
+        self.members.iter().any(|member| &member.user == user)
     }
 
     /// Get member role
     pub fn get_member_role(&self, user: &Pubkey) -> Option<MemberRole> {
         self.members
             .iter()
-            .find(|(member, _)| member == user)
-            .map(|(_, role)| *role)
+            .find(|member| &member.user == user)
+            .map(|member| member.role)
     }
 }
 
-/// Dispute status
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DisputeStatus {
-    Open,
-    UnderReview,
-    Resolved,
+/// Dispute account for managing job disputes
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Dispute {
+    /// The job this dispute is related to
+    pub job: Pubkey,
+    /// Who raised the dispute
+    pub raised_by: Pubkey,
+    /// Assigned arbiter (if any)
+    pub arbiter: Option<Pubkey>,
+    /// Current dispute status
+    pub status: DisputeStatus,
+    /// Evidence submitted
+    pub evidence: Vec<Evidence>,
+    /// Reason for the dispute
+    pub reason: String,
+    /// When the dispute was created
+    pub created_at: i64,
+    /// When the dispute was resolved (if any)
+    pub resolved_at: Option<i64>,
+    /// Bump seed for PDA derivation
+    pub bump: u8,
 }
 
-/// Milestone status
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+/// Status of a dispute
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub enum DisputeStatus {
+    Open,
+    EvidenceSubmitted,
+    ArbiterAssigned,
+    Resolved,
+    Expired,
+}
+
+/// Evidence submitted for a dispute
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Evidence {
+    /// Who submitted the evidence
+    pub submitter: Pubkey,
+    /// Evidence content
+    pub content: String,
+    /// When submitted
+    pub submitted_at: i64,
+}
+
+/// Milestone account for milestone-based payments
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct Milestone {
+    /// The job this milestone belongs to
+    pub job: Pubkey,
+    /// Milestone title
+    pub title: String,
+    /// Milestone description
+    pub description: String,
+    /// Payment amount for this milestone
+    pub amount: u64,
+    /// Due date (optional)
+    pub due_date: Option<i64>,
+    /// Current status
+    pub status: MilestoneStatus,
+    /// Milestone index
+    pub index: u8,
+    /// When work was submitted
+    pub submitted_at: Option<i64>,
+    /// When milestone was approved
+    pub approved_at: Option<i64>,
+    /// Work URL submitted by freelancer
+    pub work_url: Option<String>,
+    /// Rejection reason (if rejected)
+    pub rejection_reason: Option<String>,
+    /// When created
+    pub created_at: i64,
+    /// Bump seed for PDA derivation
+    pub bump: u8,
+}
+
+/// Status of a milestone
+#[derive(BorshSerialize, BorshDeserialize, Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum MilestoneStatus {
-    Created,
+    Pending,
     Submitted,
     Approved,
     Rejected,
 }
 
-/// Dispute account
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct Dispute {
-    /// Associated job
-    pub job: Pubkey,
-    /// User who raised the dispute
-    pub raised_by: Pubkey,
-    /// Evidence submitted
-    pub evidence: String,
-    /// Assigned arbiter
-    pub arbiter: Option<Pubkey>,
-    /// Dispute status
-    pub status: DisputeStatus,
-    /// Resolution percentage for client (0-100)
-    pub client_percentage: Option<u8>,
-    /// Creation timestamp
-    pub created_at: i64,
-    /// Account bump seed
-    pub bump: u8,
-}
-
-impl Dispute {
-    /// Validate dispute data
-    pub fn validate(&self) -> Result<()> {
-        if self.evidence.len() > 2048 {
-            return Err(EscrowError::invalid_parameter(
-                "Dispute evidence cannot exceed 2048 characters",
-            ));
-        }
-
-        if let Some(percentage) = self.client_percentage {
-            if percentage > 100 {
-                return Err(EscrowError::invalid_parameter(
-                    "Client percentage cannot exceed 100%",
-                ));
-            }
-        }
-
-        Ok(())
-    }
-}
-
-/// Milestone account
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct Milestone {
-    /// Associated job
-    pub job: Pubkey,
-    /// Milestone index
-    pub index: u8,
-    /// Milestone title
+/// Milestone specification for batch operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MilestoneSpec {
     pub title: String,
-    /// Milestone description
-    pub description: String,
-    /// Milestone amount
     pub amount: u64,
-    /// Milestone status
-    pub status: MilestoneStatus,
-    /// Creation timestamp
-    pub created_at: i64,
-    /// Submission timestamp
-    pub submitted_at: Option<i64>,
-    /// Account bump seed
-    pub bump: u8,
+    pub description: Option<String>,
 }
 
-impl Milestone {
-    /// Validate milestone data
-    pub fn validate(&self, job_amount: u64) -> Result<()> {
-        if self.title.trim().is_empty() {
-            return Err(EscrowError::invalid_parameter(
-                "Milestone title cannot be empty",
-            ));
-        }
+/// Advanced job filtering capabilities
+#[derive(Debug, Clone)]
+pub struct JobFilter {
+    pub client: Option<Pubkey>,
+    pub status: Option<Vec<JobStatus>>,
+    pub amount_range: Option<(u64, u64)>,
+    pub created_after: Option<i64>,
+    pub created_before: Option<i64>,
+}
 
-        if self.title.len() > 100 {
-            return Err(EscrowError::invalid_parameter(
-                "Milestone title cannot exceed 100 characters",
-            ));
+impl JobFilter {
+    pub fn new() -> Self {
+        Self {
+            client: None,
+            status: None,
+            amount_range: None,
+            created_after: None,
+            created_before: None,
         }
+    }
 
-        if self.description.len() > 1000 {
-            return Err(EscrowError::invalid_parameter(
-                "Milestone description cannot exceed 1000 characters",
-            ));
-        }
+    pub fn client(mut self, client: Option<Pubkey>) -> Self {
+        self.client = client;
+        self
+    }
 
-        if self.amount > job_amount {
-            return Err(EscrowError::invalid_parameter(
-                "Milestone amount cannot exceed job amount",
-            ));
-        }
+    pub fn status(mut self, status: Option<Vec<JobStatus>>) -> Self {
+        self.status = status;
+        self
+    }
 
-        if self.index as usize >= MAX_MILESTONES {
-            return Err(EscrowError::invalid_parameter(format!(
-                "Milestone index cannot exceed {}",
-                MAX_MILESTONES - 1
-            )));
-        }
-
-        Ok(())
+    pub fn amount_range(mut self, min: u64, max: u64) -> Self {
+        self.amount_range = Some((min, max));
+        self
     }
 }
 
-/// Arbiter pool for dispute resolution
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct ArbiterPool {
-    /// List of authorized arbiters
-    pub arbiters: Vec<Pubkey>,
-    /// Creation timestamp
-    pub created_at: i64,
-    /// Account bump seed
-    pub bump: u8,
+/// Sorting options for job queries
+#[derive(Debug, Clone)]
+pub enum SortBy {
+    CreatedAsc,
+    CreatedDesc,
+    UpdatedAsc,
+    UpdatedDesc,
+    AmountAsc,
+    AmountDesc,
+    Status,
 }
 
-impl ArbiterPool {
-    /// Validate arbiter pool
-    pub fn validate(&self) -> Result<()> {
-        if self.arbiters.len() > MAX_ARBITERS {
-            return Err(EscrowError::invalid_parameter(format!(
-                "Cannot have more than {} arbiters",
-                MAX_ARBITERS
-            )));
+/// Escrow statistics summary
+#[derive(Debug, Clone, Default)]
+pub struct EscrowStats {
+    pub total_escrows: usize,
+    pub active_escrows: usize,
+    pub completed_escrows: usize,
+    pub disputed_escrows: usize,
+    pub total_volume: u64,
+    pub average_job_amount: u64,
+}
+
+/// Performance statistics for monitoring SDK operation
+#[derive(Debug, Clone)]
+pub struct PerformanceStats {
+    /// Total entries in the cache
+    pub cache_total_entries: usize,
+    /// Number of valid (non-expired) cache entries
+    pub cache_valid_entries: usize,
+    /// Cache hit rate as a percentage
+    pub cache_hit_rate: f64,
+    /// Current retry configuration
+    pub retry_config: RetryConfig,
+}
+
+/// Retry configuration for failed operations
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// Maximum number of retries
+    pub max_retries: usize,
+    /// Initial delay between retries
+    pub initial_delay: Duration,
+    /// Maximum delay between retries
+    pub max_delay: Duration,
+    /// Exponential backoff multiplier
+    pub backoff_multiplier: f64,
+}
+
+impl PerformanceStats {
+    /// Get cache efficiency percentage (valid entries / total entries)
+    pub fn cache_efficiency(&self) -> f64 {
+        if self.cache_total_entries == 0 {
+            100.0
+        } else {
+            (self.cache_valid_entries as f64 / self.cache_total_entries as f64) * 100.0
         }
-
-        Ok(())
     }
 
-    /// Check if user is an authorized arbiter
-    pub fn is_arbiter(&self, user: &Pubkey) -> bool {
-        self.arbiters.contains(user)
-    }
-
-    /// Check if can add another arbiter
-    pub fn can_add_arbiter(&self) -> bool {
-        self.arbiters.len() < MAX_ARBITERS
+    /// Check if cache performance is healthy
+    pub fn is_cache_healthy(&self) -> bool {
+        self.cache_efficiency() > 70.0
     }
 }
 

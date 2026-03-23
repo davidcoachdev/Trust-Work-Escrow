@@ -39,6 +39,7 @@ use solana_sdk::pubkey::Pubkey;
 
 pub mod client;
 pub mod error;
+pub mod events;
 pub mod pda;
 pub mod types;
 pub mod utils;
