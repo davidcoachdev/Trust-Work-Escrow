@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-trust_escrow_v2 = "GQ6uWQkHMac6vzKNk32pwKsxb1YW8HitK9VCSxN39ivP"
+trust_escrow_v2 = "TesT3XPqD3WFFVTY4BTwZ3sJpY7C7hF3Z6K2oX3i7jB"
 
 [registry]
 url = "https://api.apr.dev"
