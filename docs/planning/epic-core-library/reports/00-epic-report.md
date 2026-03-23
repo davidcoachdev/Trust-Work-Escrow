@@ -267,17 +267,18 @@ mockall = "0.11"                # Mocking framework
 
 ## 🎯 Impacto y habilitación
 
-### Epic #3: Backend Services
-- **Axum Integration**: Patrones probados para servicios REST
-- **JSON APIs**: Estructuras de datos compatibles con web
-- **Error Handling**: Respuestas HTTP estructuradas
-- **Authentication**: Integración con sistemas de autenticación web
-
-### Epic #4: CLI/TUI Applications  
+### Epic #3: CLI/TUI Applications  
 - **Command Patterns**: Estructuras optimizadas para CLI con Clap
 - **TUI State Management**: Compatible con Ratatui y async workflows
 - **Output Formatting**: Utilities para tables, progress bars, y output colorido
 - **Configuration Management**: Manejo de configuración y wallets
+- **Demo Impact**: Interfaces visuales ideales para demostración del hackathon
+
+### Epic #4: Backend Services
+- **Axum Integration**: Patrones probados para servicios REST
+- **JSON APIs**: Estructuras de datos compatibles con web
+- **Error Handling**: Respuestas HTTP estructuradas
+- **Authentication**: Integración con sistemas de autenticación web
 
 ### Community Adoption
 - **Crates.io Publication**: Disponibilidad pública para desarrolladores externos
@@ -321,9 +322,9 @@ mockall = "0.11"                # Mocking framework
 
 Con Epic #2 **COMPLETO**, el ecosistema Trust Work Escrow v2 está listo para:
 
-1. **Epic #3 (Backend)**: Desarrollo de servicios con Axum usando patrones probados del SDK
-2. **Epic #4 (CLI/TUI)**: Aplicaciones de usuario con experiencias ricas y performantes
-3. **Community Adoption**: Publicación en crates.io para adopción externa
+1. **Epic #3 (CLI/TUI)**: Aplicaciones de usuario con experiencias ricas y performantes
+2. **Epic #4 (Backend)**: Desarrollo de servicios con Axum usando patrones probados del SDK
+3. **Crates.io Publication**: Community adoption y external developer enablement
 4. **Production Deployment**: Infraestructura robusta lista para uso real
 
 **Epic #2: Core Library (Rust SDK) - PRODUCTION READY & DELIVERED** 🏆
@@ -332,4 +333,4 @@ Con Epic #2 **COMPLETO**, el ecosistema Trust Work Escrow v2 está listo para:
 
 **Fecha de finalización:** 2026-03-23  
 **Status:** ✅ **COMPLETADO** - 100% success rate  
-**Próximo Epic recomendado:** Epic #4 (CLI/TUI) para maximum demo impact
+**Próximo Epic recomendado:** Epic #3 (CLI/TUI) para maximum demo impact
