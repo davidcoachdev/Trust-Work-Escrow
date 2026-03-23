@@ -1,0 +1,44 @@
+[package]
+name = "trust-escrow-cli"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Command-line interface for Trust Work Escrow v2"
+authors = ["Trust Work Team <dev@trustwork.com>"]
+
+[[bin]]
+name = "trust-escrow"
+path = "src/main.rs"
+
+[dependencies]
+# Shared utilities
+trust-escrow-shared = { path = "../shared" }
+
+# Epic #2 SDK
+trust-escrow-sdk = { path = "../sdk" }
+
+# CLI framework
+clap = { version = "4.4", features = ["derive", "env", "color"] }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Output formatting
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tabled = "0.15"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+indicatif = "0.17"
+dirs = "5.0"
+env_logger = "0.11"
+log = "0.4"
+
+# Solana SDK
+solana-sdk = "1.18"
+solana-client = "1.18"
