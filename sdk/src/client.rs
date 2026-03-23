@@ -4,13 +4,22 @@
 //! operations. It wraps the lower-level Anchor client and provides convenient methods
 //! for managing users, jobs, teams, disputes, and milestones.
 
+//! High-level client for Trust Escrow operations
+//!
+//! The CofreClient provides a type-safe, high-level interface for all Trust Escrow v2
+//! operations. It wraps the lower-level Anchor client and provides convenient methods
+//! for managing users, jobs, teams, disputes, and milestones.
+
+use anchor_client::{Client, Program};
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig, pubkey::Pubkey, signature::Signature, signer::Signer,
+    system_program,
 };
 use std::sync::Arc;
 
 use crate::error::{EscrowError, Result};
+use crate::pda;
 use crate::types::*;
 use crate::utils::{TransactionUtils, ValidationUtils, DEFAULT_COMMITMENT};
 use crate::PROGRAM_ID;
@@ -134,13 +143,13 @@ impl CofreClient {
     }
 
     /// Add a wallet to user account
-    pub async fn add_wallet(&self, wallet: &Pubkey) -> Result<Signature> {
+    pub async fn add_wallet(&self, _wallet: &Pubkey) -> Result<Signature> {
         // TODO: Implement using Anchor client
         Err(EscrowError::sdk_error("add_wallet not yet implemented"))
     }
 
     /// Set active wallet for user
-    pub async fn set_active_wallet(&self, wallet: &Pubkey) -> Result<Signature> {
+    pub async fn set_active_wallet(&self, _wallet: &Pubkey) -> Result<Signature> {
         // TODO: Implement using Anchor client
         Err(EscrowError::sdk_error(
             "set_active_wallet not yet implemented",
@@ -373,34 +382,282 @@ impl CofreClient {
         ))
     }
 
+    // ===== CORE ESCROW OPERATIONS (Phase 2) =====
+
+    /// 1. Create a new escrow (job posting)
+    ///
+    /// # Arguments
+    /// * `job_id` - Unique job ID for this client
+    /// * `title` - Job title
+    /// * `description` - Job description
+    /// * `amount` - Job amount in lamports
+    /// * `deadline` - Job deadline as Unix timestamp
+    ///
+    /// # Returns
+    /// (Job PDA, Transaction signature)
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use trust_escrow_sdk::CofreClient;
+    /// # async fn example(client: CofreClient) -> trust_escrow_sdk::Result<()> {
+    /// let deadline = chrono::Utc::now().timestamp() + 7 * 24 * 60 * 60; // 7 days
+    /// let (job_pda, signature) = client.create_escrow(
+    ///     1,
+    ///     "Smart Contract Development",
+    ///     "Build a Solana escrow contract",
+    ///     1_000_000_000, // 1 SOL
+    ///     deadline
+    /// ).await?;
+    /// println!("Escrow created: {} at {}", signature, job_pda);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn create_escrow(
+        &self,
+        job_id: u64,
+        title: &str,
+        description: &str,
+        amount: u64,
+        deadline: i64,
+    ) -> Result<(Pubkey, Signature)> {
+        // Validate inputs
+        ValidationUtils::validate_job_title(title)?;
+        ValidationUtils::validate_job_description(description)?;
+        ValidationUtils::validate_amount(amount, crate::MIN_JOB_AMOUNT)?;
+
+        // Derive PDAs
+        let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
+        let (_config_pda, _config_bump) = pda::derive_config_pda()?;
+
+        // TODO: Implement actual Anchor instruction call
+        // For now return placeholder values to demonstrate API
+        let placeholder_signature = Signature::default();
+
+        Err(EscrowError::sdk_error(
+            "create_escrow not yet implemented - needs Anchor client integration",
+        ))
+    }
+
+    /// 2. Fund escrow by depositing required funds
+    ///
+    /// # Arguments
+    /// * `job_id` - Job ID to fund
+    ///
+    /// # Returns
+    /// Transaction signature
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use trust_escrow_sdk::CofreClient;
+    /// # async fn example(client: CofreClient) -> trust_escrow_sdk::Result<()> {
+    /// let signature = client.fund_escrow(1).await?;
+    /// println!("Escrow funded: {}", signature);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn fund_escrow(&self, job_id: u64) -> Result<Signature> {
+        // Derive PDAs
+        let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
+        let (config_pda, _config_bump) = pda::derive_config_pda()?;
+
+        // Build and send transaction
+        // TODO: Implement manual transaction building without Anchor client
+        // For now return placeholder to make compilation work
+        Err(EscrowError::sdk_error(
+            "fund_escrow implementation pending - manual transaction building required",
+        ))
+    }
+
+    /// 3. Release payment to freelancer (approve work)
+    ///
+    /// # Arguments
+    /// * `job_id` - Job ID to release payment for
+    /// * `freelancer` - Freelancer pubkey to receive payment
+    ///
+    /// # Returns
+    /// Transaction signature
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use trust_escrow_sdk::CofreClient;
+    /// # use solana_sdk::pubkey::Pubkey;
+    /// # async fn example(client: CofreClient, freelancer: Pubkey) -> trust_escrow_sdk::Result<()> {
+    /// let signature = client.release_payment(1, freelancer).await?;
+    /// println!("Payment released: {}", signature);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn release_payment(&self, job_id: u64, freelancer: Pubkey) -> Result<Signature> {
+        // Derive PDAs
+        let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
+        let (config_pda, _config_bump) = pda::derive_config_pda()?;
+
+        // Build and send transaction
+        // TODO: Implement manual transaction building without Anchor client
+        Err(EscrowError::sdk_error(
+            "release_payment implementation pending - manual transaction building required",
+        ))
+    }
+
+    /// 4. Refund escrow back to client (cancel job)
+    ///
+    /// # Arguments
+    /// * `job_id` - Job ID to refund
+    ///
+    /// # Returns
+    /// Transaction signature
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use trust_escrow_sdk::CofreClient;
+    /// # async fn example(client: CofreClient) -> trust_escrow_sdk::Result<()> {
+    /// let signature = client.refund_escrow(1).await?;
+    /// println!("Escrow refunded: {}", signature);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn refund_escrow(&self, job_id: u64) -> Result<Signature> {
+        // Derive PDAs
+        let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
+        let (config_pda, _config_bump) = pda::derive_config_pda()?;
+
+        // Build and send transaction
+        // TODO: Implement manual transaction building without Anchor client
+        Err(EscrowError::sdk_error(
+            "refund_escrow implementation pending - manual transaction building required",
+        ))
+    }
+
+    /// 5. Update escrow details (placeholder - not supported by v2 contract)
+    ///
+    /// # Arguments
+    /// * `job_id` - Job ID to update
+    /// * `new_title` - New job title (optional)
+    /// * `new_description` - New job description (optional)
+    ///
+    /// # Returns
+    /// Error indicating operation not supported
+    ///
+    /// # Note
+    /// The Trust Escrow v2 contract doesn't support job updates after creation.
+    /// This method is provided for API completeness but will always return an error.
+    pub async fn update_escrow(
+        &self,
+        _job_id: u64,
+        _new_title: Option<&str>,
+        _new_description: Option<&str>,
+    ) -> Result<Signature> {
+        Err(EscrowError::not_permitted(
+            "Trust Escrow v2 contract does not support job updates after creation. Cancel and create a new job instead.",
+        ))
+    }
+
+    /// 6. Cancel escrow (same as refund_escrow for API consistency)
+    ///
+    /// # Arguments
+    /// * `job_id` - Job ID to cancel
+    ///
+    /// # Returns
+    /// Transaction signature
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use trust_escrow_sdk::CofreClient;
+    /// # async fn example(client: CofreClient) -> trust_escrow_sdk::Result<()> {
+    /// let signature = client.cancel_escrow(1).await?;
+    /// println!("Escrow cancelled: {}", signature);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn cancel_escrow(&self, job_id: u64) -> Result<Signature> {
+        // Delegate to refund_escrow for consistency
+        self.refund_escrow(job_id).await
+    }
+
+    /// 7. Get escrow account data
+    ///
+    /// # Arguments
+    /// * `job_id` - Job ID to fetch
+    ///
+    /// # Returns
+    /// Job account data
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use trust_escrow_sdk::CofreClient;
+    /// # async fn example(client: CofreClient) -> trust_escrow_sdk::Result<()> {
+    /// let job = client.get_escrow(1).await?;
+    /// println!("Job status: {:?}", job.status);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_escrow(&self, job_id: u64) -> Result<Job> {
+        // Derive job PDA
+        let (job_pda, _job_bump) = pda::derive_job_pda(&self.payer().pubkey(), job_id)?;
+
+        // Fetch account data using RPC client directly
+        // TODO: Implement manual account fetching and deserialization without Anchor client
+        Err(EscrowError::sdk_error(
+            "get_escrow implementation pending - manual account fetching required",
+        ))
+    }
+
+    /// 8. List multiple escrows for the current payer
+    ///
+    /// # Arguments
+    /// * `limit` - Maximum number of escrows to return (optional, default 10)
+    ///
+    /// # Returns
+    /// Vector of (Pubkey, Job) tuples
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use trust_escrow_sdk::CofreClient;
+    /// # async fn example(client: CofreClient) -> trust_escrow_sdk::Result<()> {
+    /// let escrows = client.list_escrows(Some(20)).await?;
+    /// for (pubkey, job) in escrows {
+    ///     println!("Job {}: {} - {:?}", job.job_id, job.title, job.status);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn list_escrows(&self, limit: Option<usize>) -> Result<Vec<(Pubkey, Job)>> {
+        let _limit = limit.unwrap_or(10);
+
+        // TODO: Implement using getProgramAccounts with proper filters and manual deserialization
+        Err(EscrowError::sdk_error(
+            "list_escrows implementation pending - requires manual account deserialization",
+        ))
+    }
+
     // ===== ACCOUNT FETCHING =====
 
     /// Fetch user account data
-    pub async fn get_user(&self, user_pda: &Pubkey) -> Result<User> {
+    pub async fn get_user(&self, _user_pda: &Pubkey) -> Result<User> {
         // TODO: Implement using Anchor client
         Err(EscrowError::sdk_error("get_user not yet implemented"))
     }
 
     /// Fetch job account data
-    pub async fn get_job(&self, job_pda: &Pubkey) -> Result<Job> {
+    pub async fn get_job(&self, _job_pda: &Pubkey) -> Result<Job> {
         // TODO: Implement using Anchor client
         Err(EscrowError::sdk_error("get_job not yet implemented"))
     }
 
     /// Fetch team account data
-    pub async fn get_team(&self, team_pda: &Pubkey) -> Result<Team> {
+    pub async fn get_team(&self, _team_pda: &Pubkey) -> Result<Team> {
         // TODO: Implement using Anchor client
         Err(EscrowError::sdk_error("get_team not yet implemented"))
     }
 
     /// Fetch dispute account data
-    pub async fn get_dispute(&self, dispute_pda: &Pubkey) -> Result<Dispute> {
+    pub async fn get_dispute(&self, _dispute_pda: &Pubkey) -> Result<Dispute> {
         // TODO: Implement using Anchor client
         Err(EscrowError::sdk_error("get_dispute not yet implemented"))
     }
 
     /// Fetch milestone account data
-    pub async fn get_milestone(&self, milestone_pda: &Pubkey) -> Result<Milestone> {
+    pub async fn get_milestone(&self, _milestone_pda: &Pubkey) -> Result<Milestone> {
         // TODO: Implement using Anchor client
         Err(EscrowError::sdk_error("get_milestone not yet implemented"))
     }
