@@ -242,20 +242,15 @@ impl NavigationManager {
                 (KeyCode::Right, KeyModifiers::NONE),
                 NavigationAction::FocusRight,
             ),
-            // List navigation
+            // List navigation - Arrow keys for moving up/down in lists
             ((KeyCode::Up, KeyModifiers::NONE), NavigationAction::MoveUp),
             (
                 (KeyCode::Down, KeyModifiers::NONE),
                 NavigationAction::MoveDown,
             ),
-            (
-                (KeyCode::Char('k'), KeyModifiers::NONE),
-                NavigationAction::MoveUp,
-            ),
-            (
-                (KeyCode::Char('j'), KeyModifiers::NONE),
-                NavigationAction::MoveDown,
-            ),
+            // NOTE: 'j' and 'k' are intentionally NOT mapped here because they
+            // conflict with view navigation (j=Jobs). Use arrow keys for list
+            // navigation instead. Vim-style navigation available in Jobs view only.
             (
                 (KeyCode::PageUp, KeyModifiers::NONE),
                 NavigationAction::PageUp,
@@ -525,29 +520,29 @@ impl NavigationManager {
                 events.push(AppEvent::UI(UIEvent::FocusNext));
             }
 
-            // List navigation
+            // List navigation - use Navigation events that actually update state
             NavigationAction::MoveUp => {
-                events.push(AppEvent::UI(UIEvent::SelectPrevious));
+                events.push(AppEvent::Navigation(NavigationEvent::Up));
             }
             NavigationAction::MoveDown => {
-                events.push(AppEvent::UI(UIEvent::SelectNext));
+                events.push(AppEvent::Navigation(NavigationEvent::Down));
             }
             NavigationAction::PageUp => {
-                events.push(AppEvent::UI(UIEvent::SelectFirst));
+                events.push(AppEvent::Navigation(NavigationEvent::PageUp));
             }
             NavigationAction::PageDown => {
-                events.push(AppEvent::UI(UIEvent::SelectLast));
+                events.push(AppEvent::Navigation(NavigationEvent::PageDown));
             }
             NavigationAction::Home => {
-                events.push(AppEvent::UI(UIEvent::SelectFirst));
+                events.push(AppEvent::Navigation(NavigationEvent::Home));
             }
             NavigationAction::End => {
-                events.push(AppEvent::UI(UIEvent::SelectLast));
+                events.push(AppEvent::Navigation(NavigationEvent::End));
             }
 
-            // Common actions
+            // Common actions - Confirm triggers Select to handle item selection
             NavigationAction::Confirm => {
-                events.push(AppEvent::Navigation(NavigationEvent::Submit));
+                events.push(AppEvent::Navigation(NavigationEvent::Select));
             }
             NavigationAction::Cancel => {
                 events.push(AppEvent::Navigation(NavigationEvent::Back));
