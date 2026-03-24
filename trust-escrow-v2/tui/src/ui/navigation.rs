@@ -183,48 +183,8 @@ impl NavigationManager {
                 (KeyCode::F(9), KeyModifiers::NONE),
                 NavigationAction::ToggleMode,
             ),
-            // View navigation with number keys
-            (
-                (KeyCode::Char('1'), KeyModifiers::NONE),
-                NavigationAction::GoToDashboard,
-            ),
-            (
-                (KeyCode::Char('2'), KeyModifiers::NONE),
-                NavigationAction::GoToJobs,
-            ),
-            (
-                (KeyCode::Char('3'), KeyModifiers::NONE),
-                NavigationAction::GoToProfile,
-            ),
-            (
-                (KeyCode::Char('4'), KeyModifiers::NONE),
-                NavigationAction::GoToTeams,
-            ),
-            (
-                (KeyCode::Char('5'), KeyModifiers::NONE),
-                NavigationAction::GoToSettings,
-            ),
-            // Alternative view navigation with letters
-            (
-                (KeyCode::Char('d'), KeyModifiers::NONE),
-                NavigationAction::GoToDashboard,
-            ),
-            (
-                (KeyCode::Char('j'), KeyModifiers::NONE),
-                NavigationAction::GoToJobs,
-            ),
-            (
-                (KeyCode::Char('p'), KeyModifiers::NONE),
-                NavigationAction::GoToProfile,
-            ),
-            (
-                (KeyCode::Char('t'), KeyModifiers::NONE),
-                NavigationAction::GoToTeams,
-            ),
-            (
-                (KeyCode::Char('s'), KeyModifiers::NONE),
-                NavigationAction::GoToSettings,
-            ),
+            // View navigation with number keys REMOVED - now used for role switching (1-5)
+            // Letter-based view navigation REMOVED to avoid conflicts with menu navigation
             // Focus navigation
             (
                 (KeyCode::Tab, KeyModifiers::NONE),
@@ -279,10 +239,7 @@ impl NavigationManager {
                 NavigationAction::Delete,
             ),
             // Refresh and utility
-            (
-                (KeyCode::Char('r'), KeyModifiers::NONE),
-                NavigationAction::Refresh,
-            ),
+            // NOTE: 'r' removed - conflicts with role cycling. Use F5 for refresh.
             (
                 (KeyCode::Char('h'), KeyModifiers::NONE),
                 NavigationAction::Help,
@@ -433,6 +390,9 @@ impl NavigationManager {
                 }
                 _ => {}
             },
+
+            // These modes are handled directly in AppState, not through NavigationManager
+            InputMode::RoleSelect | InputMode::Form | InputMode::ContextMenu => {}
         }
 
         events

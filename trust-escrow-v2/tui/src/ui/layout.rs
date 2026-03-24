@@ -30,12 +30,14 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style, Stylize},
     text::{Line, Span, Text},
-    widgets::{Block, BorderType, Borders, Clear, Padding, Paragraph, Widget},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Padding, Paragraph, Widget},
     Frame,
 };
 use std::cmp::{max, min};
 
-use crate::app::state::{ConnectionStatus, UIFocus, UserRole};
+use crate::app::state::{
+    CenterContent, ConnectionStatus, InputMode, MenuAction, UIFocus, UserRole,
+};
 use crate::app::{AppState, AppView, StatusType};
 use trust_escrow_sdk::types::JobStatus;
 
@@ -380,404 +382,256 @@ impl DashboardLayout {
         }
     }
 
-    /// Render complete dashboard layout
+    /// Render complete dashboard layout - clean 3-panel design
     pub fn render(&self, frame: &mut Frame, app_state: &AppState) {
-        let layout = self.config.calculate_layout();
-
-        // Render header
-        self.render_header(frame, app_state, layout.header);
-
-        // Render main content panels
-        if let Some(left_area) = layout.left_panel {
-            self.render_left_panel(frame, app_state, left_area);
+        // Role selection gets a full-screen treatment
+        if app_state.ui_state.current_view == AppView::RoleSelection {
+            self.render_role_selection(frame, app_state);
+            return;
         }
 
-        self.render_main_content(frame, app_state, layout.main_content);
+        let t = &app_state.ui_state.theme;
+        let area = frame.area();
 
-        if let Some(right_area) = layout.right_panel {
-            self.render_right_panel(frame, app_state, right_area);
+        // Fill background
+        frame.render_widget(Block::default().style(Style::default().bg(t.bg)), area);
+
+        // Simple 3-line layout: header, body, footer
+        let vertical = Layout::vertical([
+            Constraint::Length(1), // header
+            Constraint::Min(0),    // body
+            Constraint::Length(1), // footer
+        ]);
+        let [header_area, body_area, footer_area] = vertical.areas(area);
+
+        // Header
+        self.render_header(frame, app_state, header_area);
+
+        // Body: left + center + right
+        let body_h = Layout::horizontal([
+            Constraint::Length(28), // left panel
+            Constraint::Min(30),    // center panel
+            Constraint::Length(25), // right panel
+        ]);
+        let [left_area, center_area, right_area] = body_h.areas(body_area);
+
+        self.render_left_panel(frame, app_state, left_area);
+        self.render_main_content(frame, app_state, center_area);
+        self.render_right_panel(frame, app_state, right_area);
+
+        // Footer
+        self.render_footer(frame, app_state, footer_area);
+
+        // Overlays
+        if let Some(ref ctx_menu) = app_state.ui_state.job_context_menu {
+            self.render_context_menu_overlay(frame, ctx_menu, app_state);
         }
 
-        // Render footer
-        self.render_footer(frame, app_state, layout.footer);
+        if app_state.ui_state.input_mode == InputMode::Form {
+            self.render_create_job_form(frame, app_state);
+        }
 
-        // Render modal if present
         if let Some(modal_state) = &app_state.ui_state.modal_state {
             self.render_modal(frame, modal_state, app_state);
         }
     }
 
-    /// Render header with title, status, and user info
+    /// Render header - one clean line
     fn render_header(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let header_style = match app_state.get_connection_status() {
-            ConnectionStatus::Connected => Style::default().fg(Color::Green),
-            ConnectionStatus::Connecting => Style::default().fg(Color::Yellow),
-            ConnectionStatus::Error => Style::default().fg(Color::Red),
-            _ => Style::default().fg(Color::DarkGray),
-        };
+        let t = &app_state.ui_state.theme;
+        let role = app_state.user_context.current_role;
+        let role_color = t.role_color(role);
 
-        // Multi-line header for larger terminals
-        if self.config.header_height >= 3 {
-            self.render_full_header(frame, app_state, area);
-        } else if self.config.header_height >= 2 {
-            self.render_medium_header(frame, app_state, area);
-        } else {
-            self.render_compact_header(frame, app_state, area);
-        }
-    }
-
-    /// Render full three-line header
-    fn render_full_header(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let header_areas = Layout::vertical([
-            Constraint::Length(1), // Title line
-            Constraint::Length(1), // Network line
-            Constraint::Length(1), // User line
-        ])
-        .split(area);
-
-        // Title line
-        let title_line = Line::from(vec![
-            Span::styled("🎯 ", Style::default().fg(Color::Cyan)),
+        let header = Line::from(vec![
             Span::styled(
-                app_state.get_title(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
+                " Trust Work Escrow ",
+                Style::default().fg(t.title).add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" - "),
+            Span::styled("v2 ", Style::default().fg(t.accent)),
+            Span::styled("│ ", Style::default().fg(t.border)),
             Span::styled(
-                format!("{:?}", self.role_config.role),
-                self.focus_style.focused_border,
+                format!("{} ", role.display_name()),
+                Style::default().fg(role_color).add_modifier(Modifier::BOLD),
             ),
-        ]);
-        frame.render_widget(
-            Paragraph::new(title_line).block(
-                Block::default()
-                    .borders(Borders::BOTTOM)
-                    .border_style(Style::default().fg(Color::DarkGray)),
-            ),
-            header_areas[0],
-        );
-
-        // Network status line
-        let network_text = format!(
-            "🌐 {} | {} | {}",
-            app_state.get_network_name(),
-            app_state.get_connection_status_text(),
-            app_state
-                .get_rpc_url()
-                .split('/')
-                .last()
-                .unwrap_or("Unknown")
-        );
-        frame.render_widget(
-            Paragraph::new(network_text)
-                .style(self.get_connection_style(app_state.get_connection_status())),
-            header_areas[1],
-        );
-
-        // User info line
-        let user_info = format!(
-            "👤 {} | 💰 {} | 🔔 {}",
-            app_state
-                .get_wallet_address()
-                .chars()
-                .take(8)
-                .collect::<String>()
-                + "...",
-            app_state.get_balance_string_sync(),
-            app_state.get_unread_notifications()
-        );
-        frame.render_widget(
-            Paragraph::new(user_info).style(Style::default().fg(Color::White)),
-            header_areas[2],
-        );
-    }
-
-    /// Render medium two-line header
-    fn render_medium_header(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let header_areas = Layout::vertical([
-            Constraint::Length(1), // Title and network
-            Constraint::Length(1), // User info
-        ])
-        .split(area);
-
-        // Title and network line
-        let title_network = Line::from(vec![
-            Span::styled("🎯 ", Style::default().fg(Color::Cyan)),
+            Span::styled("│ ", Style::default().fg(t.border)),
+            Span::styled("devnet ", Style::default().fg(t.muted)),
+            Span::styled("│ ", Style::default().fg(t.border)),
             Span::styled(
-                app_state.get_title(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" | "),
-            Span::styled(
-                app_state.get_connection_status_text(),
-                self.get_connection_style(app_state.get_connection_status()),
-            ),
-        ]);
-        frame.render_widget(
-            Paragraph::new(title_network).block(Block::default().borders(Borders::BOTTOM)),
-            header_areas[0],
-        );
-
-        // User info line
-        let user_info = format!(
-            "👤 {} | 💰 {} | 🔔 {}",
-            app_state
-                .get_wallet_address()
-                .chars()
-                .take(8)
-                .collect::<String>()
-                + "...",
-            app_state.get_balance_string_sync(),
-            app_state.get_unread_notifications()
-        );
-        frame.render_widget(
-            Paragraph::new(user_info).style(Style::default().fg(Color::White)),
-            header_areas[1],
-        );
-    }
-
-    /// Render compact single-line header
-    fn render_compact_header(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let header_text = Line::from(vec![
-            Span::styled("🎯", Style::default().fg(Color::Cyan)),
-            Span::raw(" "),
-            Span::styled(
-                app_state.get_title(),
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" | "),
-            Span::styled(
-                app_state.get_connection_status_text(),
-                self.get_connection_style(app_state.get_connection_status()),
+                &app_state.ui_state.status_message,
+                Style::default().fg(t.fg),
             ),
         ]);
 
-        frame.render_widget(
-            Paragraph::new(header_text).block(Block::default().borders(Borders::BOTTOM)),
-            area,
-        );
+        frame.render_widget(Paragraph::new(header), area);
     }
 
-    /// Render left panel (navigation, lists)
-    fn render_left_panel(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let is_focused = matches!(app_state.ui_state.focus, UIFocus::Menu | UIFocus::JobList);
-        let border_style = if is_focused {
-            self.focus_style.focused_border
-        } else {
-            self.focus_style.unfocused_border
-        };
-
-        let title = match self.role_config.left_panel_type {
-            LeftPanelType::Navigation => "Navigation",
-            LeftPanelType::JobsList => "Jobs",
-            LeftPanelType::TeamsList => "Teams",
-            LeftPanelType::DisputesList => "Disputes",
-            LeftPanelType::QuickActions => "Quick Actions",
-        };
-
-        let block = Block::default()
-            .title(title)
-            .title_style(if is_focused {
-                self.focus_style.focused_title
-            } else {
-                self.focus_style.unfocused_title
-            })
-            .borders(Borders::ALL)
-            .border_type(self.focus_style.border_type)
-            .border_style(border_style);
-
-        // Render panel content based on type
-        match self.role_config.left_panel_type {
-            LeftPanelType::Navigation => {
-                self.render_navigation_menu(frame, app_state, area, block);
-            }
-            LeftPanelType::JobsList => {
-                self.render_jobs_list(frame, app_state, area, block);
-            }
-            LeftPanelType::TeamsList => {
-                self.render_teams_list(frame, app_state, area, block);
-            }
-            LeftPanelType::DisputesList => {
-                self.render_disputes_list(frame, app_state, area, block);
-            }
-            LeftPanelType::QuickActions => {
-                self.render_quick_actions(frame, app_state, area, block);
-            }
-        }
-    }
-
-    /// Render main content area
-    fn render_main_content(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let is_focused = matches!(app_state.ui_state.focus, UIFocus::MainContent);
-        let border_style = if is_focused {
-            self.focus_style.focused_border
-        } else {
-            self.focus_style.unfocused_border
-        };
-
-        let view_title = match app_state.ui_state.current_view {
-            AppView::Welcome => "Welcome",
-            AppView::Dashboard => "Dashboard",
-            AppView::Jobs => "Jobs",
-            AppView::Profile => "Profile",
-            AppView::Settings => "Settings",
-            AppView::Teams => "Teams",
-            AppView::Disputes => "Disputes",
-            AppView::Milestones => "Milestones",
-            AppView::Help => "Help",
-            AppView::JobDetail(_) => "Job Details",
-            AppView::TeamDetail(_) => "Team Details",
-        };
-
-        let block = Block::default()
-            .title(view_title)
-            .title_style(if is_focused {
-                self.focus_style.focused_title
-            } else {
-                self.focus_style.unfocused_title
-            })
-            .borders(Borders::ALL)
-            .border_type(self.focus_style.border_type)
-            .border_style(border_style);
-
-        // Render based on current view
-        match app_state.ui_state.current_view {
-            AppView::Welcome => self.render_welcome_content(frame, app_state, area, block),
-            AppView::Dashboard => self.render_dashboard_content(frame, app_state, area, block),
-            AppView::Jobs => self.render_jobs_content(frame, app_state, area, block),
-            AppView::JobDetail(job_id) => {
-                self.render_job_detail_content(frame, app_state, job_id, area, block)
-            }
-            AppView::Profile => self.render_profile_content(frame, app_state, area, block),
-            AppView::Settings => self.render_settings_content(frame, app_state, area, block),
-            AppView::Teams => self.render_placeholder_content(frame, app_state, area, block),
-            AppView::TeamDetail(_) => {
-                self.render_placeholder_content(frame, app_state, area, block)
-            }
-            AppView::Disputes => self.render_placeholder_content(frame, app_state, area, block),
-            AppView::Milestones => self.render_placeholder_content(frame, app_state, area, block),
-            AppView::Help => self.render_placeholder_content(frame, app_state, area, block),
-        }
-    }
-
-    /// Render right panel (details, forms, notifications)
-    fn render_right_panel(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let is_focused = matches!(
-            app_state.ui_state.focus,
-            UIFocus::NotificationPanel | UIFocus::InputField
-        );
-        let border_style = if is_focused {
-            self.focus_style.focused_border
-        } else {
-            self.focus_style.unfocused_border
-        };
-
-        let title = match self.role_config.right_panel_type {
-            RightPanelType::Details => "Details",
-            RightPanelType::Form => "Form",
-            RightPanelType::Notifications => "Notifications",
-            RightPanelType::WalletInfo => "Wallet",
-            RightPanelType::Statistics => "Statistics",
-            RightPanelType::Help => "Help",
-        };
-
-        let block = Block::default()
-            .title(title)
-            .title_style(if is_focused {
-                self.focus_style.focused_title
-            } else {
-                self.focus_style.unfocused_title
-            })
-            .borders(Borders::ALL)
-            .border_type(self.focus_style.border_type)
-            .border_style(border_style);
-
-        // Render panel content based on type
-        match self.role_config.right_panel_type {
-            RightPanelType::Details => {
-                self.render_details_panel(frame, app_state, area, block);
-            }
-            RightPanelType::Notifications => {
-                self.render_notifications_panel(frame, app_state, area, block);
-            }
-            RightPanelType::WalletInfo => {
-                self.render_wallet_panel(frame, app_state, area, block);
-            }
-            RightPanelType::Statistics => {
-                self.render_statistics_panel(frame, app_state, area, block);
-            }
-            RightPanelType::Help => {
-                self.render_help_panel(frame, app_state, area, block);
-            }
-            _ => {
-                self.render_placeholder_panel(frame, app_state, area, block);
-            }
-        }
-    }
-
-    /// Render footer with help text and keyboard shortcuts
+    /// Render footer - one clean line with help
     fn render_footer(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        if self.config.footer_height >= 2 {
-            self.render_full_footer(frame, app_state, area);
+        let t = &app_state.ui_state.theme;
+
+        let help = if app_state.ui_state.focus == UIFocus::MainContent {
+            " Esc:Back  ↑↓:Navigate  Enter:Action "
         } else {
-            self.render_compact_footer(frame, app_state, area);
-        }
-    }
-
-    /// Render full two-line footer
-    fn render_full_footer(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let footer_areas = Layout::vertical([
-            Constraint::Length(1), // Status line
-            Constraint::Length(1), // Help line
-        ])
-        .split(area);
-
-        // Status line
-        let status_style = match app_state.ui_state.status_type {
-            StatusType::Success => Style::default().fg(Color::Green),
-            StatusType::Error => Style::default().fg(Color::Red),
-            StatusType::Warning => Style::default().fg(Color::Yellow),
-            StatusType::Info => Style::default().fg(Color::Cyan),
+            " ↑↓:Menu  Enter:Select  Tab:Focus  1-5:Role  q:Quit "
         };
 
         frame.render_widget(
-            Paragraph::new(app_state.get_status())
-                .style(status_style)
-                .block(Block::default().borders(Borders::TOP)),
-            footer_areas[0],
-        );
-
-        // Help shortcuts
-        let help_text = self.get_keyboard_shortcuts(app_state);
-        frame.render_widget(
-            Paragraph::new(help_text).style(Style::default().fg(Color::DarkGray)),
-            footer_areas[1],
-        );
-    }
-
-    /// Render compact single-line footer
-    fn render_compact_footer(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
-        let combined_text = format!(
-            "{} | {}",
-            app_state.get_status(),
-            "q:Quit h:Help Tab:Navigate"
-        );
-
-        frame.render_widget(
-            Paragraph::new(combined_text)
-                .style(Style::default().fg(Color::DarkGray))
-                .block(Block::default().borders(Borders::TOP)),
+            Paragraph::new(Span::styled(help, Style::default().fg(t.muted))),
             area,
         );
     }
 
-    // Helper methods for rendering specific panels
+    /// Render left panel - role-specific menu navigation
+    fn render_left_panel(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
+        let t = &app_state.ui_state.theme;
+        let role = app_state.user_context.current_role;
+        let role_color = t.role_color(role);
+        let is_focused = app_state.ui_state.focus == UIFocus::Menu;
+
+        let border_color = if is_focused { t.accent } else { t.border };
+        let title = format!(" {} Menu ", role.display_name());
+
+        let block = Block::default()
+            .title(Span::styled(
+                title,
+                Style::default().fg(role_color).add_modifier(Modifier::BOLD),
+            ))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color))
+            .style(Style::default().bg(t.bg));
+
+        let menu_items = &app_state.ui_state.menu_items;
+        let selected = app_state.ui_state.menu_selection;
+
+        if menu_items.is_empty() {
+            frame.render_widget(Paragraph::new("No menu items").block(block), area);
+            return;
+        }
+
+        let items: Vec<ListItem> = menu_items
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let style = if i == selected {
+                    Style::default()
+                        .fg(t.bg)
+                        .bg(t.highlight)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(t.fg).bg(t.bg)
+                };
+                ListItem::new(Line::from(Span::styled(format!("  {}", item.label), style)))
+            })
+            .collect();
+
+        let list = List::new(items).block(block);
+        frame.render_widget(list, area);
+    }
+
+    /// Render main content area - routes based on CenterContent state
+    fn render_main_content(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
+        let t = &app_state.ui_state.theme;
+        let is_focused = app_state.ui_state.focus == UIFocus::MainContent;
+        let border_color = if is_focused { t.accent } else { t.border };
+
+        if app_state.ui_state.current_view == AppView::RoleSelection {
+            return;
+        }
+
+        let view_title = match &app_state.ui_state.center_content {
+            CenterContent::Dashboard => "Dashboard",
+            CenterContent::JobList | CenterContent::ShowJob => "Jobs",
+            CenterContent::Balances => "Balances",
+            CenterContent::Settings => "Settings",
+            CenterContent::CreateJobForm => "Create Job",
+            CenterContent::ChangeRole => "Change Role",
+            CenterContent::Empty => "Welcome",
+        };
+
+        let block = Block::default()
+            .title(Span::styled(
+                format!(" {} ", view_title),
+                Style::default().fg(t.title).add_modifier(Modifier::BOLD),
+            ))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(border_color))
+            .style(Style::default().bg(t.bg));
+
+        match &app_state.ui_state.center_content {
+            CenterContent::Dashboard => {
+                self.render_dashboard_content(frame, app_state, area, block)
+            }
+            CenterContent::JobList | CenterContent::ShowJob => {
+                self.render_jobs_content(frame, app_state, area, block)
+            }
+            CenterContent::Balances => self.render_balances_content(frame, app_state, area, block),
+            CenterContent::Settings => self.render_settings_content(frame, app_state, area, block),
+            CenterContent::CreateJobForm => {
+                self.render_dashboard_content(frame, app_state, area, block)
+            }
+            CenterContent::ChangeRole => {
+                self.render_change_role_content(frame, app_state, area, block)
+            }
+            CenterContent::Empty => self.render_welcome_content(frame, app_state, area, block),
+        }
+    }
+
+    /// Render right panel - contextual info
+    fn render_right_panel(&self, frame: &mut Frame, app_state: &AppState, area: Rect) {
+        let t = &app_state.ui_state.theme;
+
+        let block = Block::default()
+            .title(Span::styled(
+                " Info ",
+                Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+            ))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default().fg(t.border))
+            .style(Style::default().bg(t.bg));
+
+        let mut lines = Vec::new();
+        let role = app_state.user_context.current_role;
+
+        lines.push(Line::from(Span::styled(
+            format!(" Role: {}", role.display_name()),
+            Style::default()
+                .fg(t.role_color(role))
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            " Network",
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  devnet",
+            Style::default().fg(t.fg),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            " Balance",
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  1.00 SOL",
+            Style::default().fg(t.success),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            " Jobs",
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+        )));
+        let job_count = app_state.data_state.jobs.len();
+        lines.push(Line::from(Span::styled(
+            format!("  {} loaded", job_count),
+            Style::default().fg(t.fg),
+        )));
+
+        frame.render_widget(Paragraph::new(lines).block(block), area);
+    }
 
     fn render_navigation_menu(
         &self,
@@ -978,32 +832,181 @@ impl DashboardLayout {
         area: Rect,
         block: Block,
     ) {
-        let content = format!(
-            "📊 Dashboard Overview\n\n\
-            Wallet: {}\n\
-            Balance: {}\n\
-            Network: {}\n\n\
-            📋 Jobs: {}\n\
-            🎯 Milestones: {}\n\
-            ⚖️  Disputes: {}\n\
-            🔔 Notifications: {}\n\n\
-            All systems operational ✅",
-            app_state
-                .get_wallet_address()
-                .chars()
-                .take(16)
-                .collect::<String>()
-                + "...",
-            app_state.get_balance_string_sync(),
-            app_state.get_network_name(),
-            app_state.data_state.jobs.len(),
-            app_state.data_state.milestones.len(),
-            app_state.data_state.disputes.len(),
-            app_state.get_unread_notifications()
-        );
+        let role = app_state.user_context.current_role;
+        let role_color = match role {
+            UserRole::Admin => Color::Red,
+            UserRole::Client => Color::Blue,
+            UserRole::Freelancer => Color::Green,
+            UserRole::Arbiter => Color::Yellow,
+            UserRole::Treasury => Color::Magenta,
+            _ => Color::White,
+        };
+
+        let mut lines = Vec::new();
+        lines.push(Line::from(vec![
+            Span::styled("📊 ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                format!("Dashboard - {}", role.display_name()),
+                Style::default().fg(role_color).add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+
+        // Common stats
+        lines.push(Line::from(vec![
+            Span::styled("Wallet: ", Style::default().fg(Color::Yellow)),
+            Span::raw(
+                app_state
+                    .get_wallet_address()
+                    .chars()
+                    .take(16)
+                    .collect::<String>()
+                    + "...",
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Balance: ", Style::default().fg(Color::Yellow)),
+            Span::raw(app_state.get_balance_string_sync()),
+        ]));
+        lines.push(Line::from(""));
+
+        // Role-specific dashboard
+        match role {
+            UserRole::Admin => {
+                lines.push(Line::from(Span::styled(
+                    "Platform Overview:",
+                    Style::default().fg(Color::Cyan),
+                )));
+                lines.push(Line::from(format!(
+                    "  📋 Total Jobs: {}",
+                    app_state.data_state.jobs.len()
+                )));
+                lines.push(Line::from(format!(
+                    "  ✅ Active Jobs: {}",
+                    app_state.get_active_jobs_count()
+                )));
+                lines.push(Line::from(format!(
+                    "  🏆 Completed: {}",
+                    app_state.get_completed_jobs_count()
+                )));
+                lines.push(Line::from(format!(
+                    "  ⚠️  Disputed: {}",
+                    app_state.get_disputed_jobs_count()
+                )));
+                lines.push(Line::from(format!(
+                    "  🎯 Milestones: {}",
+                    app_state.data_state.milestones.len()
+                )));
+                let total: u64 = app_state.data_state.jobs.values().map(|j| j.amount).sum();
+                lines.push(Line::from(format!(
+                    "  💰 Total Volume: {:.2} SOL",
+                    total as f64 / 1_000_000_000.0
+                )));
+            }
+            UserRole::Client => {
+                lines.push(Line::from(Span::styled(
+                    "Your Jobs:",
+                    Style::default().fg(Color::Blue),
+                )));
+                lines.push(Line::from(format!(
+                    "  📋 Posted Jobs: {}",
+                    app_state.data_state.jobs.len()
+                )));
+                lines.push(Line::from(format!(
+                    "  ✅ Active: {}",
+                    app_state.get_active_jobs_count()
+                )));
+                lines.push(Line::from(format!(
+                    "  🏆 Completed: {}",
+                    app_state.get_completed_jobs_count()
+                )));
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Quick Actions:",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                lines.push(Line::from("  • j: View Jobs  • c: Create Job"));
+            }
+            UserRole::Freelancer => {
+                lines.push(Line::from(Span::styled(
+                    "Your Work:",
+                    Style::default().fg(Color::Green),
+                )));
+                lines.push(Line::from(format!(
+                    "  📋 Available Jobs: {}",
+                    app_state.data_state.jobs.len()
+                )));
+                lines.push(Line::from(format!(
+                    "  ✅ Active: {}",
+                    app_state.get_active_jobs_count()
+                )));
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Quick Actions:",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                lines.push(Line::from("  • j: Browse Jobs  • Enter: View Details"));
+            }
+            UserRole::Arbiter => {
+                lines.push(Line::from(Span::styled(
+                    "Disputes:",
+                    Style::default().fg(Color::Yellow),
+                )));
+                lines.push(Line::from(format!(
+                    "  ⚖️  Open Disputes: {}",
+                    app_state.data_state.disputes.len()
+                )));
+                lines.push(Line::from(format!(
+                    "  📋 Jobs in Dispute: {}",
+                    app_state.get_disputed_jobs_count()
+                )));
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Quick Actions:",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                lines.push(Line::from("  • j: View Disputed Jobs  • Enter: Resolve"));
+            }
+            UserRole::Treasury => {
+                let total: u64 = app_state.data_state.jobs.values().map(|j| j.amount).sum();
+                lines.push(Line::from(Span::styled(
+                    "Financial Overview:",
+                    Style::default().fg(Color::Magenta),
+                )));
+                lines.push(Line::from(format!(
+                    "  💰 Total Locked: {:.2} SOL",
+                    total as f64 / 1_000_000_000.0
+                )));
+                lines.push(Line::from(format!(
+                    "  📋 Total Jobs: {}",
+                    app_state.data_state.jobs.len()
+                )));
+                lines.push(Line::from(format!(
+                    "  ✅ Active: {}",
+                    app_state.get_active_jobs_count()
+                )));
+                lines.push(Line::from(format!(
+                    "  🏆 Completed: {}",
+                    app_state.get_completed_jobs_count()
+                )));
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "Quick Actions:",
+                    Style::default().fg(Color::DarkGray),
+                )));
+                lines.push(Line::from("  • j: View All Jobs"));
+            }
+            _ => {}
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "All systems operational ✅",
+            Style::default().fg(Color::Green),
+        )));
 
         frame.render_widget(
-            Paragraph::new(content)
+            Paragraph::new(lines)
                 .block(block)
                 .wrap(ratatui::widgets::Wrap { trim: true }),
             area,
@@ -1013,14 +1016,82 @@ impl DashboardLayout {
     fn render_jobs_content(
         &self,
         frame: &mut Frame,
-        _app_state: &AppState,
+        app_state: &AppState,
         area: Rect,
         block: Block,
     ) {
-        let content = "📋 Jobs Management\n\nThis panel shows comprehensive job management\nfeatures including:\n\n• Browse available jobs\n• Create new job postings\n• Manage applications\n• Track job progress\n• Handle payments\n\nImplemented in Phase 3.5+";
+        let t = &app_state.ui_state.theme;
+        let role = app_state.user_context.current_role;
+        let jobs = app_state.get_jobs_sorted();
+        let selected = app_state
+            .ui_state
+            .selections
+            .get("Jobs")
+            .copied()
+            .unwrap_or(0);
+
+        let role_header = match role {
+            UserRole::Client => "Your Posted Jobs",
+            UserRole::Freelancer => "Available & Assigned Jobs",
+            UserRole::Arbiter => "Jobs with Disputes",
+            UserRole::Admin => "All Platform Jobs",
+            UserRole::Treasury => "Financial Overview",
+            _ => "Jobs",
+        };
+
+        let mut lines = Vec::new();
+        lines.push(Line::from(Span::styled(
+            role_header,
+            Style::default().fg(t.accent).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        if jobs.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "No jobs available for this role.",
+                Style::default().fg(t.muted),
+            )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Press 'c' to create a new job",
+                Style::default().fg(t.muted),
+            )));
+        } else {
+            for (i, (_pk, job)) in jobs.iter().enumerate() {
+                let is_selected = i == selected;
+                let prefix = if is_selected { "▶ " } else { "  " };
+                let style = if is_selected {
+                    Style::default()
+                        .fg(t.bg)
+                        .bg(t.highlight)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(t.fg).bg(t.bg)
+                };
+
+                let status_color = t.status_color(&job.status);
+                let amount_sol = job.amount as f64 / 1_000_000_000.0;
+
+                lines.push(Line::from(vec![
+                    Span::raw(prefix),
+                    Span::styled(format!("#{} ", job.job_id), Style::default().fg(t.muted)),
+                    Span::styled(&job.title, style),
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("{:.1} SOL", amount_sol),
+                        Style::default().fg(t.success),
+                    ),
+                    Span::raw(" "),
+                    Span::styled(
+                        format!("{:?}", job.status),
+                        Style::default().fg(status_color),
+                    ),
+                ]));
+            }
+        }
 
         frame.render_widget(
-            Paragraph::new(content)
+            Paragraph::new(lines)
                 .block(block)
                 .wrap(ratatui::widgets::Wrap { trim: true }),
             area,
@@ -1140,22 +1211,182 @@ impl DashboardLayout {
         block: Block,
     ) {
         let content = format!(
-            "⚙️  Settings\n\n\
+            "Settings\n\n\
             Network Configuration:\n\
-            • Cluster: {}\n\
-            • RPC URL: {}\n\n\
+            - Cluster: {}\n\
+            - RPC URL: {}\n\n\
             Layout Configuration:\n\
-            • Terminal Size: {:?}\n\
-            • Panel Layout: Three-panel\n\
-            • Theme: Default\n\n\
-            Advanced settings in Phase 3.5+",
+            - Terminal Size: {:?}\n\
+            - Panel Layout: Three-panel\n\
+            - Theme: Default\n\n\
+            Role: {}\n\
+            Press 1-5 to switch role",
             app_state.get_network_name(),
             app_state.get_rpc_url(),
-            self.config.size
+            self.config.size,
+            app_state.user_context.current_role.display_name()
         );
 
         frame.render_widget(
             Paragraph::new(content)
+                .block(block)
+                .wrap(ratatui::widgets::Wrap { trim: true }),
+            area,
+        );
+    }
+
+    fn render_balances_content(
+        &self,
+        frame: &mut Frame,
+        app_state: &AppState,
+        area: Rect,
+        block: Block,
+    ) {
+        let role = app_state.user_context.current_role;
+        let total_jobs = app_state.data_state.jobs.len();
+        let active_jobs = app_state.get_active_jobs_count();
+        let completed_jobs = app_state.get_completed_jobs_count();
+        let disputed_jobs = app_state.get_disputed_jobs_count();
+        let total_treasury = app_state.get_total_treasury();
+
+        let mut lines = Vec::new();
+        lines.push(Line::from(Span::styled(
+            "Account Balances",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("Role: ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                role.display_name(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Wallet: ", Style::default().fg(Color::Yellow)),
+            Span::raw(
+                app_state
+                    .get_wallet_address()
+                    .chars()
+                    .take(16)
+                    .collect::<String>()
+                    + "...",
+            ),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("Balance: ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                app_state.get_balance_string_sync(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Platform Stats:",
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::from(format!("  Total Jobs: {}", total_jobs)));
+        lines.push(Line::from(format!("  Active Jobs: {}", active_jobs)));
+        lines.push(Line::from(format!("  Completed: {}", completed_jobs)));
+        lines.push(Line::from(format!("  Disputed: {}", disputed_jobs)));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("Treasury: ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                format!("{:.2} SOL", total_treasury as f64 / 1_000_000_000.0),
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+
+        frame.render_widget(
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(ratatui::widgets::Wrap { trim: true }),
+            area,
+        );
+    }
+
+    fn render_change_role_content(
+        &self,
+        frame: &mut Frame,
+        app_state: &AppState,
+        area: Rect,
+        block: Block,
+    ) {
+        let current_role = app_state.user_context.current_role;
+        let roles = UserRole::selectable();
+        let role_icons = ["1", "2", "3", "4", "5"];
+        let role_colors = [
+            Color::Red,
+            Color::Blue,
+            Color::Green,
+            Color::Yellow,
+            Color::Magenta,
+        ];
+
+        let mut lines = Vec::new();
+        lines.push(Line::from(Span::styled(
+            "Switch Role",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("Current: ", Style::default().fg(Color::Yellow)),
+            Span::styled(
+                current_role.display_name(),
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Available Roles:",
+            Style::default().fg(Color::White),
+        )));
+        lines.push(Line::from(""));
+
+        for (i, role) in roles.iter().enumerate() {
+            let is_current = *role == current_role;
+            let prefix = if is_current { "  " } else { "  " };
+            let indicator = if is_current { " <-- current" } else { "" };
+            let style = if is_current {
+                Style::default()
+                    .fg(role_colors[i])
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            lines.push(Line::from(vec![
+                Span::raw(prefix),
+                Span::styled(
+                    format!("[{}] ", role_icons[i]),
+                    Style::default().fg(role_colors[i]),
+                ),
+                Span::styled(format!("{}", role.display_name()), style),
+                Span::styled(indicator, Style::default().fg(Color::DarkGray)),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "Press 1-5 to switch role",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        frame.render_widget(
+            Paragraph::new(lines)
                 .block(block)
                 .wrap(ratatui::widgets::Wrap { trim: true }),
             area,
@@ -1356,6 +1587,279 @@ impl DashboardLayout {
 
     // Helper methods
 
+    /// Render the role selection screen (full screen)
+    fn render_role_selection(&self, frame: &mut Frame, app_state: &AppState) {
+        use ratatui::widgets::Clear;
+        let area = frame.area();
+
+        // Clear the screen
+        frame.render_widget(Clear, area);
+
+        let selected = app_state.ui_state.role_selection.selected_index;
+        let roles = UserRole::selectable();
+
+        let mut lines = Vec::new();
+
+        // ASCII art banner
+        lines.push(Line::from(Span::styled(
+            "╔══════════════════════════════════════════════════════════════╗",
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::from(Span::styled(
+            "║                                                              ║",
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::from(vec![
+            Span::styled("║     ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                "🔷 TRUST WORK ESCROW v2 🔷",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("               ║", Style::default().fg(Color::Cyan)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("║       ", Style::default().fg(Color::Cyan)),
+            Span::styled(
+                "Decentralized Freelance Platform",
+                Style::default().fg(Color::White),
+            ),
+            Span::styled("       ║", Style::default().fg(Color::Cyan)),
+        ]));
+        lines.push(Line::from(Span::styled(
+            "║                                                              ║",
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::from(Span::styled(
+            "╚══════════════════════════════════════════════════════════════╝",
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "                    SELECT YOUR ROLE",
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        // Role options
+        let role_icons = ["👑", "💼", "💻", "⚖️ ", "💰"];
+        let role_colors = [
+            Color::Red,
+            Color::Blue,
+            Color::Green,
+            Color::Yellow,
+            Color::Magenta,
+        ];
+        let role_descs = [
+            "Full platform access, manage all jobs & users",
+            "Post jobs, approve work, release funds",
+            "Browse jobs, apply, submit work & earn",
+            "Resolve disputes between clients & freelancers",
+            "Platform financial overview & treasury",
+        ];
+
+        for (i, role) in roles.iter().enumerate() {
+            let is_selected = i == selected;
+            let prefix = if is_selected { " ▶ " } else { "   " };
+            let style = if is_selected {
+                Style::default()
+                    .fg(role_colors[i])
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            let num = (i + 1).to_string();
+
+            lines.push(Line::from(vec![
+                Span::raw("          "),
+                Span::styled(prefix, style),
+                Span::styled(format!("[{}] ", num), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("{} ", role_icons[i]), style),
+                Span::styled(format!("{:<12}", role.display_name()), style),
+                Span::raw("  "),
+                Span::styled(
+                    role_descs[i],
+                    if is_selected {
+                        Style::default().fg(Color::White)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    },
+                ),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "         Press 1-5 for quick select, or ↑↓ + Enter",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let paragraph = Paragraph::new(lines)
+            .alignment(ratatui::layout::Alignment::Left)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Rounded)
+                    .border_style(Style::default().fg(Color::Cyan)),
+            );
+
+        // Center the content
+        let vertical_chunks = Layout::vertical([
+            Constraint::Percentage(15),
+            Constraint::Min(20),
+            Constraint::Percentage(15),
+        ])
+        .split(area);
+
+        frame.render_widget(paragraph, vertical_chunks[1]);
+    }
+
+    /// Render the create job form as an overlay
+    fn render_create_job_form(&self, frame: &mut Frame, app_state: &AppState) {
+        use ratatui::widgets::Clear;
+
+        let form = &app_state.ui_state.create_job_form;
+        let modal_area = self.config.calculate_modal_area(60, 18);
+
+        // Clear background
+        frame.render_widget(Clear, modal_area);
+
+        let mut lines = Vec::new();
+        lines.push(Line::from(Span::styled(
+            "Create New Job",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        let fields = ["Title", "Description", "Amount (SOL)"];
+        for (i, field) in fields.iter().enumerate() {
+            let is_active = i == form.active_field;
+            let value = form.get_field_value(i);
+
+            let label_style = if is_active {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let cursor = if is_active { "▶ " } else { "  " };
+            let display_value = if value.is_empty() {
+                "(empty)".to_string()
+            } else {
+                value.to_string()
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("{}{}: ", cursor, field), label_style),
+                Span::styled(
+                    display_value,
+                    if is_active {
+                        Style::default().fg(Color::Green)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    },
+                ),
+            ]));
+            lines.push(Line::from(""));
+        }
+
+        lines.push(Line::from(Span::styled(
+            "Tab/↑↓: Navigate | Enter: Submit | Esc: Cancel",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let block = Block::default()
+            .title(" Create Job ")
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .border_style(Style::default().fg(Color::Green));
+
+        frame.render_widget(
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(ratatui::widgets::Wrap { trim: true }),
+            modal_area,
+        );
+    }
+
+    /// Render context menu overlay for job actions
+    fn render_context_menu_overlay(
+        &self,
+        frame: &mut Frame,
+        ctx_menu: &crate::app::state::JobContextMenu,
+        _app_state: &AppState,
+    ) {
+        use ratatui::widgets::Clear;
+
+        let menu_height = (ctx_menu.actions.len() + 4) as u16;
+        let modal_area = self.config.calculate_modal_area(40, menu_height);
+
+        // Clear background
+        frame.render_widget(Clear, modal_area);
+
+        let mut lines = Vec::new();
+        lines.push(Line::from(Span::styled(
+            format!("Actions for: {}", ctx_menu.job_title),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        for (i, action) in ctx_menu.actions.iter().enumerate() {
+            let is_selected = i == ctx_menu.selected_index;
+            let prefix = if is_selected { "▶ " } else { "  " };
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            lines.push(Line::from(vec![
+                Span::raw(prefix),
+                Span::styled(&action.label, style),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "↑↓: Navigate | Enter: Confirm | Esc: Cancel",
+            Style::default().fg(Color::DarkGray),
+        )));
+
+        let block = Block::default()
+            .title(" Job Actions ")
+            .title_style(
+                Style::default()
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .borders(Borders::ALL)
+            .border_type(BorderType::Double)
+            .border_style(Style::default().fg(Color::Magenta));
+
+        frame.render_widget(
+            Paragraph::new(lines)
+                .block(block)
+                .wrap(ratatui::widgets::Wrap { trim: true }),
+            modal_area,
+        );
+    }
+
     fn get_connection_style(&self, status: ConnectionStatus) -> Style {
         match status {
             ConnectionStatus::Connected => Style::default().fg(Color::Green),
@@ -1367,16 +1871,8 @@ impl DashboardLayout {
     }
 
     fn get_keyboard_shortcuts(&self, app_state: &AppState) -> String {
-        let base_shortcuts = "Tab:Navigate q:Quit r:Refresh h:Help";
-
-        let view_shortcuts = match app_state.ui_state.current_view {
-            AppView::Dashboard => " d:Dashboard j:Jobs p:Profile",
-            AppView::Jobs => " Enter:Details n:New +: Apply",
-            AppView::Profile => " e:Edit s:Settings",
-            _ => " d:Dashboard j:Jobs p:Profile s:Settings",
-        };
-
-        format!("{}{}", base_shortcuts, view_shortcuts)
+        let role = app_state.user_context.current_role;
+        "Up/Down:Navigate Menu | Enter:Select | 1-5:Switch Role | Esc:Back | q:Quit".to_string()
     }
 
     /// Get the layout configuration

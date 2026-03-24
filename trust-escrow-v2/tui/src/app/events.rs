@@ -508,22 +508,7 @@ impl EventHandler {
                 Some(AppEvent::Navigation(NavigationEvent::End))
             }
             
-            // View navigation
-            (KeyCode::Char('1'), KeyModifiers::NONE) => {
-                Some(AppEvent::Navigation(NavigationEvent::GoTo(ViewTarget::Dashboard)))
-            }
-            (KeyCode::Char('2'), KeyModifiers::NONE) => {
-                Some(AppEvent::Navigation(NavigationEvent::GoTo(ViewTarget::Jobs)))
-            }
-            (KeyCode::Char('3'), KeyModifiers::NONE) => {
-                Some(AppEvent::Navigation(NavigationEvent::GoTo(ViewTarget::Profile)))
-            }
-            (KeyCode::Char('4'), KeyModifiers::NONE) => {
-                Some(AppEvent::Navigation(NavigationEvent::GoTo(ViewTarget::Teams)))
-            }
-            (KeyCode::Char('5'), KeyModifiers::NONE) => {
-                Some(AppEvent::Navigation(NavigationEvent::GoTo(ViewTarget::Settings)))
-            }
+            // View navigation with number keys REMOVED - now used for role switching (1-5)
             
             // UI actions
             (KeyCode::Char('r'), KeyModifiers::NONE) => {

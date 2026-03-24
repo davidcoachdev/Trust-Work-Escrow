@@ -21,9 +21,70 @@ use trust_escrow_sdk::types::{
 
 use super::config::TuiConfig;
 
+use ratatui::style::Color;
+
+/// Theme for consistent UI colors
+#[derive(Clone, Debug)]
+pub struct Theme {
+    pub name: &'static str,
+    pub bg: Color,
+    pub fg: Color,
+    pub accent: Color,
+    pub highlight: Color,
+    pub border: Color,
+    pub title: Color,
+    pub muted: Color,
+    pub success: Color,
+    pub error: Color,
+    pub warning: Color,
+}
+
+impl Theme {
+    pub fn dark() -> Self {
+        Self {
+            name: "dark",
+            bg: Color::Rgb(26, 26, 46),
+            fg: Color::Rgb(224, 224, 224),
+            accent: Color::Rgb(0, 212, 255),
+            highlight: Color::Rgb(100, 100, 200),
+            border: Color::Rgb(80, 80, 120),
+            title: Color::Rgb(0, 212, 255),
+            muted: Color::Rgb(100, 100, 130),
+            success: Color::Rgb(80, 250, 123),
+            error: Color::Rgb(255, 85, 85),
+            warning: Color::Rgb(255, 183, 77),
+        }
+    }
+
+    pub fn role_color(&self, role: UserRole) -> Color {
+        match role {
+            UserRole::Admin => Color::Rgb(255, 85, 85),
+            UserRole::Client => Color::Rgb(0, 212, 255),
+            UserRole::Freelancer => Color::Rgb(80, 250, 123),
+            UserRole::Arbiter => Color::Rgb(255, 183, 77),
+            UserRole::Treasury => Color::Rgb(200, 130, 255),
+            _ => Color::White,
+        }
+    }
+
+    pub fn status_color(&self, status: &JobStatus) -> Color {
+        match status {
+            JobStatus::Created => self.muted,
+            JobStatus::ApplicationsOpen => Color::Rgb(0, 212, 255),
+            JobStatus::InProgress => self.warning,
+            JobStatus::Submitted => Color::Rgb(200, 130, 255),
+            JobStatus::Approved => self.success,
+            JobStatus::Cancelled => self.error,
+            JobStatus::Disputed => self.error,
+            JobStatus::Resolved => self.success,
+        }
+    }
+}
+
 /// Different views/screens in the TUI (comprehensive state version)
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum AppView {
+    RoleSelection,
     Welcome,
     Dashboard,
     Jobs,
@@ -35,6 +96,109 @@ pub enum AppView {
     Help,
     Disputes,
     Milestones,
+}
+
+/// Actions triggered by menu items (role-specific)
+#[derive(Debug, Clone, PartialEq)]
+pub enum MenuAction {
+    // Admin
+    InitializeConfig,
+    PauseProgram,
+    UnpauseProgram,
+    // Client
+    CreateJob,
+    DepositFunds,
+    ApproveWork,
+    RejectWork,
+    UpdateJob,
+    CancelJob,
+    // Freelancer
+    AcceptJob,
+    SubmitWork,
+    RaiseDispute,
+    // Arbiter
+    ResolveDispute,
+    // Treasury
+    WithdrawFunds,
+    // Common
+    ShowJob,
+    ViewBalances,
+    ChangeRole,
+    Settings,
+}
+
+/// A menu item shown in the left panel
+#[derive(Debug, Clone)]
+pub struct MenuItem {
+    pub label: String,
+    pub action: MenuAction,
+}
+
+impl MenuItem {
+    pub fn new(label: impl Into<String>, action: MenuAction) -> Self {
+        Self {
+            label: label.into(),
+            action,
+        }
+    }
+}
+
+impl UserRole {
+    /// Get menu items for this role (matching original TUI structure)
+    pub fn menu_items(&self) -> Vec<MenuItem> {
+        match self {
+            UserRole::Admin => vec![
+                MenuItem::new("[0] Initialize Config", MenuAction::InitializeConfig),
+                MenuItem::new("[1] Pause Program", MenuAction::PauseProgram),
+                MenuItem::new("[2] Unpause Program", MenuAction::UnpauseProgram),
+                MenuItem::new("[3] Show Job", MenuAction::ShowJob),
+                MenuItem::new("[4] View Balances", MenuAction::ViewBalances),
+                MenuItem::new("[5] Change Role", MenuAction::ChangeRole),
+                MenuItem::new("[6] Settings", MenuAction::Settings),
+            ],
+            UserRole::Client => vec![
+                MenuItem::new("[0] Create Job", MenuAction::CreateJob),
+                MenuItem::new("[1] Deposit Funds", MenuAction::DepositFunds),
+                MenuItem::new("[2] Approve Work", MenuAction::ApproveWork),
+                MenuItem::new("[3] Reject Work", MenuAction::RejectWork),
+                MenuItem::new("[4] Update Job", MenuAction::UpdateJob),
+                MenuItem::new("[5] Cancel Job", MenuAction::CancelJob),
+                MenuItem::new("[6] Show Job", MenuAction::ShowJob),
+                MenuItem::new("[7] View Balances", MenuAction::ViewBalances),
+                MenuItem::new("[8] Change Role", MenuAction::ChangeRole),
+                MenuItem::new("[9] Settings", MenuAction::Settings),
+            ],
+            UserRole::Freelancer => vec![
+                MenuItem::new("[0] Accept Job", MenuAction::AcceptJob),
+                MenuItem::new("[1] Submit Work", MenuAction::SubmitWork),
+                MenuItem::new("[2] Raise Dispute", MenuAction::RaiseDispute),
+                MenuItem::new("[3] Show Job", MenuAction::ShowJob),
+                MenuItem::new("[4] View Balances", MenuAction::ViewBalances),
+                MenuItem::new("[5] Change Role", MenuAction::ChangeRole),
+                MenuItem::new("[6] Settings", MenuAction::Settings),
+            ],
+            UserRole::Arbiter => vec![
+                MenuItem::new("[0] Resolve Dispute", MenuAction::ResolveDispute),
+                MenuItem::new("[1] Show Job", MenuAction::ShowJob),
+                MenuItem::new("[2] View Balances", MenuAction::ViewBalances),
+                MenuItem::new("[3] Change Role", MenuAction::ChangeRole),
+                MenuItem::new("[4] Settings", MenuAction::Settings),
+            ],
+            UserRole::Treasury => vec![
+                MenuItem::new("[0] Withdraw Funds", MenuAction::WithdrawFunds),
+                MenuItem::new("[1] Show Job", MenuAction::ShowJob),
+                MenuItem::new("[2] View Balances", MenuAction::ViewBalances),
+                MenuItem::new("[3] Change Role", MenuAction::ChangeRole),
+                MenuItem::new("[4] Settings", MenuAction::Settings),
+            ],
+            _ => vec![
+                MenuItem::new("[0] Show Job", MenuAction::ShowJob),
+                MenuItem::new("[1] View Balances", MenuAction::ViewBalances),
+                MenuItem::new("[2] Change Role", MenuAction::ChangeRole),
+                MenuItem::new("[3] Settings", MenuAction::Settings),
+            ],
+        }
+    }
 }
 
 /// Main application state - the central hub for all TUI data and interactions
@@ -104,6 +268,115 @@ pub enum UserRole {
     TeamMember,     // Part of a team
     TeamOwner,      // Owns a team
     Arbiter,        // Dispute resolver
+    Admin,          // Platform admin
+    Treasury,       // Financial overview
+}
+
+impl UserRole {
+    /// Get all selectable roles (for role selection screen)
+    pub fn selectable() -> &'static [UserRole] {
+        &[UserRole::Admin, UserRole::Client, UserRole::Freelancer, UserRole::Arbiter, UserRole::Treasury]
+    }
+
+    /// Get display name
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            UserRole::Guest => "Guest",
+            UserRole::Freelancer => "Freelancer",
+            UserRole::Client => "Client",
+            UserRole::TeamMember => "Team Member",
+            UserRole::TeamOwner => "Team Owner",
+            UserRole::Arbiter => "Arbiter",
+            UserRole::Admin => "Admin",
+            UserRole::Treasury => "Treasury",
+        }
+    }
+
+    /// Get role color name for UI
+    pub fn color_name(&self) -> &'static str {
+        match self {
+            UserRole::Admin => "Red",
+            UserRole::Client => "Blue",
+            UserRole::Freelancer => "Green",
+            UserRole::Arbiter => "Yellow",
+            UserRole::Treasury => "Magenta",
+            _ => "White",
+        }
+    }
+
+    /// Get the number key (1-5) for this role
+    pub fn number_key(&self) -> Option<u8> {
+        match self {
+            UserRole::Admin => Some(1),
+            UserRole::Client => Some(2),
+            UserRole::Freelancer => Some(3),
+            UserRole::Arbiter => Some(4),
+            UserRole::Treasury => Some(5),
+            _ => None,
+        }
+    }
+
+    /// Get role from number key (1-5)
+    pub fn from_number(n: u8) -> Option<UserRole> {
+        match n {
+            1 => Some(UserRole::Admin),
+            2 => Some(UserRole::Client),
+            3 => Some(UserRole::Freelancer),
+            4 => Some(UserRole::Arbiter),
+            5 => Some(UserRole::Treasury),
+            _ => None,
+        }
+    }
+
+    /// Cycle to the next role
+    pub fn next(&self) -> UserRole {
+        let roles = Self::selectable();
+        let idx = roles.iter().position(|r| r == self).unwrap_or(0);
+        roles[(idx + 1) % roles.len()]
+    }
+
+    /// Get mock user data for this role
+    pub fn mock_user_data(&self) -> MockUserData {
+        match self {
+            UserRole::Admin => MockUserData {
+                name: "Platform Admin".to_string(),
+                bio: "Trust Work Escrow platform administrator".to_string(),
+                balance: 100_000_000_000, // 100 SOL
+            },
+            UserRole::Client => MockUserData {
+                name: "Alice Client".to_string(),
+                bio: "Startup founder posting jobs".to_string(),
+                balance: 25_000_000_000, // 25 SOL
+            },
+            UserRole::Freelancer => MockUserData {
+                name: "Bob Freelancer".to_string(),
+                bio: "Full-stack developer accepting jobs".to_string(),
+                balance: 8_000_000_000, // 8 SOL
+            },
+            UserRole::Arbiter => MockUserData {
+                name: "Carol Arbiter".to_string(),
+                bio: "Experienced dispute resolver".to_string(),
+                balance: 15_000_000_000, // 15 SOL
+            },
+            UserRole::Treasury => MockUserData {
+                name: "Treasury Manager".to_string(),
+                bio: "Platform financial overview".to_string(),
+                balance: 500_000_000_000, // 500 SOL
+            },
+            _ => MockUserData {
+                name: "Guest".to_string(),
+                bio: "Not authenticated".to_string(),
+                balance: 0,
+            },
+        }
+    }
+}
+
+/// Mock user data for a role
+pub struct MockUserData {
+    pub name: String,
+    pub bio: String,
+    pub balance: u64,
 }
 
 /// User permissions for different actions
@@ -350,6 +623,46 @@ pub struct UIState {
     
     /// Current input buffer
     pub input_buffer: String,
+
+    /// Role selection state
+    pub role_selection: RoleSelectionState,
+
+    /// Create job form state
+    pub create_job_form: CreateJobForm,
+
+    /// Job context menu state
+    pub job_context_menu: Option<JobContextMenu>,
+
+    /// Currently selected menu item index (left panel)
+    pub menu_selection: usize,
+
+    /// Current menu items based on role
+    pub menu_items: Vec<MenuItem>,
+
+    /// Current center panel content description
+    pub center_content: CenterContent,
+
+    /// UI Theme
+    pub theme: Theme,
+}
+
+/// What the center panel currently shows
+#[derive(Debug, Clone, PartialEq)]
+pub enum CenterContent {
+    Dashboard,
+    JobList,
+    Balances,
+    Settings,
+    CreateJobForm,
+    ShowJob,
+    ChangeRole,
+    Empty,
+}
+
+impl Default for CenterContent {
+    fn default() -> Self {
+        CenterContent::Dashboard
+    }
 }
 
 /// UI focus tracking
@@ -434,6 +747,191 @@ pub enum InputMode {
     Normal,     // Navigation mode
     Insert,     // Text input mode
     Command,    // Command mode
+    RoleSelect, // Role selection screen
+    Form,       // Form input mode
+    ContextMenu, // Context menu active
+}
+
+/// Create Job form state
+#[derive(Debug, Clone)]
+pub struct CreateJobForm {
+    pub title: String,
+    pub description: String,
+    pub amount: String,
+    pub active_field: usize,
+    pub submitted: bool,
+    pub success_message: Option<String>,
+}
+
+impl CreateJobForm {
+    pub fn new() -> Self {
+        Self {
+            title: String::new(),
+            description: String::new(),
+            amount: String::new(),
+            active_field: 0,
+            submitted: false,
+            success_message: None,
+        }
+    }
+
+    pub fn fields() -> &'static [&'static str] {
+        &["Title", "Description", "Amount (SOL)"]
+    }
+
+    pub fn field_count() -> usize {
+        3
+    }
+
+    pub fn get_field_value(&self, idx: usize) -> &str {
+        match idx {
+            0 => &self.title,
+            1 => &self.description,
+            2 => &self.amount,
+            _ => "",
+        }
+    }
+
+    pub fn get_field_value_mut(&mut self, idx: usize) -> &mut String {
+        match idx {
+            0 => &mut self.title,
+            1 => &mut self.description,
+            2 => &mut self.amount,
+            _ => panic!("invalid field index"),
+        }
+    }
+
+    pub fn next_field(&mut self) {
+        self.active_field = (self.active_field + 1) % Self::field_count();
+    }
+
+    pub fn prev_field(&mut self) {
+        self.active_field = if self.active_field > 0 {
+            self.active_field - 1
+        } else {
+            Self::field_count() - 1
+        };
+    }
+
+    pub fn reset(&mut self) {
+        self.title.clear();
+        self.description.clear();
+        self.amount.clear();
+        self.active_field = 0;
+        self.submitted = false;
+        self.success_message = None;
+    }
+}
+
+/// Context menu state for job actions
+#[derive(Debug, Clone)]
+pub struct JobContextMenu {
+    pub selected_index: usize,
+    pub actions: Vec<ContextMenuAction>,
+    pub job_pubkey: Option<Pubkey>,
+    pub job_title: String,
+    pub completed_message: Option<String>,
+}
+
+/// Actions available in the context menu
+#[derive(Debug, Clone)]
+pub struct ContextMenuAction {
+    pub label: String,
+    pub action_type: ContextActionType,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ContextActionType {
+    ReleaseFunds,
+    RaiseDispute,
+    ViewDetails,
+    SubmitWork,
+    Abandon,
+    ResolveDispute,
+}
+
+impl JobContextMenu {
+    pub fn new_for_role(role: UserRole, job_title: String) -> Self {
+        let actions = match role {
+            UserRole::Client => vec![
+                ContextMenuAction { label: "Release Funds".to_string(), action_type: ContextActionType::ReleaseFunds },
+                ContextMenuAction { label: "Raise Dispute".to_string(), action_type: ContextActionType::RaiseDispute },
+                ContextMenuAction { label: "View Details".to_string(), action_type: ContextActionType::ViewDetails },
+            ],
+            UserRole::Freelancer => vec![
+                ContextMenuAction { label: "Submit Work".to_string(), action_type: ContextActionType::SubmitWork },
+                ContextMenuAction { label: "View Details".to_string(), action_type: ContextActionType::ViewDetails },
+                ContextMenuAction { label: "Abandon".to_string(), action_type: ContextActionType::Abandon },
+            ],
+            UserRole::Arbiter => vec![
+                ContextMenuAction { label: "Resolve Dispute".to_string(), action_type: ContextActionType::ResolveDispute },
+                ContextMenuAction { label: "View Details".to_string(), action_type: ContextActionType::ViewDetails },
+            ],
+            UserRole::Admin => vec![
+                ContextMenuAction { label: "Release Funds".to_string(), action_type: ContextActionType::ReleaseFunds },
+                ContextMenuAction { label: "Raise Dispute".to_string(), action_type: ContextActionType::RaiseDispute },
+                ContextMenuAction { label: "Submit Work".to_string(), action_type: ContextActionType::SubmitWork },
+                ContextMenuAction { label: "Resolve Dispute".to_string(), action_type: ContextActionType::ResolveDispute },
+                ContextMenuAction { label: "View Details".to_string(), action_type: ContextActionType::ViewDetails },
+            ],
+            _ => vec![
+                ContextMenuAction { label: "View Details".to_string(), action_type: ContextActionType::ViewDetails },
+            ],
+        };
+
+        Self {
+            selected_index: 0,
+            actions,
+            job_pubkey: None,
+            job_title,
+            completed_message: None,
+        }
+    }
+
+    pub fn move_up(&mut self) {
+        if self.selected_index > 0 {
+            self.selected_index -= 1;
+        } else {
+            self.selected_index = self.actions.len() - 1;
+        }
+    }
+
+    pub fn move_down(&mut self) {
+        self.selected_index = (self.selected_index + 1) % self.actions.len();
+    }
+
+    pub fn get_selected_action(&self) -> Option<&ContextMenuAction> {
+        self.actions.get(self.selected_index)
+    }
+}
+
+/// Role selection state
+#[derive(Debug, Clone)]
+pub struct RoleSelectionState {
+    pub selected_index: usize,
+}
+
+impl RoleSelectionState {
+    pub fn new() -> Self {
+        Self { selected_index: 0 }
+    }
+
+    pub fn move_up(&mut self) {
+        if self.selected_index > 0 {
+            self.selected_index -= 1;
+        } else {
+            self.selected_index = UserRole::selectable().len() - 1;
+        }
+    }
+
+    pub fn move_down(&mut self) {
+        let max = UserRole::selectable().len();
+        self.selected_index = (self.selected_index + 1) % max;
+    }
+
+    pub fn get_selected_role(&self) -> UserRole {
+        UserRole::selectable()[self.selected_index]
+    }
 }
 
 /// Performance and caching state
@@ -513,11 +1011,20 @@ impl AppState {
         
         self.mock_mode = true;
         
-        // Mock user
+        // Default to Freelancer role
+        self.load_role_data(UserRole::Freelancer);
+    }
+
+    /// Load role-specific mock data
+    pub fn load_role_data(&mut self, role: UserRole) {
+        use solana_sdk::pubkey::Pubkey;
+        use chrono::Utc;
+
+        let user_data = role.mock_user_data();
         let mock_wallet = Pubkey::new_unique();
         let mock_user = User {
-            username: "hackathon_user".to_string(),
-            bio: "Trust Work Escrow demo user".to_string(),
+            username: user_data.name,
+            bio: user_data.bio,
             wallets: vec![mock_wallet],
             active_wallet: mock_wallet,
             created_at: Utc::now().timestamp(),
@@ -526,73 +1033,157 @@ impl AppState {
         };
         self.user_context.current_user = Some(mock_user);
         self.user_context.active_wallet = Some(mock_wallet);
-        self.user_context.wallet_balance = Some(1_000_000_000); // 1 SOL
-        self.user_context.current_role = UserRole::Freelancer;
+        self.user_context.wallet_balance = Some(user_data.balance);
+        self.user_context.current_role = role;
         self.user_context.auth_status = AuthStatus::Authenticated;
-        self.user_context.permissions.update_for_role(UserRole::Freelancer);
-        
-        // Mock jobs
+        self.user_context.permissions.update_for_role(role);
+
+        // Clear existing jobs
+        self.data_state.jobs.clear();
+        self.data_state.disputes.clear();
+
+        // Generate role-specific jobs
         let client1 = Pubkey::new_unique();
         let client2 = Pubkey::new_unique();
-        let freelancer = Pubkey::new_unique();
-        
-        let jobs = vec![
-            Job {
+        let freelancer1 = Pubkey::new_unique();
+        let freelancer2 = Pubkey::new_unique();
+        let _admin_pubkey = mock_wallet;
+
+        let all_jobs = vec![
+            (Pubkey::new_unique(), Job {
                 job_id: 1,
                 client: client1,
-                freelancer: Some(freelancer),
-                title: "Web Development for E-commerce Platform".to_string(),
-                description: "Build a modern e-commerce website with React and Solana integration".to_string(),
-                amount: 5_000_000_000, // 5 SOL
+                freelancer: Some(freelancer1),
+                title: "Web Development for E-commerce".to_string(),
+                description: "Build a modern e-commerce website with React and Solana".to_string(),
+                amount: 5_000_000_000,
                 status: JobStatus::InProgress,
                 created_at: Utc::now().timestamp(),
                 updated_at: Utc::now().timestamp(),
                 bump: 0,
-            },
-            Job {
+            }),
+            (Pubkey::new_unique(), Job {
                 job_id: 2,
                 client: client2,
                 freelancer: None,
                 title: "Smart Contract Audit".to_string(),
                 description: "Comprehensive security audit for DeFi protocol".to_string(),
-                amount: 10_000_000_000, // 10 SOL
+                amount: 10_000_000_000,
                 status: JobStatus::ApplicationsOpen,
                 created_at: Utc::now().timestamp(),
                 updated_at: Utc::now().timestamp(),
                 bump: 0,
-            },
-            Job {
+            }),
+            (Pubkey::new_unique(), Job {
                 job_id: 3,
                 client: client1,
-                freelancer: Some(freelancer),
+                freelancer: Some(freelancer2),
                 title: "UI/UX Design for Mobile App".to_string(),
-                description: "Create modern, responsive design for fintech mobile application".to_string(),
-                amount: 3_000_000_000, // 3 SOL
+                description: "Create modern responsive design for fintech app".to_string(),
+                amount: 3_000_000_000,
                 status: JobStatus::Submitted,
                 created_at: Utc::now().timestamp(),
                 updated_at: Utc::now().timestamp(),
                 bump: 0,
-            },
-            Job {
+            }),
+            (Pubkey::new_unique(), Job {
                 job_id: 4,
                 client: client2,
-                freelancer: None,
+                freelancer: Some(freelancer1),
                 title: "Backend API Development".to_string(),
                 description: "Build RESTful API with Node.js and PostgreSQL".to_string(),
-                amount: 7_000_000_000, // 7 SOL
+                amount: 7_000_000_000,
+                status: JobStatus::Disputed,
+                created_at: Utc::now().timestamp(),
+                updated_at: Utc::now().timestamp(),
+                bump: 0,
+            }),
+            (Pubkey::new_unique(), Job {
+                job_id: 5,
+                client: client1,
+                freelancer: None,
+                title: "Landing Page Design".to_string(),
+                description: "Design and implement a high-converting landing page".to_string(),
+                amount: 2_000_000_000,
                 status: JobStatus::Created,
                 created_at: Utc::now().timestamp(),
                 updated_at: Utc::now().timestamp(),
                 bump: 0,
-            },
+            }),
+            (Pubkey::new_unique(), Job {
+                job_id: 6,
+                client: client2,
+                freelancer: Some(freelancer2),
+                title: "Mobile App Development".to_string(),
+                description: "React Native cross-platform mobile application".to_string(),
+                amount: 15_000_000_000,
+                status: JobStatus::Approved,
+                created_at: Utc::now().timestamp(),
+                updated_at: Utc::now().timestamp(),
+                bump: 0,
+            }),
         ];
-        
-        for job in jobs {
-            let job_pubkey = Pubkey::new_unique();
-            self.data_state.jobs.insert(job_pubkey, job);
+
+        // Filter jobs based on role
+        match role {
+            UserRole::Client => {
+                // Client sees only their posted jobs (using client1 as "our" client)
+                for (pk, job) in &all_jobs {
+                    if job.client == client1 {
+                        self.data_state.jobs.insert(*pk, job.clone());
+                    }
+                }
+            }
+            UserRole::Freelancer => {
+                // Freelancer sees jobs they're working on + available jobs
+                for (pk, job) in &all_jobs {
+                    if job.freelancer == Some(freelancer1) || job.status == JobStatus::ApplicationsOpen || job.status == JobStatus::Created {
+                        self.data_state.jobs.insert(*pk, job.clone());
+                    }
+                }
+            }
+            UserRole::Arbiter => {
+                // Arbiter sees only disputed jobs
+                for (pk, job) in &all_jobs {
+                    if job.status == JobStatus::Disputed {
+                        self.data_state.jobs.insert(*pk, job.clone());
+                    }
+                }
+                // Add mock disputes
+                let dispute = Dispute {
+                    job: all_jobs[3].0,
+                    raised_by: client2,
+                    arbiter: None,
+                    status: DisputeStatus::Open,
+                    evidence: vec![],
+                    reason: "Freelancer missed deadline".to_string(),
+                    created_at: Utc::now().timestamp(),
+                    resolved_at: None,
+                    bump: 0,
+                };
+                self.data_state.disputes.insert(Pubkey::new_unique(), dispute);
+            }
+            UserRole::Admin => {
+                // Admin sees ALL jobs
+                for (pk, job) in all_jobs {
+                    self.data_state.jobs.insert(pk, job);
+                }
+            }
+            UserRole::Treasury => {
+                // Treasury sees all jobs for financial overview
+                for (pk, job) in all_jobs {
+                    self.data_state.jobs.insert(pk, job);
+                }
+            }
+            _ => {
+                // Default: show a few jobs
+                for (pk, job) in all_jobs.into_iter().take(3) {
+                    self.data_state.jobs.insert(pk, job);
+                }
+            }
         }
-        
-        // Mock milestones (for the first job)
+
+        // Mock milestones
         if let Some(job_pubkey) = self.data_state.jobs.keys().next() {
             let milestone1 = Milestone {
                 job: *job_pubkey,
@@ -612,39 +1203,35 @@ impl AppState {
             let milestone_pubkey = Pubkey::new_unique();
             self.data_state.milestones.insert(milestone_pubkey, milestone1);
         }
-        
-        // Mock disputes
-        let dispute = Dispute {
-            job: Pubkey::new_unique(),
-            raised_by: client1,
-            arbiter: None,
-            status: DisputeStatus::Open,
-            evidence: vec![],
-            reason: "Freelancer missed deadline".to_string(),
-            created_at: Utc::now().timestamp(),
-            resolved_at: None,
-            bump: 0,
-        };
-        let dispute_pubkey = Pubkey::new_unique();
-        self.data_state.disputes.insert(dispute_pubkey, dispute);
-        
+
         // Mock notifications
+        self.data_state.notifications.clear();
+        self.add_notification(
+            "Role Changed",
+            &format!("Switched to {} role", role.display_name()),
+            NotificationType::SystemAlert,
+            NotificationPriority::High,
+        );
         self.add_notification(
             "New job posted",
             "A new job 'Smart Contract Audit' has been posted",
             NotificationType::JobUpdate,
             NotificationPriority::Medium,
         );
-        self.add_notification(
-            "Milestone approved",
-            "Your milestone 'Frontend Development' has been approved",
-            NotificationType::MilestoneUpdate,
-            NotificationPriority::Low,
-        );
-        
-        // Update network status to connected for demo
+
+        // Update network status
         self.network_state.rpc_status = ConnectionStatus::Connected;
         self.network_state.last_rpc_success = Some(Instant::now());
+    }
+
+    /// Switch to a new role
+    pub fn switch_role(&mut self, role: UserRole) {
+        self.load_role_data(role);
+        self.ui_state.menu_items = role.menu_items();
+        self.ui_state.menu_selection = 0;
+        self.ui_state.center_content = CenterContent::Dashboard;
+        self.ui_state.current_view = AppView::Dashboard;
+        self.ui_state.input_mode = InputMode::Normal;
     }
     
     /// Handle keyboard input
@@ -653,50 +1240,341 @@ impl AppState {
             InputMode::Normal => self.handle_normal_input(key).await,
             InputMode::Insert => self.handle_insert_input(key).await,
             InputMode::Command => self.handle_command_input(key).await,
+            InputMode::RoleSelect => self.handle_role_select_input(key).await,
+            InputMode::Form => self.handle_form_input(key).await,
+            InputMode::ContextMenu => self.handle_context_menu_input(key).await,
         }
+    }
+
+    /// Handle input in role selection screen
+    async fn handle_role_select_input(&mut self, key: KeyCode) -> Result<()> {
+        match key {
+            KeyCode::Up | KeyCode::Char('k') => {
+                self.ui_state.role_selection.move_up();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                self.ui_state.role_selection.move_down();
+            }
+            KeyCode::Enter => {
+                let role = self.ui_state.role_selection.get_selected_role();
+                self.switch_role(role);
+                self.set_status(&format!("Welcome, {}!", role.display_name()), StatusType::Success);
+            }
+            KeyCode::Char('1') => { self.switch_role(UserRole::Admin); self.set_status("Welcome, Admin!", StatusType::Success); }
+            KeyCode::Char('2') => { self.switch_role(UserRole::Client); self.set_status("Welcome, Client!", StatusType::Success); }
+            KeyCode::Char('3') => { self.switch_role(UserRole::Freelancer); self.set_status("Welcome, Freelancer!", StatusType::Success); }
+            KeyCode::Char('4') => { self.switch_role(UserRole::Arbiter); self.set_status("Welcome, Arbiter!", StatusType::Success); }
+            KeyCode::Char('5') => { self.switch_role(UserRole::Treasury); self.set_status("Welcome, Treasury!", StatusType::Success); }
+            KeyCode::Esc | KeyCode::Char('q') => {
+                // Allow quit from role selection
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Handle input in create job form
+    async fn handle_form_input(&mut self, key: KeyCode) -> Result<()> {
+        match key {
+            KeyCode::Esc => {
+                self.ui_state.create_job_form.reset();
+                self.ui_state.input_mode = InputMode::Normal;
+                self.set_status("Form cancelled", StatusType::Info);
+            }
+            KeyCode::Tab => {
+                self.ui_state.create_job_form.next_field();
+            }
+            KeyCode::BackTab => {
+                self.ui_state.create_job_form.prev_field();
+            }
+            KeyCode::Up => {
+                self.ui_state.create_job_form.prev_field();
+            }
+            KeyCode::Down => {
+                self.ui_state.create_job_form.next_field();
+            }
+            KeyCode::Enter => {
+                // Submit the form
+                let form = &self.ui_state.create_job_form;
+                if !form.title.trim().is_empty() && !form.amount.trim().is_empty() {
+                    let amount: f64 = form.amount.trim().parse().unwrap_or(0.0);
+                    let msg = format!(
+                        "Job Created Successfully: '{}' for {:.2} SOL",
+                        form.title, amount
+                    );
+                    self.ui_state.create_job_form.reset();
+                    self.ui_state.input_mode = InputMode::Normal;
+                    self.set_status(&msg, StatusType::Success);
+                } else {
+                    self.set_status("Please fill in Title and Amount fields", StatusType::Warning);
+                }
+            }
+            KeyCode::Backspace => {
+                let field = self.ui_state.create_job_form.active_field;
+                self.ui_state.create_job_form.get_field_value_mut(field).pop();
+            }
+            KeyCode::Char(c) => {
+                let field = self.ui_state.create_job_form.active_field;
+                self.ui_state.create_job_form.get_field_value_mut(field).push(c);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Handle input in context menu
+    async fn handle_context_menu_input(&mut self, key: KeyCode) -> Result<()> {
+        match key {
+            KeyCode::Esc | KeyCode::Char('q') => {
+                self.ui_state.job_context_menu = None;
+                self.ui_state.input_mode = InputMode::Normal;
+                self.set_status("Action cancelled", StatusType::Info);
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(ref mut menu) = self.ui_state.job_context_menu {
+                    menu.move_up();
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(ref mut menu) = self.ui_state.job_context_menu {
+                    menu.move_down();
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(menu) = self.ui_state.job_context_menu.take() {
+                    if let Some(action) = menu.get_selected_action() {
+                        let msg = match action.action_type {
+                            ContextActionType::ReleaseFunds => format!("Funds Released for '{}' (mock)", menu.job_title),
+                            ContextActionType::RaiseDispute => format!("Dispute Raised for '{}' (mock)", menu.job_title),
+                            ContextActionType::ViewDetails => format!("Viewing details for '{}' (mock)", menu.job_title),
+                            ContextActionType::SubmitWork => format!("Work Submitted for '{}' (mock)", menu.job_title),
+                            ContextActionType::Abandon => format!("Job '{}' abandoned (mock)", menu.job_title),
+                            ContextActionType::ResolveDispute => format!("Dispute Resolved for '{}' (mock)", menu.job_title),
+                        };
+                        self.set_status(&msg, StatusType::Success);
+                    }
+                }
+                self.ui_state.input_mode = InputMode::Normal;
+            }
+            _ => {}
+        }
+        Ok(())
     }
 
     /// Handle input in normal navigation mode
     async fn handle_normal_input(&mut self, key: KeyCode) -> Result<()> {
         match key {
             KeyCode::Char('q') | KeyCode::Esc => {
-                // Handled in main loop
+                // If focus is on main content, go back to menu
+                if self.ui_state.focus == UIFocus::MainContent {
+                    self.ui_state.focus = UIFocus::Menu;
+                    self.set_status("Back to menu", StatusType::Info);
+                }
+                // Otherwise handled in main loop (quit)
             }
-            KeyCode::Char('r') => {
-                self.refresh_connection().await?;
+            KeyCode::Tab => {
+                // Toggle focus between menu and main content
+                if self.ui_state.center_content != CenterContent::Empty
+                    && self.ui_state.center_content != CenterContent::Dashboard
+                {
+                    if self.ui_state.focus == UIFocus::Menu {
+                        self.ui_state.focus = UIFocus::MainContent;
+                        self.set_status("Focus: Main Content (Tab to switch, Esc to go back)", StatusType::Info);
+                    } else {
+                        self.ui_state.focus = UIFocus::Menu;
+                        self.set_status("Focus: Menu", StatusType::Info);
+                    }
+                }
             }
-            KeyCode::Char('c') => {
-                self.check_connection().await?;
+            KeyCode::Up | KeyCode::Char('k') => {
+                match self.ui_state.focus {
+                    UIFocus::Menu | UIFocus::JobList => {
+                        // Move menu selection up
+                        if !self.ui_state.menu_items.is_empty() {
+                            if self.ui_state.menu_selection > 0 {
+                                self.ui_state.menu_selection -= 1;
+                            } else {
+                                self.ui_state.menu_selection = self.ui_state.menu_items.len() - 1;
+                            }
+                        }
+                    }
+                    UIFocus::MainContent => {
+                        // Move job list selection up
+                        let jobs = self.get_jobs_sorted();
+                        if !jobs.is_empty() {
+                            let sel = self.ui_state.selections.entry("Jobs".to_string()).or_insert(0);
+                            if *sel > 0 {
+                                *sel -= 1;
+                            } else {
+                                *sel = jobs.len() - 1;
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                match self.ui_state.focus {
+                    UIFocus::Menu | UIFocus::JobList => {
+                        // Move menu selection down
+                        if !self.ui_state.menu_items.is_empty() {
+                            self.ui_state.menu_selection = (self.ui_state.menu_selection + 1) % self.ui_state.menu_items.len();
+                        }
+                    }
+                    UIFocus::MainContent => {
+                        // Move job list selection down
+                        let jobs = self.get_jobs_sorted();
+                        if !jobs.is_empty() {
+                            let sel = self.ui_state.selections.entry("Jobs".to_string()).or_insert(0);
+                            *sel = (*sel + 1) % jobs.len();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            KeyCode::Enter => {
+                match self.ui_state.focus {
+                    UIFocus::Menu | UIFocus::JobList => {
+                        // Trigger selected menu action
+                        if let Some(item) = self.ui_state.menu_items.get(self.ui_state.menu_selection).cloned() {
+                            self.handle_menu_action(item.action).await?;
+                        }
+                    }
+                    UIFocus::MainContent => {
+                        // Open context menu for selected job
+                        let jobs = self.get_jobs_sorted();
+                        let sel = self.ui_state.selections.get("Jobs").copied().unwrap_or(0);
+                        if let Some((_pk, job)) = jobs.get(sel) {
+                            let menu = JobContextMenu::new_for_role(
+                                self.user_context.current_role,
+                                job.title.clone(),
+                            );
+                            self.ui_state.job_context_menu = Some(menu);
+                            self.ui_state.input_mode = InputMode::ContextMenu;
+                            self.set_status("Select action for job (↑↓ + Enter, Esc to cancel)", StatusType::Info);
+                        }
+                    }
+                    _ => {}
+                }
             }
             KeyCode::Char('h') => {
                 self.show_help();
             }
-            KeyCode::Char('d') => {
-                self.navigate_to(AppView::Dashboard);
+            // Direct role switching with number keys 1-5
+            KeyCode::Char('1') => {
+                self.switch_role(UserRole::Admin);
+                self.set_status("Role changed to: Admin", StatusType::Success);
             }
-            KeyCode::Char('j') => {
-                self.navigate_to(AppView::Jobs);
+            KeyCode::Char('2') => {
+                self.switch_role(UserRole::Client);
+                self.set_status("Role changed to: Client", StatusType::Success);
             }
-            KeyCode::Char('p') => {
-                self.navigate_to(AppView::Profile);
+            KeyCode::Char('3') => {
+                self.switch_role(UserRole::Freelancer);
+                self.set_status("Role changed to: Freelancer", StatusType::Success);
             }
-            KeyCode::Char('s') => {
-                self.navigate_to(AppView::Settings);
+            KeyCode::Char('4') => {
+                self.switch_role(UserRole::Arbiter);
+                self.set_status("Role changed to: Arbiter", StatusType::Success);
             }
-            KeyCode::Up => {
-                self.navigate_up();
+            KeyCode::Char('5') => {
+                self.switch_role(UserRole::Treasury);
+                self.set_status("Role changed to: Treasury", StatusType::Success);
             }
-            KeyCode::Down => {
-                self.navigate_down();
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// Helper: switch focus to main content after selecting a menu item that opens content
+    fn focus_content(&mut self, content: CenterContent) {
+        self.ui_state.center_content = content;
+        self.ui_state.focus = UIFocus::MainContent;
+    }
+
+    /// Handle a menu action triggered by Enter on the left panel
+    async fn handle_menu_action(&mut self, action: MenuAction) -> Result<()> {
+        match action {
+            MenuAction::CreateJob => {
+                self.ui_state.create_job_form.reset();
+                self.ui_state.input_mode = InputMode::Form;
+                self.focus_content(CenterContent::CreateJobForm);
+                self.set_status("Creating new job - fill in the form", StatusType::Info);
             }
-            KeyCode::Enter => {
-                self.select_current().await?;
+            MenuAction::ShowJob => {
+                self.focus_content(CenterContent::ShowJob);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("↑↓ navigate jobs, Enter for actions, Esc back to menu", StatusType::Info);
             }
-            KeyCode::Backspace => {
-                self.navigate_back();
+            MenuAction::ViewBalances => {
+                self.focus_content(CenterContent::Balances);
+                self.set_status("Viewing balances", StatusType::Info);
             }
-            _ => {
-                self.set_status(&format!("❓ Unknown key. Press 'h' for help"), StatusType::Info);
+            MenuAction::ChangeRole => {
+                self.focus_content(CenterContent::ChangeRole);
+                self.set_status("Press 1-5 to switch role", StatusType::Info);
+            }
+            MenuAction::Settings => {
+                self.focus_content(CenterContent::Settings);
+                self.ui_state.current_view = AppView::Settings;
+                self.set_status("Settings", StatusType::Info);
+            }
+            MenuAction::DepositFunds => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Deposit Funds - select a job to deposit", StatusType::Info);
+            }
+            MenuAction::ApproveWork => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Approve Work - select a submitted job", StatusType::Success);
+            }
+            MenuAction::RejectWork => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Reject Work - select a submitted job", StatusType::Warning);
+            }
+            MenuAction::UpdateJob => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Update Job - select a job to update", StatusType::Info);
+            }
+            MenuAction::CancelJob => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Cancel Job - select a job to cancel", StatusType::Warning);
+            }
+            MenuAction::AcceptJob => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Accept Job - select from job list", StatusType::Info);
+            }
+            MenuAction::SubmitWork => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Submit Work - select an in-progress job", StatusType::Info);
+            }
+            MenuAction::RaiseDispute => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Raise Dispute - select a job", StatusType::Warning);
+            }
+            MenuAction::ResolveDispute => {
+                self.focus_content(CenterContent::JobList);
+                self.ui_state.current_view = AppView::Jobs;
+                self.set_status("Resolve Dispute - select a disputed job", StatusType::Info);
+            }
+            MenuAction::WithdrawFunds => {
+                self.set_status("Withdraw Funds selected (mock)", StatusType::Info);
+            }
+            MenuAction::InitializeConfig => {
+                self.set_status("Config initialized (mock)", StatusType::Success);
+            }
+            MenuAction::PauseProgram => {
+                self.set_status("Program paused (mock)", StatusType::Warning);
+            }
+            MenuAction::UnpauseProgram => {
+                self.set_status("Program unpaused (mock)", StatusType::Success);
             }
         }
         Ok(())
@@ -950,8 +1828,14 @@ impl AppState {
             let jobs = self.get_jobs_sorted();
             if let Some((job_pubkey, job)) = jobs.get(*selection) {
                 let job_id = job.job_id;
-                self.navigate_to(AppView::JobDetail(job_id));
-                self.set_status(&format!("Viewing job: {}", job.title), StatusType::Info);
+                let mut menu = JobContextMenu::new_for_role(
+                    self.user_context.current_role,
+                    job.title.clone(),
+                );
+                menu.job_pubkey = Some(*job_pubkey);
+                self.ui_state.job_context_menu = Some(menu);
+                self.ui_state.input_mode = InputMode::ContextMenu;
+                self.set_status(&format!("Actions for: {}", job.title), StatusType::Info);
             } else {
                 self.set_status("No job selected", StatusType::Warning);
             }
@@ -1143,6 +2027,18 @@ impl AppState {
         self.user_context.current_role
     }
 
+    /// Get role description for header display
+    pub fn get_role_description(&self) -> &'static str {
+        match self.user_context.current_role {
+            UserRole::Admin => "Platform Administrator - Full Access",
+            UserRole::Client => "Client - Post jobs, approve work, release funds",
+            UserRole::Freelancer => "Freelancer - Browse jobs, submit work",
+            UserRole::Arbiter => "Arbiter - Resolve disputes",
+            UserRole::Treasury => "Treasury - Financial overview",
+            _ => "Select a role",
+        }
+    }
+
     /// Get loading status for data type
     pub fn get_loading_status(&self, data_type: DataType) -> LoadingStatus {
         match data_type {
@@ -1168,6 +2064,32 @@ impl AppState {
         let mut jobs: Vec<(Pubkey, Job)> = self.data_state.jobs.clone().into_iter().collect();
         jobs.sort_by_key(|(_, job)| job.job_id);
         jobs
+    }
+
+    /// Get total treasury amount (sum of all job amounts)
+    pub fn get_total_treasury(&self) -> u64 {
+        self.data_state.jobs.values().map(|j| j.amount).sum()
+    }
+
+    /// Get active jobs count
+    pub fn get_active_jobs_count(&self) -> usize {
+        self.data_state.jobs.values()
+            .filter(|j| matches!(j.status, JobStatus::InProgress | JobStatus::Submitted | JobStatus::ApplicationsOpen))
+            .count()
+    }
+
+    /// Get completed jobs count
+    pub fn get_completed_jobs_count(&self) -> usize {
+        self.data_state.jobs.values()
+            .filter(|j| j.status == JobStatus::Approved)
+            .count()
+    }
+
+    /// Get disputed jobs count
+    pub fn get_disputed_jobs_count(&self) -> usize {
+        self.data_state.jobs.values()
+            .filter(|j| j.status == JobStatus::Disputed)
+            .count()
     }
 }
 
@@ -1223,19 +2145,26 @@ impl NetworkState {
 impl UIState {
     fn new() -> Self {
         Self {
-            current_view: AppView::Welcome,
+            current_view: AppView::RoleSelection,
             previous_view: None,
             selections: HashMap::new(),
             focus: UIFocus::MainContent,
             navigation_history: VecDeque::new(),
             modal_state: None,
-            status_message: "Initializing...".to_string(),
+            status_message: "Select your role to begin...".to_string(),
             status_type: StatusType::Info,
             status_updated_at: Instant::now(),
             title: "Trust Work Escrow v2".to_string(),
             scroll_states: HashMap::new(),
-            input_mode: InputMode::Normal,
+            input_mode: InputMode::RoleSelect,
             input_buffer: String::new(),
+            role_selection: RoleSelectionState::new(),
+            create_job_form: CreateJobForm::new(),
+            job_context_menu: None,
+            menu_selection: 0,
+            menu_items: Vec::new(),
+            center_content: CenterContent::Empty,
+            theme: Theme::dark(),
         }
     }
 }
@@ -1276,6 +2205,19 @@ impl UserPermissions {
             }
             UserRole::Arbiter => {
                 self.can_resolve_disputes = true;
+                self.can_manage_profile = true;
+            }
+            UserRole::Admin => {
+                self.can_post_jobs = true;
+                self.can_apply_to_jobs = true;
+                self.can_create_teams = true;
+                self.can_submit_work = true;
+                self.can_approve_work = true;
+                self.can_raise_disputes = true;
+                self.can_resolve_disputes = true;
+                self.can_manage_profile = true;
+            }
+            UserRole::Treasury => {
                 self.can_manage_profile = true;
             }
         }

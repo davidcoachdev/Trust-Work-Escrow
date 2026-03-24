@@ -13,7 +13,7 @@ use ratatui::{
     Frame, Terminal,
 };
 use trust_escrow_shared::EscrowConfig;
-use crossterm::event::{KeyEvent, KeyEventKind, KeyEventState};
+use crossterm::event::{KeyCode, KeyModifiers};
 
 mod app;
 mod ui;
@@ -73,8 +73,8 @@ async fn run_app(
     let mut loading_message = "🚀 Inicializando Trust Work Escrow TUI...".to_string();
     let mut loading_progress = 0;
     
-    // Welcome message for Task 3.4 layout system
-    app.set_status("🎯 Trust Work Escrow TUI v2 - Navegación: Tab=Focus, Flechas=Navegar, d=Dashboard, j=Jobs, h=Help, q=quit");
+    // Welcome message
+    app.set_status("Select your role to begin (1-5 or arrows + Enter)");
 
     // Main event loop with enhanced layout support
     loop {
@@ -103,8 +103,8 @@ async fn run_app(
                 };
             } else {
                 loading = false;
-                app.state_mut().navigate_to(app::AppView::Dashboard);
-                app.set_status("🎯 Trust Work Escrow TUI v2 - ¡Conectado! Tab=Focus, Flechas=Navegar, d=Dashboard, j=Jobs, h=Help, q=quit");
+                app.state_mut().navigate_to(app::AppView::RoleSelection);
+                app.set_status("🎯 Select your role (1-5 or arrows + Enter)");
             }
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             continue;
@@ -125,47 +125,19 @@ async fn run_app(
         // Process the event through the application state
         match &event {
             AppEvent::Key(key_input) => {
-                // Handle navigation with NavigationManager first
-                let nav_events = navigation_manager.handle_key_event(
-                    crossterm::event::KeyEvent {
-                        code: key_input.code,
-                        modifiers: key_input.modifiers,
-                        kind: crossterm::event::KeyEventKind::Press,
-                        state: crossterm::event::KeyEventState::empty(),
-                    },
-                    app.get_current_view(),
-                );
-                
-                // Process navigation events
-                for nav_event in &nav_events {
-                    match nav_event {
-                        AppEvent::Navigation(nav_event) => {
-                            handle_navigation_event(&mut app, nav_event).await?;
-                        }
-                        AppEvent::UI(ui_event) => {
-                            handle_ui_event(&mut app, ui_event).await?;
-                        }
-                        _ => {}
-                    }
+                // Handle quit directly
+                if key_input.code == KeyCode::Char('c') && key_input.modifiers.contains(KeyModifiers::CONTROL) {
+                    break;
                 }
-                
-                // If navigation events were generated, continue to next iteration
-                if !nav_events.is_empty() {
-                    continue;
+
+                // q quits when focused on menu (not when in content)
+                if key_input.code == KeyCode::Char('q') && app.state().ui_state.focus == app::UIFocus::Menu {
+                    break;
                 }
-                
-                // Handle layout-specific keyboard shortcuts
-                if handle_layout_shortcuts(key_input, &mut app, &mut navigation_manager).await? {
-                    continue; // Event was handled by layout system
-                }
-                
-                // Process key input and generate high-level events
-                if let Some(processed_event) = event_handler.process_key_input(key_input) {
-                    handle_processed_event(&mut app, &mut event_handler, processed_event).await?;
-                } else {
-                    // Handle legacy key processing for compatibility
-                    app.handle_input(key_input.code).await?;
-                }
+
+                // ALWAYS go directly to handle_input - let the app state handle everything
+                app.handle_input(key_input.code).await?;
+                continue;
             }
             AppEvent::BlockchainUpdate(blockchain_event) => {
                 handle_blockchain_event(&mut app, blockchain_event).await?;
@@ -177,11 +149,9 @@ async fn run_app(
                 handle_ui_event(&mut app, ui_event).await?;
             }
             AppEvent::Resize { width, height } => {
-                app.set_status(&format!("📐 Terminal resized to {}x{} - Layout adapting...", width, height));
-                // The UI system will automatically handle layout updates on next render
+                app.set_status(&format!("📐 Terminal resized to {}x{}", width, height));
             }
             AppEvent::Tick => {
-                // Periodic updates
                 app.update().await?;
             }
             AppEvent::FastTick => {
@@ -478,6 +448,12 @@ async fn handle_layout_shortcuts(
 ) -> Result<bool> {
     use crossterm::event::{KeyCode, KeyModifiers};
 
+    // Don't intercept keys during role selection, form, or context menu
+    let input_mode = app.state().ui_state.input_mode;
+    if matches!(input_mode, app::InputMode::RoleSelect | app::InputMode::Form | app::InputMode::ContextMenu) {
+        return Ok(false);
+    }
+
     match (key_input.code, key_input.modifiers) {
         // Tab navigation between panels
         (KeyCode::Tab, KeyModifiers::NONE) => {
@@ -509,23 +485,7 @@ async fn handle_layout_shortcuts(
             }
             Ok(true)
         }
-        // Panel-specific shortcuts (when focus is on specific panels)
-        (KeyCode::Char('1'), KeyModifiers::NONE) => {
-            navigation_manager.set_focus(app::UIFocus::MainContent, app.state_mut());
-            app.set_status("🎯 Focus: Main Content");
-            Ok(true)
-        }
-        (KeyCode::Char('2'), KeyModifiers::NONE) => {
-            navigation_manager.set_focus(app::UIFocus::JobList, app.state_mut());
-            app.set_status("📋 Focus: Job List");
-            Ok(true)
-        }
-        (KeyCode::Char('3'), KeyModifiers::NONE) => {
-            navigation_manager.set_focus(app::UIFocus::NotificationPanel, app.state_mut());
-            app.set_status("🔔 Focus: Notifications");
-            Ok(true)
-        }
-        // Not handled by layout system
+        // Not handled by layout system - let role switching (1-5, r) pass through
         _ => Ok(false),
     }
 }

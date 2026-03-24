@@ -109,6 +109,7 @@ pub fn draw_legacy(f: &mut Frame, app: &App) {
 
     // Draw main content based on current view
     match app.get_current_view() {
+        AppView::RoleSelection => draw_welcome(f, app, chunks[1]),
         AppView::Welcome => draw_welcome(f, app, chunks[1]),
         AppView::Dashboard => draw_dashboard(f, app, chunks[1]),
         AppView::Jobs => draw_jobs(f, app, chunks[1]),
