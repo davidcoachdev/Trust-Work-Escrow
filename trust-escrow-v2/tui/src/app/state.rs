@@ -62,6 +62,9 @@ pub struct AppState {
     
     /// Last update timestamp
     last_update: Instant,
+    
+    /// Whether mock data is loaded (for demo/hackathon)
+    mock_mode: bool,
 }
 
 /// User context with roles and permissions
@@ -487,7 +490,7 @@ impl AppState {
         
         let client = EscrowClient::from_config(escrow_config)?;
         
-        Ok(Self {
+        let mut state = Self {
             user_context: UserContext::new(),
             data_state: DataState::new(),
             network_state: NetworkState::new(config.escrow.network.cluster.clone(), 
@@ -497,9 +500,153 @@ impl AppState {
             config,
             client,
             last_update: Instant::now(),
-        })
+            mock_mode: false,
+        };
+        state.load_mock_data();
+        Ok(state)
     }
 
+    /// Load mock data for demo/hackathon purposes
+    fn load_mock_data(&mut self) {
+        use solana_sdk::pubkey::Pubkey;
+        use chrono::Utc;
+        
+        self.mock_mode = true;
+        
+        // Mock user
+        let mock_wallet = Pubkey::new_unique();
+        let mock_user = User {
+            username: "hackathon_user".to_string(),
+            bio: "Trust Work Escrow demo user".to_string(),
+            wallets: vec![mock_wallet],
+            active_wallet: mock_wallet,
+            created_at: Utc::now().timestamp(),
+            updated_at: Utc::now().timestamp(),
+            bump: 0,
+        };
+        self.user_context.current_user = Some(mock_user);
+        self.user_context.active_wallet = Some(mock_wallet);
+        self.user_context.wallet_balance = Some(1_000_000_000); // 1 SOL
+        self.user_context.current_role = UserRole::Freelancer;
+        self.user_context.auth_status = AuthStatus::Authenticated;
+        self.user_context.permissions.update_for_role(UserRole::Freelancer);
+        
+        // Mock jobs
+        let client1 = Pubkey::new_unique();
+        let client2 = Pubkey::new_unique();
+        let freelancer = Pubkey::new_unique();
+        
+        let jobs = vec![
+            Job {
+                job_id: 1,
+                client: client1,
+                freelancer: Some(freelancer),
+                title: "Web Development for E-commerce Platform".to_string(),
+                description: "Build a modern e-commerce website with React and Solana integration".to_string(),
+                amount: 5_000_000_000, // 5 SOL
+                status: JobStatus::InProgress,
+                created_at: Utc::now().timestamp(),
+                updated_at: Utc::now().timestamp(),
+                bump: 0,
+            },
+            Job {
+                job_id: 2,
+                client: client2,
+                freelancer: None,
+                title: "Smart Contract Audit".to_string(),
+                description: "Comprehensive security audit for DeFi protocol".to_string(),
+                amount: 10_000_000_000, // 10 SOL
+                status: JobStatus::ApplicationsOpen,
+                created_at: Utc::now().timestamp(),
+                updated_at: Utc::now().timestamp(),
+                bump: 0,
+            },
+            Job {
+                job_id: 3,
+                client: client1,
+                freelancer: Some(freelancer),
+                title: "UI/UX Design for Mobile App".to_string(),
+                description: "Create modern, responsive design for fintech mobile application".to_string(),
+                amount: 3_000_000_000, // 3 SOL
+                status: JobStatus::Submitted,
+                created_at: Utc::now().timestamp(),
+                updated_at: Utc::now().timestamp(),
+                bump: 0,
+            },
+            Job {
+                job_id: 4,
+                client: client2,
+                freelancer: None,
+                title: "Backend API Development".to_string(),
+                description: "Build RESTful API with Node.js and PostgreSQL".to_string(),
+                amount: 7_000_000_000, // 7 SOL
+                status: JobStatus::Created,
+                created_at: Utc::now().timestamp(),
+                updated_at: Utc::now().timestamp(),
+                bump: 0,
+            },
+        ];
+        
+        for job in jobs {
+            let job_pubkey = Pubkey::new_unique();
+            self.data_state.jobs.insert(job_pubkey, job);
+        }
+        
+        // Mock milestones (for the first job)
+        if let Some(job_pubkey) = self.data_state.jobs.keys().next() {
+            let milestone1 = Milestone {
+                job: *job_pubkey,
+                title: "Frontend Development".to_string(),
+                description: "Complete React frontend with responsive design".to_string(),
+                amount: 2_000_000_000,
+                due_date: Some(Utc::now().timestamp() + 7 * 24 * 3600),
+                status: MilestoneStatus::Approved,
+                index: 0,
+                submitted_at: Some(Utc::now().timestamp()),
+                approved_at: Some(Utc::now().timestamp()),
+                work_url: Some("https://github.com/example/frontend".to_string()),
+                rejection_reason: None,
+                created_at: Utc::now().timestamp(),
+                bump: 0,
+            };
+            let milestone_pubkey = Pubkey::new_unique();
+            self.data_state.milestones.insert(milestone_pubkey, milestone1);
+        }
+        
+        // Mock disputes
+        let dispute = Dispute {
+            job: Pubkey::new_unique(),
+            raised_by: client1,
+            arbiter: None,
+            status: DisputeStatus::Open,
+            evidence: vec![],
+            reason: "Freelancer missed deadline".to_string(),
+            created_at: Utc::now().timestamp(),
+            resolved_at: None,
+            bump: 0,
+        };
+        let dispute_pubkey = Pubkey::new_unique();
+        self.data_state.disputes.insert(dispute_pubkey, dispute);
+        
+        // Mock notifications
+        self.add_notification(
+            "New job posted",
+            "A new job 'Smart Contract Audit' has been posted",
+            NotificationType::JobUpdate,
+            NotificationPriority::Medium,
+        );
+        self.add_notification(
+            "Milestone approved",
+            "Your milestone 'Frontend Development' has been approved",
+            NotificationType::MilestoneUpdate,
+            NotificationPriority::Low,
+        );
+        
+        // Update network status to connected for demo
+        self.network_state.rpc_status = ConnectionStatus::Connected;
+        self.network_state.last_rpc_success = Some(Instant::now());
+    }
+    
     /// Handle keyboard input
     pub async fn handle_input(&mut self, key: KeyCode) -> Result<()> {
         match self.ui_state.input_mode {
@@ -935,6 +1082,17 @@ impl AppState {
 
     /// Get wallet balance as string (async)
     pub async fn get_balance_string(&self) -> String {
+        match self.user_context.wallet_balance {
+            Some(balance) => {
+                let sol_balance = balance as f64 / 1_000_000_000.0;
+                format!("{:.6} SOL", sol_balance)
+            }
+            None => "Loading...".to_string(),
+        }
+    }
+    
+    /// Get wallet balance as string (sync, uses cached balance)
+    pub fn get_balance_string_sync(&self) -> String {
         match self.user_context.wallet_balance {
             Some(balance) => {
                 let sol_balance = balance as f64 / 1_000_000_000.0;

@@ -484,7 +484,7 @@ impl DashboardLayout {
                 .take(8)
                 .collect::<String>()
                 + "...",
-            "Loading...", // Will be updated with real balance
+            app_state.get_balance_string_sync(),
             app_state.get_unread_notifications()
         );
         frame.render_widget(
@@ -530,7 +530,7 @@ impl DashboardLayout {
                 .take(8)
                 .collect::<String>()
                 + "...",
-            "Loading...",
+            app_state.get_balance_string_sync(),
             app_state.get_unread_notifications()
         );
         frame.render_widget(
@@ -907,7 +907,7 @@ impl DashboardLayout {
         let content = format!(
             "📊 Dashboard Overview\n\n\
             Wallet: {}\n\
-            Balance: Loading...\n\
+            Balance: {}\n\
             Network: {}\n\n\
             📋 Jobs: {}\n\
             🎯 Milestones: {}\n\
@@ -920,6 +920,7 @@ impl DashboardLayout {
                 .take(16)
                 .collect::<String>()
                 + "...",
+            app_state.get_balance_string_sync(),
             app_state.get_network_name(),
             app_state.data_state.jobs.len(),
             app_state.data_state.milestones.len(),
@@ -1086,7 +1087,7 @@ impl DashboardLayout {
         let content = format!(
             "💰 Wallet Info\n\n\
             Address:\n{}\n\n\
-            Balance:\nLoading...\n\n\
+            Balance:\n{}\n\n\
             Network:\n{}\n\n\
             Status: {}\n\
             Last updated: Now",
@@ -1096,6 +1097,7 @@ impl DashboardLayout {
                 .take(24)
                 .collect::<String>()
                 + "...",
+            app_state.get_balance_string_sync(),
             app_state.get_network_name(),
             app_state.get_connection_status_text()
         );
