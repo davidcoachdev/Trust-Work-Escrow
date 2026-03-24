@@ -290,37 +290,44 @@ async fn handle_navigation_event(
     
     match nav_event {
         NavigationEvent::GoTo(target) | NavigationEvent::View(target) => {
-            let message = match target {
-                ViewTarget::Welcome => "🏠 Navigated to Welcome",
-                ViewTarget::Dashboard => "📊 Navigated to Dashboard",
-                ViewTarget::Jobs => "💼 Navigated to Jobs",
-                ViewTarget::JobDetail(id) => return Ok(app.set_status(&format!("📋 Viewing Job #{}", id))),
-                ViewTarget::Profile => "👤 Navigated to Profile",
-                ViewTarget::Teams => "👥 Navigated to Teams", 
-                ViewTarget::TeamDetail(id) => return Ok(app.set_status(&format!("👥 Viewing Team #{}", id))),
-                ViewTarget::Settings => "⚙️ Navigated to Settings",
-                ViewTarget::Help => "❓ Navigated to Help",
-                ViewTarget::Disputes => "⚖️ Navigated to Disputes",
-                ViewTarget::Milestones => "🎯 Navigated to Milestones",
+            let view = match target {
+                ViewTarget::Welcome => app::AppView::Welcome,
+                ViewTarget::Dashboard => app::AppView::Dashboard,
+                ViewTarget::Jobs => app::AppView::Jobs,
+                ViewTarget::JobDetail(id) => app::AppView::JobDetail(*id),
+                ViewTarget::Profile => app::AppView::Profile,
+                ViewTarget::Teams => app::AppView::Teams, 
+                ViewTarget::TeamDetail(id) => app::AppView::TeamDetail(*id),
+                ViewTarget::Settings => app::AppView::Settings,
+                ViewTarget::Help => app::AppView::Help,
+                ViewTarget::Disputes => app::AppView::Disputes,
+                ViewTarget::Milestones => app::AppView::Milestones,
             };
-            app.set_status(message);
+            app.state_mut().navigate_to(view.clone());
+            app.set_status(&format!("Navigated to {:?}", view));
         }
         NavigationEvent::Back => {
+            app.state_mut().navigate_back();
             app.set_status("⬅️ Navigated back");
         }
         NavigationEvent::Up => {
+            app.state_mut().navigate_up();
             app.set_status("⬆️ Moved up");
         }
         NavigationEvent::Down => {
+            app.state_mut().navigate_down();
             app.set_status("⬇️ Moved down");
         }
         NavigationEvent::Left => {
+            // app.state_mut().navigate_left(); // TODO: implement
             app.set_status("⬅️ Moved left");
         }
         NavigationEvent::Right => {
+            // app.state_mut().navigate_right(); // TODO: implement
             app.set_status("➡️ Moved right");
         }
         NavigationEvent::Select => {
+            app.state_mut().select_current().await?;
             app.set_status("✅ Selected current item");
         }
         NavigationEvent::Submit => {

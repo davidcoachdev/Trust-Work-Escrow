@@ -930,7 +930,7 @@ impl AppState {
     }
 
     /// Select current item
-    async fn select_current(&mut self) -> Result<()> {
+    pub async fn select_current(&mut self) -> Result<()> {
         match self.ui_state.current_view {
             AppView::Jobs => {
                 self.select_job().await?;
