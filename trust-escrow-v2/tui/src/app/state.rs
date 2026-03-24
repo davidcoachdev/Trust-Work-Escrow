@@ -947,8 +947,14 @@ impl AppState {
     async fn select_job(&mut self) -> Result<()> {
         let view_key = format!("{:?}", self.ui_state.current_view);
         if let Some(selection) = self.ui_state.selections.get(&view_key) {
-            // In a full implementation, we'd show job details
-            self.set_status(&format!("Selected job #{}", selection), StatusType::Info);
+            let jobs = self.get_jobs_sorted();
+            if let Some((job_pubkey, job)) = jobs.get(*selection) {
+                let job_id = job.job_id;
+                self.navigate_to(AppView::JobDetail(job_id));
+                self.set_status(&format!("Viewing job: {}", job.title), StatusType::Info);
+            } else {
+                self.set_status("No job selected", StatusType::Warning);
+            }
         }
         Ok(())
     }
@@ -1155,6 +1161,13 @@ impl AppState {
     /// Check if data is stale
     pub fn is_data_stale(&self, data_type: DataType) -> bool {
         self.data_state.stale_data.contains(&data_type)
+    }
+
+    /// Get jobs sorted by job_id (ascending)
+    pub fn get_jobs_sorted(&self) -> Vec<(Pubkey, Job)> {
+        let mut jobs: Vec<(Pubkey, Job)> = self.data_state.jobs.clone().into_iter().collect();
+        jobs.sort_by_key(|(_, job)| job.job_id);
+        jobs
     }
 }
 

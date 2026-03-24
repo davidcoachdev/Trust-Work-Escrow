@@ -37,6 +37,7 @@ use std::cmp::{max, min};
 
 use crate::app::state::{ConnectionStatus, UIFocus, UserRole};
 use crate::app::{AppState, AppView, StatusType};
+use trust_escrow_sdk::types::JobStatus;
 
 /// Terminal size breakpoints for responsive design
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -650,9 +651,18 @@ impl DashboardLayout {
             AppView::Welcome => self.render_welcome_content(frame, app_state, area, block),
             AppView::Dashboard => self.render_dashboard_content(frame, app_state, area, block),
             AppView::Jobs => self.render_jobs_content(frame, app_state, area, block),
+            AppView::JobDetail(job_id) => {
+                self.render_job_detail_content(frame, app_state, job_id, area, block)
+            }
             AppView::Profile => self.render_profile_content(frame, app_state, area, block),
             AppView::Settings => self.render_settings_content(frame, app_state, area, block),
-            _ => self.render_placeholder_content(frame, app_state, area, block),
+            AppView::Teams => self.render_placeholder_content(frame, app_state, area, block),
+            AppView::TeamDetail(_) => {
+                self.render_placeholder_content(frame, app_state, area, block)
+            }
+            AppView::Disputes => self.render_placeholder_content(frame, app_state, area, block),
+            AppView::Milestones => self.render_placeholder_content(frame, app_state, area, block),
+            AppView::Help => self.render_placeholder_content(frame, app_state, area, block),
         }
     }
 
@@ -797,12 +807,76 @@ impl DashboardLayout {
     }
 
     fn render_jobs_list(&self, frame: &mut Frame, app_state: &AppState, area: Rect, block: Block) {
-        let content = if app_state.data_state.jobs.is_empty() {
-            "No jobs available\n\nPress 'j' to refresh\njobs list or create\na new job."
-        } else {
-            "📋 Recent Jobs:\n\n• Web Development\n• Logo Design\n• Smart Contract Audit"
-        };
+        let jobs = app_state.get_jobs_sorted();
+        let selected_index = app_state
+            .ui_state
+            .selections
+            .get("Jobs")
+            .copied()
+            .unwrap_or(0);
 
+        if jobs.is_empty() {
+            let content =
+                "No jobs available\n\nPress 'j' to refresh\njobs list or create\na new job.";
+            frame.render_widget(
+                Paragraph::new(content)
+                    .block(block)
+                    .wrap(ratatui::widgets::Wrap { trim: true }),
+                area,
+            );
+            return;
+        }
+
+        let mut lines = Vec::new();
+        lines.push(Line::from(Span::styled(
+            "📋 Recent Jobs:",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from("")); // empty line
+
+        for (i, (_pubkey, job)) in jobs.iter().enumerate() {
+            let is_selected = i == selected_index;
+            let prefix = if is_selected { "▶ " } else { "• " };
+            let style = if is_selected {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::White)
+            };
+
+            let status_color = match job.status {
+                trust_escrow_sdk::types::JobStatus::Created => Color::DarkGray,
+                trust_escrow_sdk::types::JobStatus::ApplicationsOpen => Color::Blue,
+                trust_escrow_sdk::types::JobStatus::InProgress => Color::Yellow,
+                trust_escrow_sdk::types::JobStatus::Submitted => Color::Magenta,
+                trust_escrow_sdk::types::JobStatus::Approved => Color::Green,
+                trust_escrow_sdk::types::JobStatus::Cancelled => Color::Red,
+                trust_escrow_sdk::types::JobStatus::Disputed => Color::Red,
+                trust_escrow_sdk::types::JobStatus::Resolved => Color::Green,
+            };
+
+            let amount_sol = job.amount as f64 / 1_000_000_000.0;
+            let line = Line::from(vec![
+                Span::raw(prefix),
+                Span::styled(job.title.clone(), style),
+                Span::raw(" ("),
+                Span::styled(
+                    format!("{:.2} SOL", amount_sol),
+                    Style::default().fg(Color::Green),
+                ),
+                Span::raw(") "),
+                Span::styled(
+                    format!("{:?}", job.status),
+                    Style::default().fg(status_color),
+                ),
+            ]);
+            lines.push(line);
+        }
+
+        let content = Text::from(lines);
         frame.render_widget(
             Paragraph::new(content)
                 .block(block)
@@ -944,6 +1018,77 @@ impl DashboardLayout {
         block: Block,
     ) {
         let content = "📋 Jobs Management\n\nThis panel shows comprehensive job management\nfeatures including:\n\n• Browse available jobs\n• Create new job postings\n• Manage applications\n• Track job progress\n• Handle payments\n\nImplemented in Phase 3.5+";
+
+        frame.render_widget(
+            Paragraph::new(content)
+                .block(block)
+                .wrap(ratatui::widgets::Wrap { trim: true }),
+            area,
+        );
+    }
+
+    fn render_job_detail_content(
+        &self,
+        frame: &mut Frame,
+        app_state: &AppState,
+        job_id: u64,
+        area: Rect,
+        block: Block,
+    ) {
+        // Find job by job_id
+        let job_opt = app_state
+            .data_state
+            .jobs
+            .values()
+            .find(|j| j.job_id == job_id);
+
+        let content = match job_opt {
+            Some(job) => {
+                let amount_sol = job.amount as f64 / 1_000_000_000.0;
+                let client_str = job.client.to_string();
+                let freelancer_str = job
+                    .freelancer
+                    .map(|pk| pk.to_string())
+                    .unwrap_or_else(|| "Not assigned".to_string());
+
+                let status_color = match job.status {
+                    trust_escrow_sdk::types::JobStatus::Created => Color::DarkGray,
+                    trust_escrow_sdk::types::JobStatus::ApplicationsOpen => Color::Blue,
+                    trust_escrow_sdk::types::JobStatus::InProgress => Color::Yellow,
+                    trust_escrow_sdk::types::JobStatus::Submitted => Color::Magenta,
+                    trust_escrow_sdk::types::JobStatus::Approved => Color::Green,
+                    trust_escrow_sdk::types::JobStatus::Cancelled => Color::Red,
+                    trust_escrow_sdk::types::JobStatus::Disputed => Color::Red,
+                    trust_escrow_sdk::types::JobStatus::Resolved => Color::Green,
+                };
+
+                format!(
+                    "📋 Job Details\n\n\
+                    Title: {}\n\n\
+                    Description:\n{}\n\n\
+                    Amount: {:.2} SOL\n\
+                    Status: {:?}\n\n\
+                    Client: {}\n\
+                    Freelancer: {}\n\n\
+                    Created: {}\n\
+                    Updated: {}\n\n\
+                    Press Backspace to return to list",
+                    job.title,
+                    job.description,
+                    amount_sol,
+                    job.status,
+                    client_str,
+                    freelancer_str,
+                    chrono::DateTime::from_timestamp(job.created_at, 0)
+                        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|| "Unknown".to_string()),
+                    chrono::DateTime::from_timestamp(job.updated_at, 0)
+                        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+                        .unwrap_or_else(|| "Unknown".to_string())
+                )
+            }
+            None => format!("Job #{} not found\n\nPress Backspace to return", job_id),
+        };
 
         frame.render_widget(
             Paragraph::new(content)
