@@ -28,7 +28,7 @@ ARG NODE_VERSION="20"
 # Esta stage se cachea por Docker. Solo se re-ejecuta si
 # ANCHOR_VERSION cambia o se hace --no-cache.
 # ═════════════════════════════════════════════════════════════════
-FROM ubuntu:24.04 AS avm-builder
+FROM ubuntu:26.04 AS avm-builder
 
 ARG ANCHOR_VERSION
 
@@ -64,7 +64,7 @@ RUN avm install ${ANCHOR_VERSION} \
 # AVM + Anchor se copian del builder (instantáneo).
 # Scripts modulares en .devcontainer/scripts/
 # ═════════════════════════════════════════════════════════════════
-FROM ubuntu:24.04 AS devcontainer
+FROM ubuntu:26.04 AS devcontainer
 
 ARG SOLANA_CLI_VERSION
 ARG ANCHOR_VERSION
