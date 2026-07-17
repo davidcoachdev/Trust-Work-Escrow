@@ -54,4 +54,4 @@ yarn-debug.log*
 yarn-error.log*
 
 # Atlassian / skills registry (generated, local)
-.atl/
+.atl/*
