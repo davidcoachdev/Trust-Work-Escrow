@@ -302,18 +302,33 @@ program.account.job.subscribe(jobId, (job) => {
 | dispute | ~5,000 |
 | resolve | ~15,000 |
 
-## 🚀 Escalabilidad
+## 🚀 Roadmap Técnico
 
-### Phase 2 (Hackatón)
+### ✅ Implementado (MVP v2 — Jul 2026)
 
-- [ ] Múltiples vault accounts por job
-- [ ] Sistema de milestones
-- [ ] Registro de árbitros
-- [ ] Tokens SPL (USDC)
+- [x] Pool de árbitros con registro (create/add/remove arbiter)
+- [x] Sistema de disputas con evidencia y resolución parcial
+- [x] Milestones con pagos parciales por hito
+- [x] Multi-wallet por usuario (hasta 5 wallets)
+- [x] Equipos de freelancers (miembros + roles)
+- [x] Treasury con fees configurables
+- [x] Pausa de emergencia del programa
+- [x] Deploy a devnet: `28QTH6qfG2iKDVXNY8nUTKDjx8yrBrQpnvXCPyJsrwuA`
 
-### Phase 3 (Producción)
+### 🔜 Post-MVP (Q3-Q4 2026)
 
+- [ ] Tokens SPL (USDC) — pagos en stablecoins
 - [ ] Gasless transactions (relayers)
 - [ ] Off-chain metadata (IPFS)
-- [ ] Sistema de reputación
-- [ ] Notifications
+- [ ] Sistema de reputación on-chain
+- [ ] Notificaciones (push/email)
+- [ ] Wallet browser (integración con wallet adapters)
+- [ ] Tests de integración exhaustivos
+- [ ] Migración a Anchor v1
+
+### 🔮 Visión Larga (2027)
+
+- [ ] DAO governance para el treasury
+- [ ] Seguro descentralizado para disputas
+- [ ] Integración con oráculos (Pyth/Switchboard)
+- [ ] Versión mobile (React Native)
