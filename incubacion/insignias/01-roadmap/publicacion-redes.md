@@ -1,39 +1,52 @@
 # 📣 Publicación — Insignia: Roadmap inicial del producto
 
-Textos para X, LinkedIn e Instagram. Menciones sugeridas (confirmar handles reales): `@WayLearn_`, `@SolanaFndn`, `@SolanaLATAM`.
+Textos para X, LinkedIn e Instagram, reformulados con estrategia de contenido y voz de founder.
+Menciones sugeridas (confirmar handles reales): `@WayLearn_`, `@SolanaFndn`, `@SolanaLATAM`.
+
+**📎 Adjunto sugerido (una sola imagen para las 3 plataformas):**
+`Trust-Work-Escrow-insignias-roadmap.png`
 
 ---
 
 ## 🐦 X (Twitter)
 ```
-🎖️ ¡Nueva insignia en el Solana Latam Labs Program!
+[ADJUNTO: Trust-Work-Escrow-insignias-roadmap.png]
 
-Hoy completamos la de Roadmap inicial del producto por definir la visión, objetivos y hoja de ruta de Trust-Work-Escrow. 🧭
+🎖️ Insignia 1 de 7, hecha.
 
-Somos un escrow on-chain para freelancers crypto-native: menos comisión, pago inmediato y disputas justas. 🚀
+En el Solana Latam Labs Program completamos Roadmap inicial del producto: definimos la visión, los objetivos y la hoja de ruta de Trust-Work-Escrow.
+
+La idea en una línea: un escrow on-chain para freelancers crypto-native que cobra menos, paga rápido y resuelve disputas sin intermediarios opacos.
+
+Siguiente parada: 🧱 Business Foundation.
 
 #Solana #Web3 #BuildOnSolana #SolanaLatamLabs #Freelance #Escrow @WayLearn_ @SolanaFndn @SolanaLATAM
 ```
 
 ## 💼 LinkedIn
 ```
-🎖️ Trust-Work-Escrow acaba de completar la insignia "Roadmap inicial del producto" dentro del Solana Latam Labs Program (WayLearn x Solana Foundation).
+[ADJUNTO: Trust-Work-Escrow-insignias-roadmap.png]
 
-Esto reconoce la definición de la visión, objetivos y hoja de ruta de nuestro producto: un escrow on-chain para freelancers crypto-native con comisiones más bajas que Upwork/Fiverr, pagos inmediatos y disputas con árbitro.
+🎖️ Primer hito del programa, cerrado.
 
-Gracias al equipo de WayLearn y Solana Foundation por el acompañamiento. 🚀
+Trust-Work-Escrow completó la insignia "Roadmap inicial del producto" en el Solana Latam Labs Program (WayLearn x Solana Foundation).
 
-#Solana #Web3 #BuildOnSolana #SolanaLatamLabs #Freelance #Escrow #Startups #Producto
+Lo que esto significa en la práctica: tenemos clara la visión, los objetivos y la hoja de ruta de un producto que apunta a un problema concreto. Los freelancers crypto-native hoy financian plataformas que los cobran caro y los hacen esperar. Nosotros proponemos un escrow on-chain: el dinero queda custodiado, el pago se libera al entregar, y si hay fricción, un árbitro resuelve.
+
+Es solo el comienzo de 7 etapas. Gracias a WayLearn y Solana Foundation por acompañar el camino. 🧭
+
+#Solana #Web3 #BuildOnSolana #SolanaLatamLabs #Freelance #Escrow #Startups #Producto #Roadmap
 ```
 
 ## 📸 Instagram
 ```
-🎖️ Nueva insignia: Roadmap inicial del producto ✅
+[ADJUNTO: Trust-Work-Escrow-insignias-roadmap.png]
 
-Definimos la visión, objetivos y hoja de ruta de Trust-Work-Escrow. 🧭
+🎖️ Insignia 1/7: Roadmap inicial del producto ✅
 
-Escrow on-chain para freelancers: ⚡ pago inmediato · 💸 menos comisión · 🤝 disputas justas.
+Definimos la visión, los objetivos y la hoja de ruta de Trust-Work-Escrow. 🧭
+
+El producto en una frase: escrow on-chain para freelancers que cobra menos, paga rápido y resuelve disputas sin opacidad.
 
 #Solana #Web3 #BuildOnSolana #SolanaLatamLabs #Freelance #Escrow #Latam
 ```
-📷 Imagen: `Trust-Work-Escrow-insignias-roadmap.png`
