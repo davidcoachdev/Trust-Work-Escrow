@@ -43,7 +43,10 @@ Derivados del feedback de Business Foundation (priorizar segmento, jerarquizar f
 | 01 | [`herramientas/preguntas-entrevista.md`](herramientas/01-preguntas-entrevista.md) | Guion de entrevistas 1:1 (freelancer/cliente/árbitro) |
 | 02 | [`herramientas/mercado-objetivo.md`](herramientas/02-mercado-objetivo.md) | Segmento prioritario (freelancer crypto-native) + TAM/SAM/SOM |
 | 03 | [`herramientas/recomendaciones-trabajo.md`](herramientas/03-recomendaciones-trabajo.md) | Canales de entrevista + cómo sacar la **ponderación** de respuestas |
-| 04 | [`herramientas/encuesta-online.md`](herramientas/04-encuesta-online.md) | Encuesta cerrada (Typeform/Forms, 12 preg, 3-4 min) |
+| 04 | [`herramientas/encuesta-online.md`](herramientas/04-encuesta-online.md) | Encuesta cerrada (Google Forms recomendado, 26 preg, 3-4 min) |
+| 07 | [`herramientas/google-forms-script.js`](herramientas/google-forms-script.js) | Apps Script que crea el Google Form automáticamente + Sheet enlazada |
+| 08 | [`herramientas/07-invitacion-entrevistas.md`](herramientas/07-invitacion-entrevistas.md) | DMs de reclutamiento para entrevistas 1:1 (X, Discord, Reddit, LinkedIn, WayLearn) |
+| 09 | [`herramientas/09-compartir-encuesta.md`](herramientas/09-compartir-encuesta.md) | Mensajes para compartir la encuesta en Discord y WhatsApp |
 | 05 | [`herramientas/mensajes-difusion.md`](herramientas/05-mensajes-difusion.md) | Borradores de difusión (Reddit/Telegram/LinkedIn/X/Discord) |
 | 06 | [`herramientas/mensajes-x-linkedin-discord.md`](herramientas/06-mensajes-x-linkedin-discord.md) | Versiones cortas listas-para-pegar en X, LinkedIn y Discord |
 

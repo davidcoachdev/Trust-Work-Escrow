@@ -1,0 +1,50 @@
+{
+  "brand": "Trust Work Escrow",
+  "nav": {
+    "home": "Inicio",
+    "jobs": "Trabajos",
+    "docs": "Documentación",
+    "login": "Ingresar",
+    "signup": "Registrarse"
+  },
+  "hero": {
+    "title": "Escrow descentralizado para trabajo real",
+    "subtitle": "Pagos seguros entre empleadores y freelancers, liquidados on-chain con Solana.",
+    "cta": "Empezar",
+    "ctaSecondary": "Ver documentación"
+  },
+  "features": {
+    "title": "Por qué Trust Work Escrow",
+    "secure": {
+      "title": "Escrow seguro",
+      "body": "Los fondos se bloquean en un programa hasta que ambas partes acuerdan."
+    },
+    "proof": {
+      "title": "Prueba on-chain",
+      "body": "Cada hito se liquida de forma transparente en Solana."
+    },
+    "fees": {
+      "title": "Comisiones bajas",
+      "body": "Una fracción de los costos de escrow tradicional."
+    }
+  },
+  "cta": {
+    "title": "¿Listo para empezar?",
+    "body": "Crea tu primer escrow en minutos.",
+    "button": "Conectar billetera"
+  },
+  "footer": {
+    "copyright": "\u00a9 2026 Trust Work Escrow",
+    "onSolana": "escrow en Solana",
+    "links": {
+      "docs": "Documentación",
+      "github": "GitHub",
+      "estado": "Estado"
+    }
+  },
+  "switcher": {
+    "language": "Idioma",
+    "languageShort": "ES",
+    "theme": "Tema"
+  }
+}

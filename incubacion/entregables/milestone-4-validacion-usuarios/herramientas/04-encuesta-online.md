@@ -2,6 +2,8 @@
 
 **Milestone:** 4 — Validación Inicial con Usuarios
 **Formato:** Typeform / Google Forms (3-4 min)
+**Plataforma recomendada:** ✅ **Google Forms** (gratis, ilimitado, Sheets nativo para la ponderación de `03`). Typeform solo si se paga el plan.
+**Creación automática:** `google-forms-script.js` — Google Apps Script que genera el formulario completo (26 preg) y lo enlaza a una Sheet. Solo pegar y ejecutar.
 **Propósito:** validación cuantitativa. Esta encuesta es la **versión cerrada (formulario)** del guion `01-preguntas-entrevista.md`. Las preguntas son **las mismas, en el mismo orden** que la entrevista 1:1, para que los datos coincidan sea presencial (videollamada) o por formulario.
 
 > 📌 Coherencia: cada pregunta de acá tiene su par en `01`. No se agrega ni se saca nada. Las respuestas alimentan la ponderación del archivo `03-recomendaciones-trabajo.md`.
