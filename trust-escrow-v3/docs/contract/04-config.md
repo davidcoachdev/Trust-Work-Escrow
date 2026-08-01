@@ -8,7 +8,9 @@ Es el primer módulo portado y ya está implementado en `lib.rs`.
 **Qué hace**
 Crea la cuenta PDA `Config` (seed `[b"config"]`) con:
 - `authority` = firmante.
-- `treasury` = wallet pasada como argumento (recibe las fees).
+- `treasury` = wallet pasada como argumento (recibe las fees de **protocolo**).
+- `arbitration_treasury` = wallet pasada como argumento (**cuenta SEPARADA** de la
+  empresa que recibe las fees de **arbitraje**; nunca el wallet del asesor/árbitro).
 - `fee_bps` = fee en basis points (validado 0–10000).
 - `paused = false`.
 
@@ -20,7 +22,7 @@ de v2 donde la validación (0–100) no coincidía con el cálculo (`/10000`).
 **Validaciones**
 - `fee_bps <= BASIS_POINTS` → `InvalidFeeBps`.
 
-**Cuentas**: `authority` (Signer, paga), `treasury` (UncheckedAccount), `config` (init PDA), `system_program`.
+**Cuentas**: `authority` (Signer, paga), `treasury` (UncheckedAccount), `arbitration_treasury` (UncheckedAccount, argumento), `config` (init PDA), `system_program`.
 
 ## `pause` / `unpause`
 
@@ -46,6 +48,29 @@ se conserva.)
 
 **Validaciones**
 - `config.authority == firmante` → `NotAuthorized`.
+
+## `update_arbitration_treasury`
+
+**Qué hace**
+Cambia `config.arbitration_treasury` a `new_arbitration_treasury` (rotación de la
+cuenta de arbitraje, análoga a `update_treasury`).
+
+**Validaciones**
+- `config.authority == firmante` → `NotAuthorized`.
+
+## `withdraw_arbitration`
+
+**Qué hace**
+Transfiere `amount` lamports desde `arbitration_treasury` hacia `destination` vía
+CPI al system program. Misma lógica y validaciones que `withdraw_treasury`, pero
+sobre la cuenta separada de arbitraje.
+
+**Validaciones**
+- `amount > 0` → `AmountTooSmall`.
+- `arbitration_treasury.get_lamports() >= amount` → `InsufficientFunds`.
+- `arbitration_treasury.key() == config.arbitration_treasury` → `NotAuthorized`.
+
+**Cuentas**: `arbitration_treasury` (Signer + constraint), `destination` (UncheckedAccount), `config`, `system_program`.
 
 ## `withdraw_treasury`
 

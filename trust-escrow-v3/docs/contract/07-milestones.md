@@ -10,9 +10,13 @@ evitando pagos duplicados o fondos atrapados.
 ## `create_milestone`
 - Cliente crea el milestone (seed `[b"milestone", job, index]`) en estado `Pending`.
 - Job debe estar `InProgress`.
+- **Índice secuencial obligatorio**: `index` debe ser `== job.milestones_total`
+  (0, 1, 2, ...). Si no, `InvalidMilestoneIndex`. Esto evita índices duplicados o
+  saltados y mantiene el PDA `milestone` alineado con el contador.
 - **Valida** `milestones_amount_total + amount <= job.amount` →
   `MilestoneAmountExceedsFunds` (corrige el bug de v2 sin control de suma).
-- `deadline` futuro, títulos dentro de límites, `milestones_total < MAX_MILESTONES`.
+- `deadline` futuro, títulos dentro de límites, `milestones_total < MAX_MILESTONES`
+  (= 20, tope para acotar renta/compute por job).
 - Incrementa `job.milestones_total` y `job.milestones_amount_total`.
 
 ## `submit_milestone`

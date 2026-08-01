@@ -49,7 +49,8 @@ ambas versiones y corrigiendo los bugs encontrados en la auditoría.
 
 ### Fee de arbitraje (SOLO si se abrió una disputa)
 - **Regla de oro:** si una disputa se **abrió** (por cualquiera de las partes), se
-  cobra **sí o sí**. Ambas partes pagan su 2.5% (5% del `job.amount`) "les guste o
+   cobra **sí o sí**. Ambas partes pagan su 2.5% (5% de **lo disputado**:
+   `job.amount` menos milestones ya pagados) "les guste o
   no". No se asigna árbitro en la creación del job (evita "trabajos fantasma" y
   cobrar por servicio no usado → riesgo legal).
 - **Al abrir la disputa, cada parte firma y postea su bono de 2.5%** a un PDA

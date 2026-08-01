@@ -38,6 +38,68 @@ Lista los hallazgos y su estado.
    plataforma).
 
 ### 🟡 Recomendaciones (pendientes / decisión de diseño)
+9. **Fuga de la fee de arbitraje al cliente del job (CRÍTICO, corregido)**
+   `finalize_dispute_payouts` restaba el bono no posteado de la parte de la
+   contraparte con `saturating_sub`, pero esa lamportada nunca se enviaba al
+   resolutor: el PDA `job` tiene `close = client`, así que el 2.5% recuperado
+   volvía al dueño del job. En disputas unilaterales el resolutor cobraba solo
+   el 2.5% posteado y violaba la regla de oro (5% "les guste o no").
+   → Reescrito: la fee de arbitraje es `5% de lo disputado` (`amount`), el
+   `ArbitrationEscrow` paga lo posteado vía `close = resolver`, y el faltante
+   (`shortfall = 5% − posteado`) se transfiere del PDA `job` al `resolver`.
+   `resolver` ahora es `mut`. Conservación: `fee + cliente + freelancer +
+   shortfall = amount + fee` siempre (incluso con 0% para una parte o con
+   milestones grandes).
+   Además los bonos se postean sobre `amount = job.amount − milestones_amount_total`
+   (no sobre `job.amount` completo) en `raise_dispute`/`accept_dispute`, para
+   que coincidan con lo disputado.
+
+10. **`approve_work` ya cierra el PDA `job`** (rent recuperada en el flujo feliz).
+   El PDA `job` tiene `close = client` en el contexto `ApproveWork` (lib.rs:1418),
+   así que al aprobarse el trabajo el PDA se cierra y su renta vuelve al cliente.
+   El doc "PDAs siempre se cierran al finalizar ✅" es CORRECTO: los caminos
+   terminales (`approve_work`, `cancel_job`, `expire_paused_job`, `finalize_dispute`)
+   cierran el job. `reject_work` NO lo cierra a propósito (vuelve a `InProgress`).
+   *(Nota: este punto fue mal leído en la primera revisión; se corrige aquí.)*
+
+11. **`deadline` de disputa ahora se usa (corregido).** `raise_dispute` fija
+   `dispute.deadline` (7 días). `accept_dispute` y `request_platform_intervention`
+   lo respetan (`DisputeDeadlinePassed`): pasada la gracia, las partes ya no pueden
+   aceptar ni abrir intervención. El asesor (`resolve_platform_case`) resuelve de
+   oficio SOLO si no hubo interaccion del arbitro: (a) arbitro asignado pero fallo
+   (`ArbiterAssigned`), o (b) ningun arbitro asignado Y vencio la gracia (Open /
+   Active / EvidenceSubmitted). No secuestra una disputa que el arbitro esta
+   tratando. Así la disputa nunca queda colgada.
+
+   **Qué pasa con la fee de arbitraje cobrada:** NUNCA se pierde ni se reembolsa.
+   La "regla de oro" dice que si se abrio disputa se cobra el 5% "les guste o no".
+   En el caso de oficio (vencida la gracia sin interaccion), el resolutor es el
+   asesor de plataforma y se queda con el 5%: `finalize_dispute_payouts` le paga lo
+   posteado en el `ArbitrationEscrow` (via `close = resolver`) mas el `shortfall`
+   recuperado del PDA `job`. La parte que no posteo su bono lo paga igual (se le
+   descuenta de su reparto). Los fondos siempre se liberan.
+
+12. **`create_milestone` valida `_index` (corregido).** Ahora `index` debe ser
+   `== job.milestones_total` (`InvalidMilestoneIndex`): los milestones son
+   secuenciales (0,1,2,...) y el PDA `milestone` queda alineado con el contador.
+   Antes se podían crear índices arbitrarios/saltados.
+
+13. **La fee de arbitraje va a una cuenta SEPARADA de la empresa (corregido).**
+   Antes el resolutor (asesor/árbitro) recibía el 5% en su wallet personal vía
+   `close = resolver`. Eso mezclaba fondos personales con de la empresa y rompía
+   la contabilidad. Ahora:
+   - `Config` tiene `arbitration_treasury` (cuenta aparte de `treasury`).
+   - En `finalize_dispute_payouts` el `ArbitrationEscrow` cierra hacia
+     `arbitration_treasury` y el `shortfall` se transfiere ahí (no al `resolver`).
+   - El `resolver` solo FIRMA (autoriza); no recibe lamports.
+   - `initialize_config` recibe `arbitration_treasury`; `update_arbitration_treasury`
+     y `withdraw_arbitration` permiten rotar y retirar (paralelos al treasury).
+   Así la empresa lleva saldos de arbitraje separados de los de protocolo.
+   *Nota de diseño:* en arbitraje mutuo el árbitro externo ya no cobra on-chain;
+   la empresa retiene la fee en `arbitration_treasury` y compensa al árbitro
+   off-chain (modelo de gestión centralizada). Si se prefiere pagar al árbitro
+   on-chain, avisar para ajustar.
+
 7. **Pausa global solo bloquea `create_job`**, no las operaciones en curso.
    *Mitigado* con **pausa por job** (`pause_job`/`unpause_job`/`expire_paused_job`):
    el cliente pausa solo en `Created`/`Funded` (sin freelancer), `deposit_funds` y

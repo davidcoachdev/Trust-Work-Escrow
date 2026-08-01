@@ -4,9 +4,12 @@ Estado: ✅ implementado completo.
 
 Modelo: el árbitro es neutral y lo asigna la plataforma solo al abrirse la
 disputa. Si se abrió una disputa, **se cobra sí o sí**: ambas partes firman y
-postean un bono de 2.5% (`ArbitrationEscrow`); el 5% total va al **resolutor**
-(árbitro en arbitraje mutuo, o asesor de plataforma si una parte no acepta /
-el árbitro falla). Sin disputa abierta → $0$ de arbitraje.
+postean un bono de 2.5% (`ArbitrationEscrow`); el 5% total va a la **cuenta de
+arbitraje de la empresa** (`config.arbitration_treasury`), **NUNCA al wallet
+personal del asesor/árbitro** (contabilidad separada). En arbitraje mutuo el
+resolutor es un árbitro neutral asignado por la plataforma; en caso de oficio
+(una parte no acepta / el árbitro falla) resuelve el asesor de plataforma. Sin
+disputa abierta → $0$ de arbitraje.
 
 ## `raise_dispute`
 - Quien abre (`raiser`, cliente o freelancer) firma y postea su bono 2.5% al
@@ -45,18 +48,21 @@ el árbitro falla). Sin disputa abierta → $0$ de arbitraje.
   `job.client` ni `job.freelancer` → `ArbiterCannotBeParty`.
 - Permite resolver cuando `dispute.arbiter` es `None` O cuando el árbitro fue
   asignado pero no resolvió (`status == ArbiterAssigned`) → fallback de plataforma.
-- Fija los `%` y resuelve. El asesor **cobra el 5%** de los bonos (es el resolutor).
+- Fija los `%` y resuelve. La fee de arbitraje (5%) **va a `arbitration_treasury`**
+  (cuenta de la empresa), no al wallet del asesor.
 
 ## `finalize_dispute_payouts` (resolutor: árbitro o asesor)
 El PDA `job` firma (`new_with_signer`):
 - `treasury` ← `fee_amount` (comisión de plataforma).
 - `client` ← `%` de `amount` **menos su bono si no lo posteó** (`saturating_sub`).
 - `freelancer` ← `%` de `amount` **menos su bono si no lo posteó**.
-- `ArbitrationEscrow` se cierra (`close = resolver`) → envía el 5% de bonos al
-  resolutor.
+- `ArbitrationEscrow` se cierra (`close = arbitration_treasury`) → envía el 5% de
+  bonos a la **cuenta de arbitraje de la empresa**.
 - `job` y `dispute` se cierran (`close = client`, renta devuelta).
 
-**Conservación:** `treasury(fee) + resolver(5%) + cliente + freelancer = amount + fee`.
+**Conservación:** `treasury(fee) + arbitration_treasury(5% de lo disputado) + cliente + freelancer = amount + fee`
+(donde `amount` es lo disputado = `job.amount` − milestones ya pagados; la fee de arbitraje va a la
+posteado vía `close` del escrow + el `shortfall` recuperado del PDA job).
 
 ## Diagrama
 

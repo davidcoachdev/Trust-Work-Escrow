@@ -90,6 +90,8 @@ pub enum ErrorCode {
     EvidenceTooLong,
     #[msg("Dispute already resolved")]
     DisputeAlreadyResolved,
+    #[msg("Dispute deadline passed; only platform advisor can resolve")]
+    DisputeDeadlinePassed,
     #[msg("Not a valid arbiter")]
     NotValidArbiter,
     #[msg("Not the assigned arbiter")]
@@ -103,6 +105,8 @@ pub enum ErrorCode {
     MilestoneNotFound,
     #[msg("Milestone already completed")]
     MilestoneAlreadyCompleted,
+    #[msg("Invalid milestone index (must be sequential: == milestones_total)")]
+    InvalidMilestoneIndex,
     #[msg("Milestone amount exceeds remaining job funds")]
     MilestoneAmountExceedsFunds,
     #[msg("All milestones must be completed before release")]
@@ -179,6 +183,10 @@ pub struct Config {
     pub advisor: Pubkey,
     /// Wallet que recibe las fees del protocolo. Debe firmar en withdraw_treasury.
     pub treasury: Pubkey,
+    /// Cuenta SEPARADA de la empresa que recibe las fees de arbitraje (5%).
+    /// Aislarla de `treasury` permite llevar saldos de arbitraje por separado
+    /// (buena gestion contable). NUNCA va al wallet personal del asesor/arbitro.
+    pub arbitration_treasury: Pubkey,
     /// Fee en basis points (10000 = 100%).
     pub fee_bps: u16,
     pub paused: bool,
@@ -330,6 +338,7 @@ pub mod escrow {
         ctx: Context<InitializeConfig>,
         advisor: Pubkey,
         treasury: Pubkey,
+        arbitration_treasury: Pubkey,
         fee_bps: u16,
     ) -> Result<()> {
         require!(fee_bps <= BASIS_POINTS, ErrorCode::InvalidFeeBps);
@@ -338,6 +347,7 @@ pub mod escrow {
         config.authority = ctx.accounts.authority.key();
         config.advisor = advisor;
         config.treasury = treasury;
+        config.arbitration_treasury = arbitration_treasury;
         config.fee_bps = fee_bps;
         config.paused = false;
         config.bump = ctx.bumps.config;
@@ -370,6 +380,17 @@ pub mod escrow {
         Ok(())
     }
 
+    pub fn update_arbitration_treasury(
+        ctx: Context<UpdateArbitrationTreasury>,
+        new_arbitration_treasury: Pubkey,
+    ) -> Result<()> {
+        let config = &mut ctx.accounts.config;
+        require!(config.authority == ctx.accounts.authority.key(), ErrorCode::NotAuthorized);
+        config.arbitration_treasury = new_arbitration_treasury;
+        msg!("Arbitration treasury updated");
+        Ok(())
+    }
+
     /// Retira lamports acumulados en la wallet `treasury`.
     /// CORRECCION v2: `treasury` es Signer (debe firmar) y se valida contra
     /// config.treasury. Los fondos provienen de la wallet treasury, no del PDA config.
@@ -390,6 +411,32 @@ pub mod escrow {
         )?;
 
         msg!("Treasury withdrew {} lamports", amount);
+        Ok(())
+    }
+
+    /// Retira lamports acumulados en la cuenta de arbitraje de la empresa.
+    /// Misma lógica que `withdraw_treasury` pero sobre `arbitration_treasury`
+    /// (cuenta separada para fees de arbitraje).
+    pub fn withdraw_arbitration(
+        ctx: Context<WithdrawArbitration>,
+        amount: u64,
+    ) -> Result<()> {
+        require!(amount > 0, ErrorCode::AmountTooSmall);
+        let balance = ctx.accounts.arbitration_treasury.get_lamports();
+        require!(balance >= amount, ErrorCode::InsufficientFunds);
+
+        transfer(
+            CpiContext::new(
+                ctx.accounts.system_program.to_account_info(),
+                Transfer {
+                    from: ctx.accounts.arbitration_treasury.to_account_info(),
+                    to: ctx.accounts.destination.to_account_info(),
+                },
+            ),
+            amount,
+        )?;
+
+        msg!("Arbitration treasury withdrew {} lamports", amount);
         Ok(())
     }
 
@@ -746,7 +793,10 @@ pub mod escrow {
         );
 
         let now = Clock::get()?.unix_timestamp;
-        let bond = compute_fee(ctx.accounts.job.amount, ARBITER_FEE_BPS_PER_PARTY)?;
+        let dispute_amount = ctx.accounts.job.amount
+            .checked_sub(ctx.accounts.job.milestones_amount_total)
+            .ok_or(ErrorCode::MathOverflow)?;
+        let bond = compute_fee(dispute_amount, ARBITER_FEE_BPS_PER_PARTY)?;
 
         // Raiser postea su bono al escrow de arbitraje (firma como origen).
         transfer(
@@ -798,6 +848,11 @@ pub mod escrow {
     pub fn accept_dispute(ctx: Context<AcceptDispute>, _job_id: u64) -> Result<()> {
         let dispute = &mut ctx.accounts.dispute;
         require!(dispute.status == DisputeStatus::Open, ErrorCode::DisputeAlreadyResolved);
+        // La aceptacion solo es valida dentro de la gracia; despues resuelve el asesor.
+        require!(
+            Clock::get()?.unix_timestamp <= dispute.deadline,
+            ErrorCode::DisputeDeadlinePassed
+        );
 
         let accepter = ctx.accounts.accepter.key();
         require!(accepter != dispute.raised_by, ErrorCode::NotAuthorized);
@@ -807,7 +862,10 @@ pub mod escrow {
             ErrorCode::NotAuthorized
         );
 
-        let bond = compute_fee(ctx.accounts.job.amount, ARBITER_FEE_BPS_PER_PARTY)?;
+        let dispute_amount = ctx.accounts.job.amount
+            .checked_sub(ctx.accounts.job.milestones_amount_total)
+            .ok_or(ErrorCode::MathOverflow)?;
+        let bond = compute_fee(dispute_amount, ARBITER_FEE_BPS_PER_PARTY)?;
         transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
@@ -937,9 +995,21 @@ pub mod escrow {
             ErrorCode::ArbiterCannotBeParty
         );
         let dispute = &mut ctx.accounts.dispute;
-        // Permite resolver cuando no hubo arbitro mutuo O cuando el arbitro asignado fallo.
+        let now = Clock::get()?.unix_timestamp;
+        let expired = now > dispute.deadline;
+        // El asesor resuelve de oficio SOLO si no hubo interaccion del arbitro:
+        // (a) arbitro asignado pero fallo (status ArbiterAssigned), o
+        // (b) ningun arbitro fue asignado Y vencio la gracia (Open / Active /
+        //     EvidenceSubmitted). No se secuestra una disputa que el arbitro
+        //     esta tratando activamente; la gracia solo fuerza el takeover de
+        //     plataforma cuando nadie interactuo.
         require!(
-            dispute.arbiter.is_none() || dispute.status == DisputeStatus::ArbiterAssigned,
+            dispute.status == DisputeStatus::ArbiterAssigned
+                || (dispute.arbiter.is_none()
+                    && (dispute.status == DisputeStatus::Open
+                        || dispute.status == DisputeStatus::Active
+                        || dispute.status == DisputeStatus::EvidenceSubmitted)
+                    && expired),
             ErrorCode::NotArbiter
         );
         require!(
@@ -962,6 +1032,11 @@ pub mod escrow {
     ) -> Result<()> {
         let dispute = &mut ctx.accounts.dispute;
         require!(dispute.status == DisputeStatus::Open, ErrorCode::DisputeAlreadyResolved);
+        // Solo dentro de la gracia; despues solo el asesor puede resolver.
+        require!(
+            Clock::get()?.unix_timestamp <= dispute.deadline,
+            ErrorCode::DisputeDeadlinePassed
+        );
         let requester = ctx.accounts.requester.key();
         require!(
             requester == ctx.accounts.job.client
@@ -989,15 +1064,29 @@ pub mod escrow {
         );
 
         let job = &mut ctx.accounts.job;
-        let job_amount = job.amount;
         // El reparto de la disputa aplica solo al resto no pagado por milestones.
-        let amount = job_amount
+        let amount = job
+            .amount
             .checked_sub(job.milestones_amount_total)
             .ok_or(ErrorCode::MathOverflow)?;
         let fee_amount = job.fee_amount;
         let client_pct = dispute.client_payout_percent;
         let freelancer_pct = dispute.freelancer_payout_percent;
-        let bond_expected = compute_fee(job_amount, ARBITER_FEE_BPS_PER_PARTY)?;
+        // Fee de arbitraje = 5% del monto en disputa (lo mismo que postearon las partes).
+        let resolver_fee_total = compute_fee(amount, ARBITER_FEE_BPS_PER_PARTY * 2)?;
+        // Bonos efectivamente posteados en el ArbitrationEscrow (1 o 2 de 2.5%).
+        let posted = ctx
+            .accounts
+            .escrow
+            .client_bond
+            .checked_add(ctx.accounts.escrow.freelancer_bond)
+            .ok_or(ErrorCode::MathOverflow)?;
+        // Lo no posteado se recupera del reparto y se paga al resolutor (5% "les guste o no").
+        let shortfall = resolver_fee_total.saturating_sub(posted);
+        // Lo que queda para cliente y freelancer.
+        let to_parties = amount
+            .checked_sub(shortfall)
+            .ok_or(ErrorCode::MathOverflow)?;
 
         let client_key = ctx.accounts.client.key();
         let job_id_bytes = _job_id.to_le_bytes();
@@ -1021,11 +1110,8 @@ pub mod escrow {
             fee_amount,
         )?;
 
-        // Parte del cliente (menos su bono si no lo posteo).
-        let escrow = &ctx.accounts.escrow;
-        let client_deduct = if escrow.client_bond == 0 { bond_expected } else { 0 };
-        let client_net = (amount as u128 * client_pct as u128 / 100)
-            .saturating_sub(client_deduct as u128) as u64;
+        // Parte del cliente.
+        let client_net = (to_parties as u128 * client_pct as u128 / 100) as u64;
         if client_net > 0 {
             transfer(
                 CpiContext::new_with_signer(
@@ -1040,10 +1126,8 @@ pub mod escrow {
             )?;
         }
 
-        // Parte del freelancer (menos su bono si no lo posteo).
-        let freelancer_deduct = if escrow.freelancer_bond == 0 { bond_expected } else { 0 };
-        let freelancer_net = (amount as u128 * freelancer_pct as u128 / 100)
-            .saturating_sub(freelancer_deduct as u128) as u64;
+        // Parte del freelancer.
+        let freelancer_net = (to_parties as u128 * freelancer_pct as u128 / 100) as u64;
         if freelancer_net > 0 {
             transfer(
                 CpiContext::new_with_signer(
@@ -1058,7 +1142,25 @@ pub mod escrow {
             )?;
         }
 
-        // El cierre de `escrow` (close = resolver) envia los bonos (5%) al resolver.
+        // Recupera del reparto lo que la contraparte no posteo y lo envia a la cuenta
+        // de arbitraje de la empresa (no al wallet del resolver).
+        if shortfall > 0 {
+            transfer(
+                CpiContext::new_with_signer(
+                    ctx.accounts.system_program.to_account_info(),
+                    Transfer {
+                        from: job.to_account_info(),
+                        to: ctx.accounts.arbitration_treasury.to_account_info(),
+                    },
+                    seeds,
+                ),
+                shortfall,
+            )?;
+        }
+
+        // El cierre de `escrow` (close = arbitration_treasury) envia los bonos
+        // posteados (hasta 5% de lo disputado) a la cuenta de arbitraje de la
+        // empresa; el PDA job cierra hacia el cliente.
         msg!("Dispute finalized for job: {}", job.key());
         Ok(())
     }
@@ -1070,7 +1172,7 @@ pub mod escrow {
     pub fn create_milestone(
         ctx: Context<CreateMilestone>,
         _job_id: u64,
-        _index: u8,
+        index: u8,
         title: String,
         description: String,
         amount: u64,
@@ -1088,6 +1190,10 @@ pub mod escrow {
             deadline > Clock::get()?.unix_timestamp,
             ErrorCode::DeadlineMustBeFuture
         );
+        // Los milestones son secuenciales: el indice debe coincidir con el conteo
+        // actual (0, 1, 2, ...). Evita indices duplicados/saltados y desalineacion
+        // con el PDA `milestone` (seed incluye el indice).
+        require!(index == job.milestones_total, ErrorCode::InvalidMilestoneIndex);
         require!(
             job.milestones_total < MAX_MILESTONES as u8,
             ErrorCode::MilestoneAlreadyCompleted
@@ -1107,7 +1213,7 @@ pub mod escrow {
         milestone.amount = amount;
         milestone.deadline = deadline;
         milestone.status = MilestoneStatus::Pending;
-        milestone.index = _index;
+        milestone.index = index;
         milestone.submitted_at = None;
         milestone.approved_at = None;
         milestone.bump = ctx.bumps.milestone;
@@ -1232,6 +1338,13 @@ pub struct UpdateTreasury<'info> {
 }
 
 #[derive(Accounts)]
+pub struct UpdateArbitrationTreasury<'info> {
+    pub authority: Signer<'info>,
+    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+}
+
+#[derive(Accounts)]
 pub struct WithdrawTreasury<'info> {
     /// Debe coincidir con config.treasury y firmar la transferencia.
     #[account(
@@ -1240,6 +1353,22 @@ pub struct WithdrawTreasury<'info> {
     )]
     pub treasury: Signer<'info>,
     /// CHECK: Destino libre; lo decide el tesorero.
+    #[account(mut)]
+    pub destination: UncheckedAccount<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct WithdrawArbitration<'info> {
+    /// Debe coincidir con config.arbitration_treasury y firmar la transferencia.
+    #[account(
+        mut,
+        constraint = arbitration_treasury.key() == config.arbitration_treasury @ ErrorCode::NotAuthorized
+    )]
+    pub arbitration_treasury: Signer<'info>,
+    /// CHECK: Destino libre; lo decide la empresa.
     #[account(mut)]
     pub destination: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump)]
@@ -1562,17 +1691,24 @@ pub struct FinalizeDisputePayouts<'info> {
         mut,
         seeds = [b"arb_fee", job.key().as_ref()],
         bump = escrow.bump,
-        close = resolver
+        close = arbitration_treasury
     )]
     pub escrow: Account<'info, ArbitrationEscrow>,
     #[account(mut, constraint = job.freelancer == Some(freelancer.key()) @ ErrorCode::NotJobFreelancer)]
     pub freelancer: SystemAccount<'info>,
-    /// CHECK: Treasury que recibe la comision; validado contra config.treasury.
+    /// CHECK: Treasury que recibe la comision de protocolo; validado contra config.treasury.
     #[account(
         mut,
         constraint = treasury.key() == config.treasury @ ErrorCode::InvalidTreasury
     )]
     pub treasury: UncheckedAccount<'info>,
+    /// CHECK: Cuenta SEPARADA de la empresa que recibe las fees de arbitraje (5%).
+    /// Validada contra config.arbitration_treasury. Nunca va al wallet del resolver.
+    #[account(
+        mut,
+        constraint = arbitration_treasury.key() == config.arbitration_treasury @ ErrorCode::InvalidTreasury
+    )]
+    pub arbitration_treasury: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
