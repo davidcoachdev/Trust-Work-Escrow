@@ -5,7 +5,8 @@
     "deploy": "anchor deploy"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.30.0"
+    "@coral-xyz/anchor": "0.32.1",
+    "@solana/web3.js": "^1.95.0"
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.0",

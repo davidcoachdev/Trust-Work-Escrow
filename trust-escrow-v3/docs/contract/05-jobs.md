@@ -1,10 +1,10 @@
 # 05 · Módulo Jobs
 
-Estado: ✅ implementado completo (create_job, deposit_funds, accept_job,
-submit_work, approve_work, reject_work, cancel_job, pause_job, unpause_job,
-expire_paused_job).
+Estado: ✅ implementado completo (create_job, deposit_funds, apply_to_job,
+accept_application, submit_work, approve_work, reject_work, cancel_job,
+pause_job, unpause_job, expire_paused_job).
 
-> **Pausa por job:** `deposit_funds` y `accept_job` quedan bloqueados si el job
+> **Pausa por job:** `deposit_funds` y `accept_application` quedan bloqueados si el job
 > está pausado (`check_not_paused`). La pausa solo la puede poner el cliente y
 > **solo si no hay freelancer asignado** (`Created`/`Funded`). No puede durar
 > para siempre: tras `MAX_PAUSE_DURATION` (30 días) cualquiera puede llamar
@@ -35,22 +35,47 @@ la guarda en `fee_amount`. Inicializa los contadores de milestones en 0 y
 
 **Cuentas**: `client` (Signer, paga), `job` (init PDA), `config`, `system_program`.
 
-## `accept_job`
+## `apply_to_job`
 
 **Qué hace**
-El freelancer acepta el job fondeado: `job.freelancer = Some(freelancer)` y job
-pasa a `InProgress`. Requiere `freelancer != client`.
+Un freelancer se postula al job fondeado: agrega una `Application { applicant,
+proposal, applied_at, status: Pending }` al `Vec<Application>` del job (hasta
+`MAX_APPLICATIONS` = 50). El job queda en `Funded` (sigue abierto a más
+postulaciones).
 
 **Por qué**
-Asigna quién entregará el trabajo (requisito para `submit_work`/`approve_work` y
-para poder abrir disputas). Modelo simple y correcto (estilo v1); sin flujo de
-postulaciones múltiples.
+Modelo de postulaciones múltiples: el cliente elige luego con `accept_application`
+(en vez del auto-aceptar directo). El `Vec<Application>` del PDA `job` es el que
+reservaba espacio (`#[max_len(50)]`); ahora se usa de verdad.
 
 **Validaciones**
 - `job.status == Funded` → `InvalidJobStatus`
-- `freelancer.key() != job.client` → `CannotWorkOnOwnJob`
+- `applicant.key() != job.client` → `CannotWorkOnOwnJob`
+- `proposal.len() <= MAX_PROPOSAL_LENGTH` → `ProposalTooLong`
+- `applications.len() < MAX_APPLICATIONS` → `InvalidApplicationIndex`
+- no postularse dos veces (`applicant` ya en el vec) → `AlreadyApplied`
 
-**Cuentas**: `freelancer` (Signer), `client` (UncheckedAccount), `job` (mut PDA).
+**Cuentas**: `applicant` (Signer, paga), `client` (UncheckedAccount), `job` (mut PDA), `system_program`.
+
+## `accept_application`
+
+**Qué hace**
+El cliente elige una postulación por índice: marca esa `Application` como
+`Accepted`, setea `job.freelancer = Some(applicant)` y pasa el job a `InProgress`.
+Requiere `client == job.client`.
+
+**Por qué**
+Asigna quién entregará el trabajo (requisito para `submit_work`/`approve_work` y
+para abrir disputas). Reemplaza al auto-aceptar directo: el cliente elige entre
+las postulaciones recibidas.
+
+**Validaciones**
+- `job.status == Funded` → `InvalidJobStatus`
+- `check_not_paused` → `JobPaused` / `JobPausedExpired`
+- `job.client == firmante` → `NotJobClient`
+- `application_index < applications.len()` → `InvalidApplicationIndex`
+
+**Cuentas**: `client` (Signer), `job` (mut PDA), `system_program`.
 
 ## `deposit_funds`
 
@@ -131,12 +156,24 @@ Permite iteración sin abrir disputa. (En v3 no guarda razón; el parámetro
 ## `cancel_job`
 
 **Qué hace**
-El cliente cancela (job `Created` o `Funded`). Si `Funded`, el PDA `job` firma y
-reembolsa `amount + fee_amount` al cliente. Job → `Cancelled` y cierra.
+El cliente cancela el job (solo antes de asignar freelancer):
+- `Created`: solo cierra (nada depositado).
+- `Funded`: el PDA `job` firma y reembolsa `amount + fee_amount` al cliente.
+
+Job → `Cancelled` y cierra (`close = client`, renta devuelta).
+
+**En `InProgress` no se cancela solo.** Si el freelancer no entregó / no cumplió, el
+cliente (o el freelancer) abre un **`SupportTicket`** (ver `06-disputes.md`) y el
+asesor de plataforma resuelve cancelando y reembolsando lo no devengado. Así:
+- el cliente no paga bono (a diferencia de una disputa), y
+- el cliente no se autoreembolsa (lo decide el asesor neutral), y
+- el freelancer se queda lo que ya cobró en milestones aprobados.
 
 **Por qué**
 - Reembolso con `new_with_signer` (corrige v2, que también lo necesitaba).
 - `close = client` devuelve la renta. No se cobra comisión (servicio no consumido).
+- La cancelación en `InProgress` queda en manos del asesor para proteger a ambas
+  partes (el cliente no se queda el trabajo hecho, ni paga por el incumplimiento ajeno).
 
 **Validaciones**
 - `job.client == firmante` → `NotJobClient`
@@ -149,7 +186,7 @@ reembolsa `amount + fee_amount` al cliente. Job → `Cancelled` y cierra.
 
 **`pause_job`** — Cliente pausa el job. Requiere `status == Created || Funded`
 (sin freelancer asignado) y que no esté ya pausado. Guarda `paused=true`,
-`paused_at=now`. Mientras está pausado, `deposit_funds` y `accept_job` se bloquean.
+`paused_at=now`. Mientras está pausado, `deposit_funds` y `accept_application` se bloquean.
 
 **`unpause_job`** — Cliente reanuda (`paused=false`).
 
@@ -160,7 +197,7 @@ job. Evita fondos atrapados para siempre.
 **Validaciones**
 - `job.client == firmante` → `NotJobClient`
 - pausar solo en `Created`/`Funded` → `CannotPauseWithFreelancer`
-- `check_not_paused` bloquea `deposit_funds`/`accept_job` → `JobPaused` /
+- `check_not_paused` bloquea `deposit_funds`/`accept_application` → `JobPaused` /
   `JobPausedExpired`
 
 **Cuentas**: `client` (Signer), `job` (mut PDA). `expire_paused_job` usa

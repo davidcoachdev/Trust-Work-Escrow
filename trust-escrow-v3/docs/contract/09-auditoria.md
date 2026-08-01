@@ -103,7 +103,7 @@ Lista los hallazgos y su estado.
 7. **Pausa global solo bloquea `create_job`**, no las operaciones en curso.
    *Mitigado* con **pausa por job** (`pause_job`/`unpause_job`/`expire_paused_job`):
    el cliente pausa solo en `Created`/`Funded` (sin freelancer), `deposit_funds` y
-   `accept_job` se bloquean mientras está pausado, y tras `MAX_PAUSE_DURATION`
+   `accept_application` se bloquean mientras está pausado, y tras `MAX_PAUSE_DURATION`
    (30 días) cualquiera puede `expire_paused_job` para reembolsar y cerrar (evita
    fondos atrapados para siempre). La pausa global de emergencia (authority) aún
    solo frena `create_job`; extenderla a flujos activos sigue pendiente de decidir.
@@ -115,7 +115,7 @@ Lista los hallazgos y su estado.
    de trabajar. Se puede refinar con un chequeo explícito.
 
 ## Validación de identidades (resumen)
-- Cliente ≠ Freelancer: ✅ en `accept_job` (`CannotWorkOnOwnJob`).
+- Cliente ≠ Freelancer: ✅ en `accept_application` (`CannotWorkOnOwnJob`).
 - Árbitro ≠ Cliente/Freelancer: ✅ en `assign_arbiter` y `resolve_platform_case`
   (`ArbiterCannotBeParty`).
 - Asesor ≠ Cliente/Freelancer: ✅ en `resolve_platform_case`.

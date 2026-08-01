@@ -3,26 +3,16 @@ use anchor_lang::system_program::{transfer, Transfer};
 
 declare_id!("J1c4QsjbV9bFEPrFQZZGe8GrGWFxNhtAhhrxJFK2xc1h");
 
-// =============================================================================
-// CONSTANTS
-// =============================================================================
 
-/// Fee expresado en basis points (10000 = 100%). Corrige el bug de v2 que
-/// dividía por 10000 pero validaba 0-100, cobrando 100x menos.
 const BASIS_POINTS: u16 = 10_000;
 
-/// Fee de arbitraje por parte, en basis points (250 = 2.5%).
-/// Se cobra 2.5% al cliente Y 2.5% al freelancer (5% total del job) SOLO cuando
-/// hay arbitraje, para pagar al arbitro neutral asignado por la plataforma.
 const ARBITER_FEE_BPS_PER_PARTY: u16 = 250;
 
-/// Ventana para que la contraparte acepte la disputa antes de ir a asesor.
-const DISPUTE_ACCEPT_GRACE: i64 = 7 * 24 * 60 * 60; // 7 dias en segundos
+const DISPUTE_ACCEPT_GRACE: i64 = 7 * 24 * 60 * 60;
 
-/// Tiempo maximo que un job puede estar pausado antes de expirar (30 dias).
 const MAX_PAUSE_DURATION: i64 = 30 * 24 * 60 * 60;
 
-const MIN_JOB_AMOUNT: u64 = 100_000; // 0.0001 SOL
+const MIN_JOB_AMOUNT: u64 = 100_000;
 const MAX_TITLE_LENGTH: usize = 100;
 const MAX_DESCRIPTION_LENGTH: usize = 500;
 const MAX_PROPOSAL_LENGTH: usize = 512;
@@ -33,9 +23,6 @@ const MAX_MILESTONES: usize = 20;
 const MAX_APPLICATIONS: usize = 50;
 const MAX_ARBITERS: usize = 50;
 
-// =============================================================================
-// ERRORS
-// =============================================================================
 
 #[error_code]
 pub enum ErrorCode {
@@ -81,7 +68,6 @@ pub enum ErrorCode {
     DeadlineMustBeFuture,
     #[msg("Insufficient funds in source account")]
     InsufficientFunds,
-    // Disputes
     #[msg("Cannot raise dispute at this stage")]
     CannotDisputeAtStage,
     #[msg("Dispute reason cannot be empty")]
@@ -100,7 +86,6 @@ pub enum ErrorCode {
     ArbiterCannotBeParty,
     #[msg("Payout percent exceeds 100")]
     InvalidPercent,
-    // Milestones
     #[msg("Milestone not found")]
     MilestoneNotFound,
     #[msg("Milestone already completed")]
@@ -111,11 +96,14 @@ pub enum ErrorCode {
     MilestoneAmountExceedsFunds,
     #[msg("All milestones must be completed before release")]
     AllMilestonesRequired,
+    #[msg("Already applied to this job")]
+    AlreadyApplied,
+    #[msg("Invalid application index")]
+    InvalidApplicationIndex,
+    #[msg("A dispute or support ticket is already open for this job")]
+    CaseAlreadyOpen,
 }
 
-// =============================================================================
-// STATE ENUMS
-// =============================================================================
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum JobStatus {
@@ -171,23 +159,20 @@ impl anchor_lang::Space for MilestoneStatus {
     const INIT_SPACE: usize = 1;
 }
 
-// =============================================================================
-// STATE STRUCTS
-// =============================================================================
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
+pub enum SupportTicketStatus {
+    Open,
+    Resolved,
+}
+
 
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
     pub authority: Pubkey,
-    /// Asesor de plataforma: resuelve PlatformCase / disputeos no mutuos.
     pub advisor: Pubkey,
-    /// Wallet que recibe las fees del protocolo. Debe firmar en withdraw_treasury.
     pub treasury: Pubkey,
-    /// Cuenta SEPARADA de la empresa que recibe las fees de arbitraje (5%).
-    /// Aislarla de `treasury` permite llevar saldos de arbitraje por separado
-    /// (buena gestion contable). NUNCA va al wallet personal del asesor/arbitro.
     pub arbitration_treasury: Pubkey,
-    /// Fee en basis points (10000 = 100%).
     pub fee_bps: u16,
     pub paused: bool,
     pub bump: u8,
@@ -211,7 +196,6 @@ pub struct Job {
     pub created_at: i64,
     pub updated_at: i64,
     pub submitted_at: Option<i64>,
-    /// Control de milestones para no liberar de mas de lo depositado.
     pub milestones_total: u8,
     pub milestones_approved: u8,
     pub milestones_amount_total: u64,
@@ -287,21 +271,29 @@ pub struct Milestone {
 
 #[account]
 #[derive(InitSpace)]
+pub struct SupportTicket {
+    pub job: Pubkey,
+    pub opened_by: Pubkey,
+    #[max_len(MAX_DISPUTE_REASON)]
+    pub reason: String,
+    pub status: SupportTicketStatus,
+    pub created_at: i64,
+    pub resolved_at: Option<i64>,
+    #[max_len(MAX_DISPUTE_REASON)]
+    pub resolution: Option<String>,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
 pub struct ArbitrationEscrow {
     pub job: Pubkey,
-    /// Bono de 2.5% posteado por el cliente al abrir la disputa.
     pub client_bond: u64,
-    /// Bono de 2.5% posteado por el freelancer al aceptar.
     pub freelancer_bond: u64,
     pub bump: u8,
 }
 
-// =============================================================================
-// HELPERS
-// =============================================================================
 
-/// Calcula la fee con aritmetica chequeada. `fee_bps` debe validarse contra
-/// BASIS_POINTS antes de llamar.
 pub fn compute_fee(amount: u64, fee_bps: u16) -> Result<u64> {
     let fee = (amount as u128)
         .checked_mul(fee_bps as u128)
@@ -310,7 +302,6 @@ pub fn compute_fee(amount: u64, fee_bps: u16) -> Result<u64> {
     Ok(fee as u64)
 }
 
-/// Bloquea instrucciones si el job esta pausado (avisa si ya expiro).
 pub fn check_not_paused(job: &Job) -> Result<()> {
     if job.paused {
         let now = Clock::get()?.unix_timestamp;
@@ -322,17 +313,11 @@ pub fn check_not_paused(job: &Job) -> Result<()> {
     Ok(())
 }
 
-// =============================================================================
-// PROGRAM MODULE
-// =============================================================================
 
 #[program]
 pub mod escrow {
     use super::*;
 
-    // -------------------------------------------------------------------------
-    // CONFIG MODULE  (portado de v1/v2, corregido)
-    // -------------------------------------------------------------------------
 
     pub fn initialize_config(
         ctx: Context<InitializeConfig>,
@@ -391,9 +376,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Retira lamports acumulados en la wallet `treasury`.
-    /// CORRECCION v2: `treasury` es Signer (debe firmar) y se valida contra
-    /// config.treasury. Los fondos provienen de la wallet treasury, no del PDA config.
     pub fn withdraw_treasury(ctx: Context<WithdrawTreasury>, amount: u64) -> Result<()> {
         require!(amount > 0, ErrorCode::AmountTooSmall);
         let balance = ctx.accounts.treasury.get_lamports();
@@ -414,9 +396,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Retira lamports acumulados en la cuenta de arbitraje de la empresa.
-    /// Misma lógica que `withdraw_treasury` pero sobre `arbitration_treasury`
-    /// (cuenta separada para fees de arbitraje).
     pub fn withdraw_arbitration(
         ctx: Context<WithdrawArbitration>,
         amount: u64,
@@ -440,9 +419,6 @@ pub mod escrow {
         Ok(())
     }
 
-    // -------------------------------------------------------------------------
-    // JOBS MODULE
-    // -------------------------------------------------------------------------
 
     pub fn create_job(
         ctx: Context<CreateJob>,
@@ -466,7 +442,6 @@ pub mod escrow {
             ErrorCode::DeadlineMustBeFuture
         );
 
-        // Fee de plataforma calculada con aritmetica chequeada.
         let fee_amount = compute_fee(amount, config.fee_bps)?;
 
         let now = Clock::get()?.unix_timestamp;
@@ -503,7 +478,6 @@ pub mod escrow {
             .checked_add(job.fee_amount)
             .ok_or(ErrorCode::MathOverflow)?;
 
-        // Cliente firma: transferencia normal al PDA job.
         transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
@@ -522,20 +496,65 @@ pub mod escrow {
         Ok(())
     }
 
-    pub fn accept_job(ctx: Context<AcceptJob>, _job_id: u64) -> Result<()> {
+    pub fn apply_to_job(
+        ctx: Context<ApplyToJob>,
+        _job_id: u64,
+        proposal: String,
+    ) -> Result<()> {
         let job = &mut ctx.accounts.job;
         require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
         check_not_paused(job)?;
         require!(
-            ctx.accounts.freelancer.key() != job.client,
+            ctx.accounts.applicant.key() != job.client,
             ErrorCode::CannotWorkOnOwnJob
         );
+        require!(proposal.len() <= MAX_PROPOSAL_LENGTH, ErrorCode::ProposalTooLong);
+        require!(
+            job.applications.len() < MAX_APPLICATIONS,
+            ErrorCode::InvalidApplicationIndex
+        );
+        require!(
+            !job
+                .applications
+                .iter()
+                .any(|a| a.applicant == ctx.accounts.applicant.key()),
+            ErrorCode::AlreadyApplied
+        );
 
-        job.freelancer = Some(ctx.accounts.freelancer.key());
+        let now = Clock::get()?.unix_timestamp;
+        let new_index = job.applications.len() as u8;
+        job.applications.push(Application {
+            applicant: ctx.accounts.applicant.key(),
+            proposal,
+            applied_at: now,
+            status: ApplicationStatus::Pending,
+        });
+        job.updated_at = now;
+
+        msg!("Application {} submitted for job: {}", new_index, job.key());
+        Ok(())
+    }
+
+    pub fn accept_application(
+        ctx: Context<AcceptApplication>,
+        _job_id: u64,
+        application_index: u8,
+    ) -> Result<()> {
+        let job = &mut ctx.accounts.job;
+        require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
+        check_not_paused(job)?;
+        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
+
+        let idx = application_index as usize;
+        require!(idx < job.applications.len(), ErrorCode::InvalidApplicationIndex);
+        let applicant = job.applications[idx].applicant;
+        job.applications[idx].status = ApplicationStatus::Accepted;
+
+        job.freelancer = Some(applicant);
         job.status = JobStatus::InProgress;
         job.updated_at = Clock::get()?.unix_timestamp;
 
-        msg!("Job accepted by: {}", ctx.accounts.freelancer.key());
+        msg!("Application accepted: freelancer {}", applicant);
         Ok(())
     }
 
@@ -560,20 +579,17 @@ pub mod escrow {
         require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
         require!(job.status == JobStatus::Submitted, ErrorCode::InvalidJobStatus);
         require!(job.freelancer.is_some(), ErrorCode::NoFreelancerAssigned);
-        // Si hay milestones, deben estar todos aprobados antes del release final.
         require!(
             job.milestones_total == 0 || job.milestones_approved == job.milestones_total,
             ErrorCode::AllMilestonesRequired
         );
 
-        // Paga el resto (lo no cubierto por milestones ya aprobados).
         let amount = job
             .amount
             .checked_sub(job.milestones_amount_total)
             .ok_or(ErrorCode::MathOverflow)?;
         let fee_amount = job.fee_amount;
 
-        // El PDA job firma las transferencias de salida (new_with_signer).
         let client_key = ctx.accounts.client.key();
         let job_id_bytes = _job_id.to_le_bytes();
         let seeds: &[&[&[u8]]] = &[&[
@@ -583,7 +599,6 @@ pub mod escrow {
             &[job.bump],
         ]];
 
-        // Paga al freelancer el principal.
         transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
@@ -596,7 +611,6 @@ pub mod escrow {
             amount,
         )?;
 
-        // Paga la comision de plataforma al treasury.
         transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
@@ -621,7 +635,6 @@ pub mod escrow {
         require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
         require!(job.status == JobStatus::Submitted, ErrorCode::InvalidJobStatus);
 
-        // Vuelve a InProgress para que el freelancer corrija y reenvie.
         job.status = JobStatus::InProgress;
         job.updated_at = Clock::get()?.unix_timestamp;
 
@@ -672,7 +685,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Pausa el job (solo si no hay freelancer asignado: Created/Funded).
     pub fn pause_job(ctx: Context<PauseJob>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
         require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
@@ -688,7 +700,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Reanuda un job pausado (cliente).
     pub fn unpause_job(ctx: Context<UnpauseJob>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
         require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
@@ -699,8 +710,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Expira un job pausado hace mas de MAX_PAUSE_DURATION: reembolsa (si fondeado)
-    /// y cierra. Cualquiera puede llamarlo para liberar fondos atrapados.
     pub fn expire_paused_job(ctx: Context<ExpirePausedJob>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
         require!(job.paused, ErrorCode::JobPaused);
@@ -739,9 +748,6 @@ pub mod escrow {
         Ok(())
     }
 
-    // -------------------------------------------------------------------------
-    // ARBITER POOL MODULE
-    // -------------------------------------------------------------------------
 
     pub fn create_arbiter_pool(ctx: Context<CreateArbiterPool>) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
@@ -772,12 +778,7 @@ pub mod escrow {
         Ok(())
     }
 
-    // -------------------------------------------------------------------------
-    // DISPUTES MODULE
-    // -------------------------------------------------------------------------
 
-    /// Abre una disputa. El que abre (raiser) firma y postea su bono de 2.5%.
-    /// Crea `Dispute` y `ArbitrationEscrow`. Job -> Disputed.
     pub fn raise_dispute(ctx: Context<RaiseDispute>, _job_id: u64, reason: String) -> Result<()> {
         require!(
             ctx.accounts.job.status == JobStatus::Submitted
@@ -785,6 +786,7 @@ pub mod escrow {
             ErrorCode::CannotDisputeAtStage
         );
         require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
+        require!(ctx.accounts.ticket.is_none(), ErrorCode::CaseAlreadyOpen);
         let raiser = ctx.accounts.raiser.key();
         require!(
             raiser == ctx.accounts.job.client
@@ -798,7 +800,6 @@ pub mod escrow {
             .ok_or(ErrorCode::MathOverflow)?;
         let bond = compute_fee(dispute_amount, ARBITER_FEE_BPS_PER_PARTY)?;
 
-        // Raiser postea su bono al escrow de arbitraje (firma como origen).
         transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
@@ -844,11 +845,9 @@ pub mod escrow {
         Ok(())
     }
 
-    /// La contraparte acepta la disputa y postea su bono de 2.5%. Dispute -> Active.
     pub fn accept_dispute(ctx: Context<AcceptDispute>, _job_id: u64) -> Result<()> {
         let dispute = &mut ctx.accounts.dispute;
         require!(dispute.status == DisputeStatus::Open, ErrorCode::DisputeAlreadyResolved);
-        // La aceptacion solo es valida dentro de la gracia; despues resuelve el asesor.
         require!(
             Clock::get()?.unix_timestamp <= dispute.deadline,
             ErrorCode::DisputeDeadlinePassed
@@ -920,7 +919,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Plataforma asigna un arbitro del pool (solo si la disputa es mutua: Active).
     pub fn assign_arbiter(ctx: Context<AssignArbiter>, _job_id: u64) -> Result<()> {
         require!(
             ctx.accounts.config.authority == ctx.accounts.authority.key(),
@@ -933,7 +931,6 @@ pub mod escrow {
         );
         let dispute = &mut ctx.accounts.dispute;
         require!(dispute.arbiter.is_none(), ErrorCode::NotValidArbiter);
-        // El arbitro no puede ser el cliente ni el freelancer (neutralidad).
         let job_client = ctx.accounts.job.client;
         let job_freelancer = ctx.accounts.job.freelancer;
         require!(
@@ -951,7 +948,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Arbitro asignado resuelve el reparto (mutuo).
     pub fn resolve_dispute(
         ctx: Context<ResolveDispute>,
         _job_id: u64,
@@ -978,7 +974,6 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Asesor resuelve cuando NO hubo arbitro mutuo (una parte no acepto / fallo).
     pub fn resolve_platform_case(
         ctx: Context<ResolvePlatformCase>,
         _job_id: u64,
@@ -986,7 +981,6 @@ pub mod escrow {
     ) -> Result<()> {
         let config = &ctx.accounts.config;
         require!(config.advisor == ctx.accounts.advisor.key(), ErrorCode::NotAuthorized);
-        // El asesor no puede ser el cliente ni el freelancer.
         let job_client = ctx.accounts.job.client;
         let job_freelancer = ctx.accounts.job.freelancer;
         require!(
@@ -997,12 +991,6 @@ pub mod escrow {
         let dispute = &mut ctx.accounts.dispute;
         let now = Clock::get()?.unix_timestamp;
         let expired = now > dispute.deadline;
-        // El asesor resuelve de oficio SOLO si no hubo interaccion del arbitro:
-        // (a) arbitro asignado pero fallo (status ArbiterAssigned), o
-        // (b) ningun arbitro fue asignado Y vencio la gracia (Open / Active /
-        //     EvidenceSubmitted). No se secuestra una disputa que el arbitro
-        //     esta tratando activamente; la gracia solo fuerza el takeover de
-        //     plataforma cuando nadie interactuo.
         require!(
             dispute.status == DisputeStatus::ArbiterAssigned
                 || (dispute.arbiter.is_none()
@@ -1025,14 +1013,12 @@ pub mod escrow {
         Ok(())
     }
 
-    /// Cualquiera abre caso de plataforma si la contraparte no acepto.
     pub fn request_platform_intervention(
         ctx: Context<RequestPlatformIntervention>,
         _job_id: u64,
     ) -> Result<()> {
         let dispute = &mut ctx.accounts.dispute;
         require!(dispute.status == DisputeStatus::Open, ErrorCode::DisputeAlreadyResolved);
-        // Solo dentro de la gracia; despues solo el asesor puede resolver.
         require!(
             Clock::get()?.unix_timestamp <= dispute.deadline,
             ErrorCode::DisputeDeadlinePassed
@@ -1043,13 +1029,74 @@ pub mod escrow {
                 || ctx.accounts.job.freelancer == Some(requester),
             ErrorCode::NotAuthorized
         );
-        // La disputa queda habilitada para que el asesor resuelva.
         dispute.status = DisputeStatus::EvidenceSubmitted;
         Ok(())
     }
 
-    /// Paga y cierra. Resolver = arbitro asignado o asesor de plataforma.
-    /// El PDA `job` firma. El `ArbitrationEscrow` se cierra hacia el resolver (5%).
+    pub fn open_support_ticket(
+        ctx: Context<OpenSupportTicket>,
+        _job_id: u64,
+        reason: String,
+    ) -> Result<()> {
+        let job = &ctx.accounts.job;
+        require!(
+            job.status == JobStatus::InProgress || job.status == JobStatus::Submitted,
+            ErrorCode::InvalidJobStatus
+        );
+        let opener = ctx.accounts.opener.key();
+        require!(
+            opener == job.client || job.freelancer == Some(opener),
+            ErrorCode::NotAuthorized
+        );
+        require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
+        require!(ctx.accounts.dispute.is_none(), ErrorCode::CaseAlreadyOpen);
+
+        let ticket = &mut ctx.accounts.ticket;
+        ticket.job = job.key();
+        ticket.opened_by = opener;
+        ticket.reason = reason;
+        ticket.status = SupportTicketStatus::Open;
+        ticket.created_at = Clock::get()?.unix_timestamp;
+        ticket.resolved_at = None;
+        ticket.resolution = None;
+        ticket.bump = ctx.bumps.ticket;
+
+        msg!("Support ticket opened for job: {}", job.key());
+        Ok(())
+    }
+
+    pub fn resolve_support_ticket(
+        ctx: Context<ResolveSupportTicket>,
+        _job_id: u64,
+        resolution: String,
+    ) -> Result<()> {
+        let config = &ctx.accounts.config;
+        require!(config.advisor == ctx.accounts.advisor.key(), ErrorCode::NotAuthorized);
+        let job_client = ctx.accounts.job.client;
+        let job_freelancer = ctx.accounts.job.freelancer;
+        require!(
+            ctx.accounts.advisor.key() != job_client
+                && job_freelancer.map_or(true, |f| f != ctx.accounts.advisor.key()),
+            ErrorCode::ArbiterCannotBeParty
+        );
+        let ticket = &mut ctx.accounts.ticket;
+        require!(ticket.status == SupportTicketStatus::Open, ErrorCode::DisputeAlreadyResolved);
+        let job = &mut ctx.accounts.job;
+        require!(
+            job.status == JobStatus::InProgress || job.status == JobStatus::Submitted,
+            ErrorCode::InvalidJobStatus
+        );
+
+        job.status = JobStatus::Cancelled;
+        job.updated_at = Clock::get()?.unix_timestamp;
+        ticket.status = SupportTicketStatus::Resolved;
+        ticket.resolved_at = Some(Clock::get()?.unix_timestamp);
+        ticket.resolution = Some(resolution);
+
+        msg!("Support ticket resolved (job cancelled): {}", job.key());
+        Ok(())
+    }
+
     pub fn finalize_dispute_payouts(
         ctx: Context<FinalizeDisputePayouts>,
         _job_id: u64,
@@ -1064,7 +1111,6 @@ pub mod escrow {
         );
 
         let job = &mut ctx.accounts.job;
-        // El reparto de la disputa aplica solo al resto no pagado por milestones.
         let amount = job
             .amount
             .checked_sub(job.milestones_amount_total)
@@ -1072,18 +1118,14 @@ pub mod escrow {
         let fee_amount = job.fee_amount;
         let client_pct = dispute.client_payout_percent;
         let freelancer_pct = dispute.freelancer_payout_percent;
-        // Fee de arbitraje = 5% del monto en disputa (lo mismo que postearon las partes).
         let resolver_fee_total = compute_fee(amount, ARBITER_FEE_BPS_PER_PARTY * 2)?;
-        // Bonos efectivamente posteados en el ArbitrationEscrow (1 o 2 de 2.5%).
         let posted = ctx
             .accounts
             .escrow
             .client_bond
             .checked_add(ctx.accounts.escrow.freelancer_bond)
             .ok_or(ErrorCode::MathOverflow)?;
-        // Lo no posteado se recupera del reparto y se paga al resolutor (5% "les guste o no").
         let shortfall = resolver_fee_total.saturating_sub(posted);
-        // Lo que queda para cliente y freelancer.
         let to_parties = amount
             .checked_sub(shortfall)
             .ok_or(ErrorCode::MathOverflow)?;
@@ -1097,7 +1139,6 @@ pub mod escrow {
             &[job.bump],
         ]];
 
-        // Comision de plataforma a treasury.
         transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
@@ -1110,7 +1151,6 @@ pub mod escrow {
             fee_amount,
         )?;
 
-        // Parte del cliente.
         let client_net = (to_parties as u128 * client_pct as u128 / 100) as u64;
         if client_net > 0 {
             transfer(
@@ -1126,7 +1166,6 @@ pub mod escrow {
             )?;
         }
 
-        // Parte del freelancer.
         let freelancer_net = (to_parties as u128 * freelancer_pct as u128 / 100) as u64;
         if freelancer_net > 0 {
             transfer(
@@ -1142,8 +1181,6 @@ pub mod escrow {
             )?;
         }
 
-        // Recupera del reparto lo que la contraparte no posteo y lo envia a la cuenta
-        // de arbitraje de la empresa (no al wallet del resolver).
         if shortfall > 0 {
             transfer(
                 CpiContext::new_with_signer(
@@ -1158,16 +1195,10 @@ pub mod escrow {
             )?;
         }
 
-        // El cierre de `escrow` (close = arbitration_treasury) envia los bonos
-        // posteados (hasta 5% de lo disputado) a la cuenta de arbitraje de la
-        // empresa; el PDA job cierra hacia el cliente.
         msg!("Dispute finalized for job: {}", job.key());
         Ok(())
     }
 
-    // -------------------------------------------------------------------------
-    // MILESTONES MODULE
-    // -------------------------------------------------------------------------
 
     pub fn create_milestone(
         ctx: Context<CreateMilestone>,
@@ -1190,16 +1221,12 @@ pub mod escrow {
             deadline > Clock::get()?.unix_timestamp,
             ErrorCode::DeadlineMustBeFuture
         );
-        // Los milestones son secuenciales: el indice debe coincidir con el conteo
-        // actual (0, 1, 2, ...). Evita indices duplicados/saltados y desalineacion
-        // con el PDA `milestone` (seed incluye el indice).
         require!(index == job.milestones_total, ErrorCode::InvalidMilestoneIndex);
         require!(
             job.milestones_total < MAX_MILESTONES as u8,
             ErrorCode::MilestoneAlreadyCompleted
         );
 
-        // La suma de montos de milestones no puede superar el depositado.
         let new_total = job
             .milestones_amount_total
             .checked_add(amount)
@@ -1234,7 +1261,11 @@ pub mod escrow {
             ErrorCode::NotJobFreelancer
         );
         require!(job.status == JobStatus::InProgress, ErrorCode::InvalidJobStatus);
-        require!(milestone.status == MilestoneStatus::Pending, ErrorCode::MilestoneAlreadyCompleted);
+        require!(
+            milestone.status == MilestoneStatus::Pending
+                || milestone.status == MilestoneStatus::Rejected,
+            ErrorCode::MilestoneAlreadyCompleted
+        );
 
         milestone.status = MilestoneStatus::Submitted;
         milestone.submitted_at = Some(Clock::get()?.unix_timestamp);
@@ -1290,14 +1321,8 @@ pub mod escrow {
         Ok(())
     }
 
-    // -------------------------------------------------------------------------
-    // (fin de modulos)
-    // -------------------------------------------------------------------------
 }
 
-// =============================================================================
-// ACCOUNTS CONTEXTS
-// =============================================================================
 
 #[derive(Accounts)]
 pub struct InitializeConfig<'info> {
@@ -1346,7 +1371,6 @@ pub struct UpdateArbitrationTreasury<'info> {
 
 #[derive(Accounts)]
 pub struct WithdrawTreasury<'info> {
-    /// Debe coincidir con config.treasury y firmar la transferencia.
     #[account(
         mut,
         constraint = treasury.key() == config.treasury @ ErrorCode::NotAuthorized
@@ -1362,7 +1386,6 @@ pub struct WithdrawTreasury<'info> {
 
 #[derive(Accounts)]
 pub struct WithdrawArbitration<'info> {
-    /// Debe coincidir con config.arbitration_treasury y firmar la transferencia.
     #[account(
         mut,
         constraint = arbitration_treasury.key() == config.arbitration_treasury @ ErrorCode::NotAuthorized
@@ -1376,9 +1399,6 @@ pub struct WithdrawArbitration<'info> {
     pub system_program: Program<'info, System>,
 }
 
-// -------------------------------------------------------------------------
-// JOBS ACCOUNTS
-// -------------------------------------------------------------------------
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
@@ -1519,14 +1539,12 @@ pub struct ExpirePausedJob<'info> {
     pub system_program: Program<'info, System>,
 }
 
-// -------------------------------------------------------------------------
-// ACCEPT JOB ACCOUNTS
-// -------------------------------------------------------------------------
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
-pub struct AcceptJob<'info> {
-    pub freelancer: Signer<'info>,
+pub struct ApplyToJob<'info> {
+    #[account(mut)]
+    pub applicant: Signer<'info>,
     /// CHECK: client validado por el PDA del job.
     pub client: UncheckedAccount<'info>,
     #[account(
@@ -1535,11 +1553,23 @@ pub struct AcceptJob<'info> {
         bump = job.bump
     )]
     pub job: Account<'info, Job>,
+    pub system_program: Program<'info, System>,
 }
 
-// -------------------------------------------------------------------------
-// ARBITER POOL ACCOUNTS
-// -------------------------------------------------------------------------
+#[derive(Accounts)]
+#[instruction(job_id: u64)]
+pub struct AcceptApplication<'info> {
+    #[account(mut)]
+    pub client: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()],
+        bump = job.bump
+    )]
+    pub job: Account<'info, Job>,
+    pub system_program: Program<'info, System>,
+}
+
 
 #[derive(Accounts)]
 pub struct CreateArbiterPool<'info> {
@@ -1564,9 +1594,6 @@ pub struct RemoveArbiter<'info> {
     pub pool: Account<'info, ArbiterPool>,
 }
 
-// -------------------------------------------------------------------------
-// DISPUTES ACCOUNTS
-// -------------------------------------------------------------------------
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
@@ -1577,6 +1604,8 @@ pub struct RaiseDispute<'info> {
     pub client: UncheckedAccount<'info>,
     #[account(mut, seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
     pub job: Account<'info, Job>,
+    #[account(seeds = [b"support", job.key().as_ref()], bump)]
+    pub ticket: Option<Account<'info, SupportTicket>>,
     #[account(init, payer = raiser, space = Dispute::INIT_SPACE + 8, seeds = [b"dispute", job.key().as_ref()], bump)]
     pub dispute: Account<'info, Dispute>,
     #[account(init, payer = raiser, space = ArbitrationEscrow::INIT_SPACE + 8, seeds = [b"arb_fee", job.key().as_ref()], bump)]
@@ -1669,6 +1698,56 @@ pub struct RequestPlatformIntervention<'info> {
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
+pub struct OpenSupportTicket<'info> {
+    #[account(mut)]
+    pub opener: Signer<'info>,
+    /// CHECK: client validado por el PDA del job.
+    pub client: UncheckedAccount<'info>,
+    #[account(seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
+    pub job: Account<'info, Job>,
+    #[account(seeds = [b"dispute", job.key().as_ref()], bump)]
+    pub dispute: Option<Account<'info, Dispute>>,
+    #[account(
+        init,
+        payer = opener,
+        space = SupportTicket::INIT_SPACE + 8,
+        seeds = [b"support", job.key().as_ref()],
+        bump
+    )]
+    pub ticket: Account<'info, SupportTicket>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(job_id: u64)]
+pub struct ResolveSupportTicket<'info> {
+    pub advisor: Signer<'info>,
+    /// CHECK: client validado por el PDA del job.
+    pub client: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()],
+        bump = job.bump,
+        close = client
+    )]
+    pub job: Account<'info, Job>,
+    #[account(
+        mut,
+        seeds = [b"support", job.key().as_ref()],
+        bump = ticket.bump,
+        close = opener
+    )]
+    pub ticket: Account<'info, SupportTicket>,
+    /// CHECK: quien abrio el ticket; validado contra ticket.opened_by.
+    #[account(constraint = opener.key() == ticket.opened_by @ ErrorCode::NotAuthorized)]
+    pub opener: UncheckedAccount<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(job_id: u64)]
 pub struct FinalizeDisputePayouts<'info> {
     pub resolver: Signer<'info>,
     /// CHECK: client validado por el PDA del job.
@@ -1703,7 +1782,6 @@ pub struct FinalizeDisputePayouts<'info> {
     )]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: Cuenta SEPARADA de la empresa que recibe las fees de arbitraje (5%).
-    /// Validada contra config.arbitration_treasury. Nunca va al wallet del resolver.
     #[account(
         mut,
         constraint = arbitration_treasury.key() == config.arbitration_treasury @ ErrorCode::InvalidTreasury
@@ -1714,9 +1792,6 @@ pub struct FinalizeDisputePayouts<'info> {
     pub system_program: Program<'info, System>,
 }
 
-// -------------------------------------------------------------------------
-// MILESTONES ACCOUNTS
-// -------------------------------------------------------------------------
 
 #[derive(Accounts)]
 #[instruction(job_id: u64, index: u8)]

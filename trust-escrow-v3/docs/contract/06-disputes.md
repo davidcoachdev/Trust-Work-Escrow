@@ -81,6 +81,23 @@ sequenceDiagram
     J->>A: 5% (bonos, al cerrar escrow)
 ```
 
+## `SupportTicket` (cancelación por incumplimiento, sin bono)
+
+Cuando el freelancer no entrega / no cumple en `InProgress`/`Submitted`, el cliente
+(o freelancer) **no paga bono** de disputa: abre un ticket al asesor de plataforma.
+
+- `open_support_ticket`: cualquiera de las partes abre el ticket (seed
+  `[b"support", job]`, sin bono). Solo en `InProgress`/`Submitted`.
+- `resolve_support_ticket` (`config.advisor`, y que no sea parte): cancela el job
+  (`Cancelled`) y el PDA `job` cierra hacia `client` (`close = client`) → devuelve
+  **solo lo no devengado**. El freelancer se queda lo ya cobrado en milestones
+  aprobados. El ticket cierra hacia `opener`.
+
+**Exclusión mutua:** no puede haber abierta una `Dispute` y un `SupportTicket` al
+mismo tiempo (`open_support_ticket` exige que no exista `Dispute`; `raise_dispute`
+exige que no exista `SupportTicket`). Así se evita que, al resolverse uno, quede el
+`ArbitrationEscrow` de la otra huérfano.
+
 ## Referencias
 - `[../contract/01-overview.md](../contract/01-overview.md)` (modelo de fee)
 - `[../scenarios/03-disputa-arbitraje-mutuo.md](../scenarios/03-disputa-arbitraje-mutuo.md)`

@@ -20,7 +20,9 @@ evitando pagos duplicados o fondos atrapados.
 - Incrementa `job.milestones_total` y `job.milestones_amount_total`.
 
 ## `submit_milestone`
-- Freelancer (`job.freelancer`) marca el milestone como `Submitted`.
+- Freelancer (`job.freelancer`) marca el milestone como `Submitted`. Acepta estado
+  `Pending` **o** `Rejected` (un milestone rechazado se puede re-enviar; así no
+  bloquea el release final para siempre).
 - **Sin bloqueo por deadline** (corrige el bug de v2 que impedía enviar tras la
   deadline).
 
