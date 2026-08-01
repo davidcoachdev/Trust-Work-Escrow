@@ -2,7 +2,7 @@
 
 **Milestone:** 4 — Validación Inicial con Usuarios
 **Uso:** pegar en comunidades una vez que el Google Form esté vivo (correr `google-forms-script.js`).
-**Reemplazar:** `[LINK ENCUESTA]` por la URL que devuelve el script.
+**Reemplazar:** `https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form` por la URL que devuelve el script.
 
 ---
 
@@ -14,7 +14,7 @@
 Estamos construyendo un escrow descentralizado en Solana para freelancers: pago inmediato al aprobar, comisión <5% y disputas con árbitros (adiós el 20% y los 30 días de Upwork).
 
 Necesitamos tu ayuda 🙌 Tarda 3 min y nos sirve para validar el producto:
-🔗 [LINK ENCUESTA]
+🔗 https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
 
 ¡Gracias por el apoyo! 🚀
 ```
@@ -27,7 +27,7 @@ Necesitamos tu ayuda 🙌 Tarda 3 min y nos sirve para validar el producto:
 Armamos un escrow en Solana para freelancers: pago inmediato al aprobar, comisión menor al 5% y disputas con árbitros (sin el 20% ni los 30 días de Upwork).
 
 Si podés responder esta encuesta de 3 min nos ayudás un montón a validar el producto 🙏
-🔗 [LINK ENCUESTA]
+🔗 https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
 
 ¡Gracias!
 ```

@@ -22,9 +22,9 @@
 | Semana | Actividad | Estado |
 |--------|-----------|--------|
 | 14-18 Jul | Realizar 5-8 entrevistas 1:1 | 🔲 |
-| 21-25 Jul | Lanzar encuesta online + analizar resultados | 🔲 |
+| 21-25 Jul | Lanzar encuesta online + analizar resultados | 🟡 (encuesta live, por analizar) |
 | 28-30 Jul | Testing de prototipo con 3-5 usuarios | 🔲 |
-| 31 Jul | Compilar entregable final | 🔲 |
+| 31 Jul | Compilar entregable final | ✅ (entregable compilado; ver §9 del plan) |
 
 ### 📂 Archivos en este entregable
 

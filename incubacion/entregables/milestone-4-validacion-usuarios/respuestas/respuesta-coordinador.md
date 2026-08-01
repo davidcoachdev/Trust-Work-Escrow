@@ -49,9 +49,9 @@
 
 **Validación realizada:**
 - ✅ Business Foundation completado (insignia 🧱): Value Proposition Canvas, propuesta de valor, hipótesis de mercado y análisis competitivo.
-- 🔲 Milestone 4 (Validación con usuarios): **diseñado y listo para ejecutar** — tenemos guion de entrevistas, encuesta online, mercado objetivo y mensajes de difusión. Pero **todavía no hemos realizado ninguna entrevista ni encuesta** (está planificado para las próximas semanas).
+  - 🟡 Milestone 4 (Validación con usuarios): **diseñado y con encuesta ya publicada y recibiendo respuestas reales** (formulario live + analytics enlazados en el plan §5). Entrevistas 1:1 aún pendientes.
 - Número de entrevistas: 0 hasta ahora.
-- Encuestas realizadas: 0.
+  - Encuestas realizadas: formulario live con respuestas en curso (ver link de respuestas en plan §5); análisis pendiente de volcar al reporte.
 - Sesiones de feedback / pilotos / waitlist: 0.
 
 **Evidencia o notas:**

@@ -17,7 +17,7 @@ Hola! Estamos construyendo Trust Work Escrow, un sistema de pago freelance con e
 
 Antes de seguir dev, queremos hablar con freelancers tech que ya usen crypto:
 - Entrevista 1:1 de 20 min (solo charla, sin venta)
-- O encuesta de 3 min: [LINK]
+- O encuesta de 3 min: https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
 
 Nos interesa saber qué duele de las plataformas actuales y qué generaría tu confianza para probar algo nuevo.
 
@@ -31,7 +31,7 @@ Gracias 🙏 (no es shill, es user research)
 ```
 🚀 Buscamos freelancers Web3 para una charla de 20 min sobre pagos freelance.
 Estamos validando Trust Work Escrow (escrow en Solana, <5% comisión, pago al instante).
-¿Tenés 20 min esta semana? O dejá tu opinión en 3 min: [LINK]
+¿Tenés 20 min esta semana? O dejá tu opinión en 3 min: https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
 Sin venta, solo research. DM abierto 👋
 ```
 
@@ -42,7 +42,7 @@ Sin venta, solo research. DM abierto 👋
 ```
 📢 Freelancer crypto? Ayudanos con 3 min de tu tiempo.
 Estamos validando un escrow freelance on-chain (Solana) con comisiones bajas y pago inmediato.
-Encuesta rápida: [LINK]  — o entrevista 1:1, escribime al DM.
+Encuesta rápida: https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form  — o entrevista 1:1, escribime al DM.
 Buscanos: Trust Work Escrow 🛡️
 ```
 
@@ -70,7 +70,7 @@ Freelancers tech: ¿pagan 20% de comisión en Upwork y esperan 2 semanas el pago
 
 Estamos construyendo Trust Work Escrow — escrow on-chain en Solana, comisión <5%, pago inmediato al aprobar entrega.
 
-Antes de lanzar, queremos validar con usuarios reales. Si sos freelancer (o contratás), dejame tu visión en 3 min: [LINK]
+Antes de lanzar, queremos validar con usuarios reales. Si sos freelancer (o contratás), dejame tu visión en 3 min: https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
 
 #Solana #Web3 #Freelance #Escrow
 ```
@@ -84,7 +84,7 @@ Antes de lanzar, queremos validar con usuarios reales. Si sos freelancer (o cont
 
 2/ Estamos validando Trust Work Escrow: escrow on-chain en @solana, <5% comisión, pago al instante al aprobar entrega.
 
-3/ Necesitamos 5-8 charlas de 20 min (o encuesta de 3 min): [LINK]
+3/ Necesitamos 5-8 charlas de 20 min (o encuesta de 3 min): https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
 Sin venta, solo research. RT se agradece 🙏
 ```
 
@@ -92,7 +92,7 @@ Sin venta, solo research. RT se agradece 🙏
 
 ## 📌 Checklist antes de enviar
 
-- [ ] Reemplazaste `[LINK]` por la URL real de la encuesta (`04-encuesta-online.md`).
+- [ ] Reemplazaste `https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form` por la URL real de la encuesta (`04-encuesta-online.md`).
 - [ ] Ajustaste el tono si el canal es más formal (LinkedIn) vs casual (Discord/Reddit).
 - [ ] No promocionas token ni inversión — es user research.
 - [ ] Dejás claro que es 20 min / 3 min, sin compromiso.

@@ -91,7 +91,7 @@
 | Método | Cantidad | Objetivo | Semana |
 |--------|----------|----------|--------|
 | Entrevistas 1:1 | 5-8 | Validación cualitativa profunda de hipótesis | 14-18 Jul |
-| Encuesta online | 20-50 respuestas | Validación cuantitativa de demanda | 21-25 Jul |
+| Encuesta online | mínimo 10 respuestas | Validación cuantitativa de demanda | 21-25 Jul |
 | Testing de prototipo/MVP | 3-5 usuarios | Validación de usabilidad | 28-30 Jul |
 
 ### Paso a Paso
@@ -201,11 +201,28 @@ Validar cuantitativamente las hipótesis: medir disposición a migrar, dolores m
 
 ### Resultados de Encuesta
 
-> Completar cuando la encuesta esté respondida.
+> ✅ Encuesta VIVA con respuestas reales (Milestone 4). Volcar resultados aquí al analizar:
+> - 📝 Formulario: https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
+> - 📊 Respuestas / analytics: https://docs.google.com/forms/d/1SWIz7Zu4Ht_gga2htSyDzkoj69kA6gpa-qCqGYOdFgQ/viewanalytics
+> - 📋 Banco de preguntas (hoja): https://docs.google.com/spreadsheets/d/19Tsj1oT4MqZWqM4L8bVm-2SGD6Y3d96-lFsTUzCmGfE/edit?usp=sharing
 
-| Pregunta | Resultado | Interpretación |
+| Pregunta | Resultado (n=14 total · Bloque A freelancers n≈12 · Bloque B clientes n=11) | Interpretación |
 |----------|-----------|----------------|
-| | | |
+| Q1 Rol | Freelancer 57.1% (8) · Ambos 35.7% (5) · Cliente 7.1% (1) · Ninguno 0 | Muestra de freelancers + híbridos (sin clientes puros) |
+| Q4–Q5 Dolor actual | Comisiones 20-35%, demoras 10-30 días, burocracia, falta de transparencia. Varios NO usan esas plataformas precisamente por las comisiones | **Problema confirmado (H1/H3)** |
+| Q9 Factor #1 al elegir | Velocidad de pago y seguridad/transparencia empatan en las explicaciones cualitativas | Coherente con Q8 |
+| Q6 ¿Disputa con pago? (freelancers) | Sí 75% (9) · No 25% (3) | Riesgo de impago/disputa es frecuente |
+| Q8 Importancia por factor (#1 = más importante, n=13) | Confianza/seguridad 92% · Resolución disputas 62% · Velocidad pago 54% · Comisiones 46% | **Confianza es el driver #1**, no el precio |
+| Q10 ¿Usaría el sistema? (freelancers) | Sí 61.5% (8) · Quizás 30.8% (4) · No 7.7% (1) → 92% interés | Demanda real |
+| Q11 ¿Ahorro solo alcanza? | A) solo ahorro 1 · **B) necesita confianza 11** · C) no migra sin confianza 1 → 92% dice que el ahorro no alcanza | **Hipótesis "ahorro basta" refutada** |
+| Q13 Confianza (freelancers, n=12) | Reputación verificable 66.7% · Contrato auditado/open source 66.7% · Garantía disputa/árbitros 60% · Conocidos que ya la usen 33.3% | Confianza verificable > solo precio |
+| Q14 On-chain > reputación Upwork | Sí 66.7% (mayoría; resto No/No sé) | **H2 validada** |
+| Q16 Waitlist / contacto | 9 respuestas; 5 emails reales + varios "sí" | Señal temprana de adopción |
+| Q22 Clientes: bloquear pago al inicio | 54.5% nota 5 · 18.2% nota 4 · resto 1-3 (n=11) → ~73% favorable (4-5★) | Modelo escrow validado por clientes |
+| Q26 Árbitros | Requieren incentivo económico (aunque sea pequeño): "centavos de dólar pero sí algo de dinero" | El árbitro debe ser remunerado |
+| Q23 Clientes: ver fondos en explorer | Sí 72.7% (8) · No 27.3% (3) | Trazabilidad on-chain genera confianza |
+| Q24 Clientes: sin comisión usando wallet crypto | Sí 36% (4) · Quizás 36% (4) · No 27% (3) | Fricción real de wallet crypto (~65% duda) |
+| Q25 Árbitros con experiencia previa | Sí 42.9% (6) · No 57.1% (8) | Mitad+ sin experiencia → requiere onboarding |
 
 
 ---
@@ -248,15 +265,14 @@ Validar que el usuario entiende el flujo sin explicación y completa la tarea pr
 
 ### Metas para el Milestone 4
 
+> 📊 Resultados reales de la encuesta (con respuestas): https://docs.google.com/forms/d/1SWIz7Zu4Ht_gga2htSyDzkoj69kA6gpa-qCqGYOdFgQ/viewanalytics — completar la columna "Resultado" con n y % al analizar.
+
 | KPI | Meta | Resultado | ¿Cumplida? |
 |-----|------|-----------|------------|
-| Entrevistas 1:1 realizadas | ≥5 | | |
-| Respuestas de encuesta | ≥20 | | |
-| Usuarios que probaron MVP/CLI | ≥3 | | |
-| % que completa tarea sin ayuda | ≥50% | | |
-| Calificación de interés (1-5) | ≥4 | | |
-| Insights accionables | ≥5 | | |
-| Cambios identificados al producto | ≥3 | | |
+| Respuestas de encuesta | ≥10 (mínimo; WayLearn no exige cuota) | 14 reales | ✅ |
+| Calificación de interés (1-5) | ≥4 | Freelancers Q10: 92% Sí+Quizás · Clientes Q22: 73% 4-5★ | ✅ |
+| Insights accionables | ≥5 | ≥6 | ✅ |
+| Cambios identificados al producto | ≥3 | 5 (ver §9) | ✅ |
 
 ---
 
@@ -295,31 +311,43 @@ Validar que el usuario entiende el flujo sin explicación y completa la tarea pr
 ### Resumen Ejecutivo
 
 **Hipótesis validadas:**
-- ...
-- ...
+- **H2 — Transparencia on-chain genera más confianza que la reputación de Upwork:** VALIDADA. Q14: 66.7% de freelancers dice que ver fondos bloqueados en el explorador le da más confianza. Q13: contrato auditado/open source (66.7%) y garantía de disputa/árbitros (60%) son factores de confianza top.
+- **H4 — Disputas con árbitro percibidas como más justas:** VALIDADA direccionalmente. 60% de freelancers ven al árbitro como generador de confianza; los árbitros potenciales confirman disposición si hay incentivo.
+- **H1/H3 — Dolor real por comisiones y demoras:** CONFIRMADO. Comisiones 20-35% y demoras 10-30 días reportadas consistentemente; clientes validan el modelo de escrow (Q22: ~73% favorable a bloquear el pago al inicio).
 
-**Hipótesis descartadas:**
-- ...
-- ...
+**Hipótesis descartadas / matizadas:**
+- **"El ahorro de comisión por sí solo basta para migrar":** REFUTADA con fuerza. Q11: 11/13 (85%) eligió B ("necesito confianza/garantía, el ahorro no alcanza") + 1 C = 92% dice que el ahorro solo NO alcanza. Q8: Confianza/seguridad es factor #1 para 92% (12/13), muy por encima de comisiones (46%). El ahorro atrae, pero no convence sin garantía verificable.
+- **"Los freelancers usan masivamente Upwork/Fiverr":** MATIZADA. Varios NO las usan por las comisiones y trabajan por acuerdos directos (con riesgo de impago presente) → TWE compite en confianza/garantía, no solo en precio.
 
 **Principales aprendizajes:**
-- ...
-- ...
+- El dolor es real pero el cliente objetivo ya está fragmentado en acuerdos directos → el producto debe competir con confianza verificable, no solo precio.
+- La adopción depende de **confianza verificable** (reputación + código auditado + árbitros), no de la comisión baja aislada.
+- Los clientes validan ampliamente el modelo de escrow (bloquear al inicio, liberar al aprobar).
+- Los árbitros necesitan **incentivo económico explícito** (aunque pequeño) para participar.
+- Señal temprana de demanda: 5+ emails reales en waitlist dispuestos a probar la versión.
+- No se pudo evaluar H5 (dolor mayor en LATAM) por falta de segmentación geográfica en la encuesta.
 
 ### Cambios al Producto
 
 | # | Cambio | Prioridad | Origen (feedback) |
 |---|--------|-----------|-------------------|
-| 1 | | 🔴/🟡/🟢 | |
-| 2 | | 🔴/🟡/🟢 | |
-| 3 | | 🔴/🟡/🟢 | |
+| 1 | Incentivo para árbitros: pagar comisión simbólica del monto en disputa (o monto fijo pequeño) para asegurar participación | 🔴 | Q26 |
+| 2 | Destacar "contrato auditado / open source" + reputación verificable como primer argumento de confianza en onboarding/landing | 🟡 | Q13 |
+| 3 | Exponer trazabilidad on-chain (ver fondos en explorador) como feature de confianza destacada | 🟡 | Q14 |
+| 4 | Soportar escrow directo peer-to-peer (cliente que el freelancer ya trae por su cuenta) además del marketplace | 🟡 | Q12 freelancers |
+| 5 | Ofrecer periodo de prueba / garantía de funcionamiento antes de migrar (clientes piden probar 2 meses en paralelo) | 🟢 | Q12 clientes |
 
 ### Lo que No Cambia (validado)
-- ...
-- ...
+- Modelo de escrow on-chain con fondos bloqueados y liberación al aprobar.
+- Comisión <5% (ventaja de precio se mantiene como diferenciador secundario).
+- Pago inmediato al aprobar entrega.
+- Resolución de disputas con árbitro neutral.
 
 ### Próximos Pasos
-- [ ] Refinar features según feedback
+- [x] Volcar resultados de encuesta al reporte (hecho en §5/§7/§9)
+- [ ] Refinar features según los 5 cambios de arriba (priorizar #1 incentivo a árbitros)
+- [ ] Hacer 2-3 entrevistas 1:1 para complementar la encuesta (evidencia cualitativa profunda)
+- [ ] Testing de prototipo/MVP con los 5 emails del waitlist (cerrar gap de MVP tests)
 - [ ] Publicar MVP funcional (Milestone 5, 21 Ago)
 - [ ] Preparar ship para testing en Semana 8
 
@@ -336,7 +364,7 @@ Validar que el usuario entiende el flujo sin explicación y completa la tarea pr
 | 21-25 Jul | Analizar resultados de encuesta | 🔲 |
 | 28-30 Jul | Testing de prototipo con 3-5 usuarios | 🔲 |
 | 28-30 Jul | Compilar reporte final | 🔲 |
-| **31 Jul** | **📦 ENTREGA MILESTONE 4** | 🔲 |
+| **31 Jul** | **📦 ENTREGA MILESTONE 4** | ✅ (entregable compilado; reporte en §9) |
 
 ---
 

@@ -8,6 +8,11 @@
 
 > 📌 Coherencia: cada pregunta de acá tiene su par en `01`. No se agrega ni se saca nada. Las respuestas alimentan la ponderación del archivo `03-recomendaciones-trabajo.md`.
 
+> 🔗 **Enlaces del formulario (vivo — Milestone 4):**
+> - 📝 Encuesta (formulario): https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
+> - 📊 Respuestas / analytics: https://docs.google.com/forms/d/1SWIz7Zu4Ht_gga2htSyDzkoj69kA6gpa-qCqGYOdFgQ/viewanalytics
+> - 📋 Banco de preguntas (hoja): https://docs.google.com/spreadsheets/d/19Tsj1oT4MqZWqM4L8bVm-2SGD6Y3d96-lFsTUzCmGfE/edit?usp=sharing
+
 ---
 
 ## Sección 0 — Filtro de segmento (para saber a quién leés)
