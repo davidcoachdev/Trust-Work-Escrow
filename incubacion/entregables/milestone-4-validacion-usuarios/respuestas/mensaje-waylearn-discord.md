@@ -22,4 +22,5 @@ Cerramos la validación con evidencia real: 14 respuestas de freelancers/cliente
 **Cambios al producto (5):** incentivo para árbitros, destacar código auditado/open source, trazabilidad on-chain visible, escrow P2P para clientes propios, periodo de prueba.
 
 Enlace encuesta: https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform
+Banco de preguntas (hoja): https://docs.google.com/spreadsheets/d/19Tsj1oT4MqZWqM4L8bVm-2SGD6Y3d96-lFsTUzCmGfE/edit?usp=sharing
 Respuestas/analytics: https://docs.google.com/forms/d/1SWIz7Zu4Ht_gga2htSyDzkoj69kA6gpa-qCqGYOdFgQ/viewanalytics
