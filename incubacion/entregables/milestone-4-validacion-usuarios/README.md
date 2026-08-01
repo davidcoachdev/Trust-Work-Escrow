@@ -4,6 +4,11 @@
 
 **Documento completo:** [`trust-escrow-milestone-4-plan-validacion.md`](trust-escrow-milestone-4-plan-validacion.md)
 
+### 🔗 Enlaces de la validación (live)
+- 📝 Encuesta: https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
+- 📊 Respuestas / analytics: https://docs.google.com/forms/d/1SWIz7Zu4Ht_gga2htSyDzkoj69kA6gpa-qCqGYOdFgQ/viewanalytics
+- 📋 Banco de preguntas (hoja): https://docs.google.com/spreadsheets/d/19Tsj1oT4MqZWqM4L8bVm-2SGD6Y3d96-lFsTUzCmGfE/edit?usp=sharing
+
 ---
 
 ### ✅ Checklist de preparación
