@@ -56,14 +56,14 @@ ambas versiones y corrigiendo los bugs encontrados en la auditoría.
 - **Al abrir la disputa, cada parte firma y postea su bono de 2.5%** a un PDA
   `ArbitrationEscrow`. Esto garantiza que, aunque a una parte se le adjudique 0%,
   ya pagó su 2.5% (el perdedor no se escapa).
-- **El 5% se paga al resolutor:**
-  - Arbitraje mutuo (ambos firmaron `accept_dispute`) → árbitro neutral asignado
-    por la plataforma recibe el 5%.
-  - Uno solo abrió / árbitro falló → el **asesor de plataforma** resuelve y recibe
-    el 5% (actúa como resolutor; no es "gratis" porque la disputa sí se abrió).
+- **El 5% se enruta a `Config.arbitration_treasury`:**
+   - Arbitraje mutuo (ambos firmaron `accept_dispute`) → el árbitro neutral
+     asignado por la plataforma solo autoriza la resolución.
+   - Si el asesor resuelve por fallback, también solo autoriza; no recibe
+     lamports en su wallet.
 - **Sin disputa abierta** (aprobación normal, o auto-aprueba por `SUBMITTED_GRACE`):
   $0$ de arbitraje; el asesor es gratis solo en esa administración.
-- Conservación (con disputa): `resolutor(5%) + cliente + freelancer + treasury(fee) = amount + fee`.
+- Conservación (con disputa): `arbitration_treasury(5%) + cliente + freelancer + treasury(fee) = amount + fee`.
 
 ## Flujo de estados del Job
 
@@ -100,7 +100,7 @@ flowchart LR
 ```mermaid
 flowchart LR
     J([PDA job: amount + fee]) -->|fee protocolo| T([Treasury])
-    J -->|5% amount| A([Arbitro])
+    J -->|5% amount| AT([Arbitration treasury])
     J -->|cliente: pct% - 2.5%| CL([Cliente])
     J -->|freelancer: pct% - 2.5%| FR([Freelancer])
 ```

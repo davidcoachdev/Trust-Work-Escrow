@@ -1,14 +1,17 @@
+#![allow(unexpected_cfgs)]
+
 use anchor_lang::prelude::*;
-use anchor_lang::system_program::{transfer, Transfer};
+use anchor_lang::system_program::{transfer, Transfer, ID as SYSTEM_PROGRAM_ID};
 
 declare_id!("J1c4QsjbV9bFEPrFQZZGe8GrGWFxNhtAhhrxJFK2xc1h");
-
 
 const BASIS_POINTS: u16 = 10_000;
 
 const ARBITER_FEE_BPS_PER_PARTY: u16 = 250;
 
 const DISPUTE_ACCEPT_GRACE: i64 = 7 * 24 * 60 * 60;
+const AUTO_APPROVAL_DELAY: i64 = 7 * 24 * 60 * 60;
+const INITIAL_AUTHORITY: Pubkey = pubkey!("3whY1ohdAV3uRXSpyzsKtwLg84X9fTZ1pSdCS8Vvqt7c");
 
 const MAX_PAUSE_DURATION: i64 = 30 * 24 * 60 * 60;
 
@@ -18,11 +21,11 @@ const MAX_DESCRIPTION_LENGTH: usize = 500;
 const MAX_PROPOSAL_LENGTH: usize = 512;
 const MAX_DISPUTE_REASON: usize = 500;
 const MAX_DISPUTE_EVIDENCE: usize = 2048;
+const MAX_EVIDENCE_COUNT: u8 = 10;
 const MAX_MILESTONE_TITLE: usize = 64;
 const MAX_MILESTONES: usize = 20;
 const MAX_APPLICATIONS: usize = 50;
 const MAX_ARBITERS: usize = 50;
-
 
 #[error_code]
 pub enum ErrorCode {
@@ -74,6 +77,16 @@ pub enum ErrorCode {
     EmptyDisputeReason,
     #[msg("Evidence exceeds maximum length")]
     EvidenceTooLong,
+    #[msg("Evidence cannot be empty")]
+    EmptyEvidence,
+    #[msg("Dispute already has the maximum number of evidence items")]
+    EvidenceLimitReached,
+    #[msg("Evidence index must equal the next dispute evidence index")]
+    InvalidEvidenceIndex,
+    #[msg("Evidence account does not match the deterministic dispute PDA")]
+    InvalidEvidenceAccount,
+    #[msg("Evidence cleanup accounts do not match the expected contiguous range")]
+    InvalidEvidenceCleanupAccounts,
     #[msg("Dispute already resolved")]
     DisputeAlreadyResolved,
     #[msg("Dispute deadline passed; only platform advisor can resolve")]
@@ -102,8 +115,215 @@ pub enum ErrorCode {
     InvalidApplicationIndex,
     #[msg("A dispute or support ticket is already open for this job")]
     CaseAlreadyOpen,
+    #[msg("Auto-approval deadline has not been reached")]
+    AutoApprovalNotReady,
+    #[msg("Auto-approval is blocked by an open dispute")]
+    AutoApprovalBlocked,
+    #[msg("Invalid bootstrap authority")]
+    InvalidBootstrapAuthority,
+    #[msg("Application index must equal the next job application index")]
+    ApplicationIndexMismatch,
+    #[msg("Application does not belong to this job")]
+    InvalidApplicationAccount,
+    #[msg("Application is not pending")]
+    ApplicationNotPending,
+    #[msg("Application proposal cannot be empty")]
+    EmptyProposal,
+    #[msg("Application cleanup accounts do not match the deterministic job range")]
+    InvalidApplicationCleanupAccounts,
 }
 
+fn transfer_job_lamports(
+    source: &AccountInfo,
+    destination: &AccountInfo,
+    amount: u64,
+) -> Result<()> {
+    require!(source.owner == &crate::ID, ErrorCode::NotAuthorized);
+    require!(
+        source.is_writable && destination.is_writable,
+        ErrorCode::NotAuthorized
+    );
+    require!(source.key() != destination.key(), ErrorCode::NotAuthorized);
+
+    let remaining = source
+        .get_lamports()
+        .checked_sub(amount)
+        .ok_or(ErrorCode::InsufficientFunds)?;
+    let rent_minimum = Rent::get()?.minimum_balance(source.data_len());
+    require!(remaining >= rent_minimum, ErrorCode::InsufficientFunds);
+    let destination_balance = destination
+        .get_lamports()
+        .checked_add(amount)
+        .ok_or(ErrorCode::MathOverflow)?;
+
+    **source.try_borrow_mut_lamports()? = remaining;
+    **destination.try_borrow_mut_lamports()? = destination_balance;
+    Ok(())
+}
+
+fn validate_treasury_destination(destination: &AccountInfo, other: Pubkey) -> Result<()> {
+    require!(
+        destination.key() != Pubkey::default(),
+        ErrorCode::InvalidTreasury
+    );
+    require!(destination.key() != other, ErrorCode::InvalidTreasury);
+    require!(
+        destination.owner == &SYSTEM_PROGRAM_ID,
+        ErrorCode::InvalidTreasury
+    );
+    Ok(())
+}
+
+fn close_evidence_account(
+    evidence: &AccountInfo,
+    destination: &AccountInfo,
+    dispute: &Pubkey,
+    index: u8,
+) -> Result<()> {
+    require!(
+        evidence.owner == &crate::ID,
+        ErrorCode::InvalidEvidenceAccount
+    );
+    let (expected, _) =
+        Pubkey::find_program_address(&[b"evidence", dispute.as_ref(), &[index]], &crate::ID);
+    require!(
+        evidence.key() == expected,
+        ErrorCode::InvalidEvidenceAccount
+    );
+
+    let data = evidence.try_borrow_data()?;
+    let stored = Evidence::try_deserialize(&mut &data[..])?;
+    require!(
+        stored.dispute == *dispute && stored.index == index,
+        ErrorCode::InvalidEvidenceAccount
+    );
+    drop(data);
+
+    let rent = evidence.get_lamports();
+    let destination_balance = destination
+        .get_lamports()
+        .checked_add(rent)
+        .ok_or(ErrorCode::MathOverflow)?;
+    **destination.try_borrow_mut_lamports()? = destination_balance;
+    **evidence.try_borrow_mut_lamports()? = 0;
+    evidence.assign(&SYSTEM_PROGRAM_ID);
+    evidence.resize(0)?;
+    Ok(())
+}
+
+fn cleanup_job_applications(
+    job: &Job,
+    job_key: &Pubkey,
+    start_index: u8,
+    remaining_accounts: &[AccountInfo],
+    require_full_range: bool,
+    allow_closed: bool,
+) -> Result<()> {
+    require!(
+        remaining_accounts.len() % 2 == 0,
+        ErrorCode::InvalidApplicationCleanupAccounts
+    );
+    let application_count = remaining_accounts.len() / 2;
+    require!(
+        application_count <= MAX_APPLICATIONS,
+        ErrorCode::InvalidApplicationCleanupAccounts
+    );
+    let start = start_index as usize;
+    require!(
+        start
+            .checked_add(application_count)
+            .ok_or(ErrorCode::InvalidApplicationCleanupAccounts)?
+            <= job.applicants.len(),
+        ErrorCode::InvalidApplicationCleanupAccounts
+    );
+    if require_full_range {
+        require!(
+            start == 0 && application_count == job.applicants.len(),
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+    }
+
+    let mut validated = Vec::with_capacity(application_count);
+    for (offset, pair) in remaining_accounts.chunks_exact(2).enumerate() {
+        let application = &pair[0];
+        let applicant = &pair[1];
+        let index = start_index
+            .checked_add(offset as u8)
+            .ok_or(ErrorCode::InvalidApplicationCleanupAccounts)?;
+        let expected_applicant = *job
+            .applicants
+            .get(index as usize)
+            .ok_or(ErrorCode::InvalidApplicationCleanupAccounts)?;
+        require!(
+            applicant.key() == expected_applicant,
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+        require!(
+            applicant.owner == &SYSTEM_PROGRAM_ID,
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+        let (expected, _) = Pubkey::find_program_address(
+            &[
+                b"application",
+                job_key.as_ref(),
+                &[index],
+                expected_applicant.as_ref(),
+            ],
+            &crate::ID,
+        );
+        require!(
+            application.key() == expected,
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+
+        if application.owner == &SYSTEM_PROGRAM_ID && application.data_len() == 0 {
+            require!(allow_closed, ErrorCode::InvalidApplicationCleanupAccounts);
+            validated.push((application, applicant, true));
+            continue;
+        }
+        require!(
+            application.owner == &crate::ID,
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+
+        let data = application.try_borrow_data()?;
+        let stored = Application::try_deserialize(&mut &data[..])
+            .map_err(|_| error!(ErrorCode::InvalidApplicationCleanupAccounts))?;
+        require!(
+            stored.job == *job_key,
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+        require!(
+            stored.index == index,
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+        require!(
+            stored.applicant == expected_applicant,
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+        validated.push((
+            application,
+            applicant,
+            stored.status == ApplicationStatus::Accepted,
+        ));
+    }
+
+    for (application, applicant, accepted_or_closed) in validated {
+        if accepted_or_closed {
+            continue;
+        }
+        let rent = application.get_lamports();
+        let destination_balance = applicant
+            .get_lamports()
+            .checked_add(rent)
+            .ok_or(ErrorCode::MathOverflow)?;
+        **applicant.try_borrow_mut_lamports()? = destination_balance;
+        **application.try_borrow_mut_lamports()? = 0;
+        application.assign(&SYSTEM_PROGRAM_ID);
+        application.resize(0)?;
+    }
+    Ok(())
+}
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum JobStatus {
@@ -165,7 +385,6 @@ pub enum SupportTicketStatus {
     Resolved,
 }
 
-
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
@@ -200,17 +419,21 @@ pub struct Job {
     pub milestones_approved: u8,
     pub milestones_amount_total: u64,
     #[max_len(MAX_APPLICATIONS)]
-    pub applications: Vec<Application>,
+    pub applicants: Vec<Pubkey>,
     pub bump: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
+#[account]
+#[derive(InitSpace)]
 pub struct Application {
+    pub job: Pubkey,
+    pub index: u8,
     pub applicant: Pubkey,
     #[max_len(MAX_PROPOSAL_LENGTH)]
     pub proposal: String,
     pub applied_at: i64,
     pub status: ApplicationStatus,
+    pub bump: u8,
 }
 
 #[account]
@@ -229,8 +452,8 @@ pub struct Dispute {
     pub raised_by: Pubkey,
     pub arbiter: Option<Pubkey>,
     pub status: DisputeStatus,
-    #[max_len(10)]
-    pub evidence: Vec<Evidence>,
+    pub evidence_count: u8,
+    pub evidence_cleanup_cursor: u8,
     #[max_len(MAX_DISPUTE_REASON)]
     pub reason: String,
     pub created_at: i64,
@@ -243,12 +466,16 @@ pub struct Dispute {
     pub bump: u8,
 }
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, InitSpace)]
+#[account]
+#[derive(InitSpace)]
 pub struct Evidence {
-    pub submitter: Pubkey,
+    pub dispute: Pubkey,
+    pub index: u8,
+    pub author: Pubkey,
     #[max_len(MAX_DISPUTE_EVIDENCE)]
-    pub content: String,
+    pub content: Vec<u8>,
     pub submitted_at: i64,
+    pub bump: u8,
 }
 
 #[account]
@@ -293,7 +520,6 @@ pub struct ArbitrationEscrow {
     pub bump: u8,
 }
 
-
 pub fn compute_fee(amount: u64, fee_bps: u16) -> Result<u64> {
     let fee = (amount as u128)
         .checked_mul(fee_bps as u128)
@@ -302,10 +528,38 @@ pub fn compute_fee(amount: u64, fee_bps: u16) -> Result<u64> {
     Ok(fee as u64)
 }
 
+pub fn compute_shortfall(required: u64, posted: u64) -> u64 {
+    required.checked_sub(posted).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_shortfall, AUTO_APPROVAL_DELAY};
+
+    #[test]
+    fn dispute_payout_uses_explicit_shortfall_without_underflow() {
+        assert_eq!(compute_shortfall(100, 40), 60);
+        assert_eq!(compute_shortfall(100, 140), 0);
+    }
+
+    #[test]
+    fn auto_approval_boundary_is_inclusive_at_exactly_seven_days() {
+        assert_eq!(AUTO_APPROVAL_DELAY, 604_800);
+        let submitted_at = 1_000_i64;
+        let deadline = submitted_at + AUTO_APPROVAL_DELAY;
+        assert!(deadline >= submitted_at + 604_800);
+        assert!(deadline + 1 > submitted_at + 604_800);
+    }
+}
+
 pub fn check_not_paused(job: &Job) -> Result<()> {
     if job.paused {
         let now = Clock::get()?.unix_timestamp;
-        if now.saturating_sub(job.paused_at) > MAX_PAUSE_DURATION {
+        if now
+            .checked_sub(job.paused_at)
+            .ok_or(ErrorCode::JobPausedExpired)?
+            > MAX_PAUSE_DURATION
+        {
             return err!(ErrorCode::JobPausedExpired);
         }
         return err!(ErrorCode::JobPaused);
@@ -313,11 +567,9 @@ pub fn check_not_paused(job: &Job) -> Result<()> {
     Ok(())
 }
 
-
 #[program]
 pub mod escrow {
     use super::*;
-
 
     pub fn initialize_config(
         ctx: Context<InitializeConfig>,
@@ -326,7 +578,26 @@ pub mod escrow {
         arbitration_treasury: Pubkey,
         fee_bps: u16,
     ) -> Result<()> {
+        require!(
+            ctx.accounts.authority.key() == INITIAL_AUTHORITY,
+            ErrorCode::InvalidBootstrapAuthority
+        );
         require!(fee_bps <= BASIS_POINTS, ErrorCode::InvalidFeeBps);
+        require!(advisor != Pubkey::default(), ErrorCode::NotAuthorized);
+        require!(treasury != Pubkey::default(), ErrorCode::InvalidTreasury);
+        require!(
+            arbitration_treasury != Pubkey::default(),
+            ErrorCode::InvalidTreasury
+        );
+        require!(treasury != arbitration_treasury, ErrorCode::InvalidTreasury);
+        require!(
+            ctx.accounts.treasury.owner == &SYSTEM_PROGRAM_ID,
+            ErrorCode::InvalidTreasury
+        );
+        require!(
+            ctx.accounts.arbitration_treasury.owner == &SYSTEM_PROGRAM_ID,
+            ErrorCode::InvalidTreasury
+        );
 
         let config = &mut ctx.accounts.config;
         config.authority = ctx.accounts.authority.key();
@@ -343,7 +614,10 @@ pub mod escrow {
 
     pub fn pause(ctx: Context<Pause>) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        require!(config.authority == ctx.accounts.authority.key(), ErrorCode::NotAuthorized);
+        require!(
+            config.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
         config.paused = true;
         msg!("Program paused");
         Ok(())
@@ -351,7 +625,10 @@ pub mod escrow {
 
     pub fn unpause(ctx: Context<Unpause>) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        require!(config.authority == ctx.accounts.authority.key(), ErrorCode::NotAuthorized);
+        require!(
+            config.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
         config.paused = false;
         msg!("Program unpaused");
         Ok(())
@@ -359,7 +636,18 @@ pub mod escrow {
 
     pub fn update_treasury(ctx: Context<UpdateTreasury>, new_treasury: Pubkey) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        require!(config.authority == ctx.accounts.authority.key(), ErrorCode::NotAuthorized);
+        require!(
+            config.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
+        require!(
+            ctx.accounts.new_treasury.key() == new_treasury,
+            ErrorCode::InvalidTreasury
+        );
+        validate_treasury_destination(
+            &ctx.accounts.new_treasury.to_account_info(),
+            config.arbitration_treasury,
+        )?;
         config.treasury = new_treasury;
         msg!("Treasury updated");
         Ok(())
@@ -370,7 +658,18 @@ pub mod escrow {
         new_arbitration_treasury: Pubkey,
     ) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        require!(config.authority == ctx.accounts.authority.key(), ErrorCode::NotAuthorized);
+        require!(
+            config.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
+        require!(
+            ctx.accounts.new_arbitration_treasury.key() == new_arbitration_treasury,
+            ErrorCode::InvalidTreasury
+        );
+        validate_treasury_destination(
+            &ctx.accounts.new_arbitration_treasury.to_account_info(),
+            config.treasury,
+        )?;
         config.arbitration_treasury = new_arbitration_treasury;
         msg!("Arbitration treasury updated");
         Ok(())
@@ -396,10 +695,7 @@ pub mod escrow {
         Ok(())
     }
 
-    pub fn withdraw_arbitration(
-        ctx: Context<WithdrawArbitration>,
-        amount: u64,
-    ) -> Result<()> {
+    pub fn withdraw_arbitration(ctx: Context<WithdrawArbitration>, amount: u64) -> Result<()> {
         require!(amount > 0, ErrorCode::AmountTooSmall);
         let balance = ctx.accounts.arbitration_treasury.get_lamports();
         require!(balance >= amount, ErrorCode::InsufficientFunds);
@@ -418,7 +714,6 @@ pub mod escrow {
         msg!("Arbitration treasury withdrew {} lamports", amount);
         Ok(())
     }
-
 
     pub fn create_job(
         ctx: Context<CreateJob>,
@@ -460,17 +755,29 @@ pub mod escrow {
         job.milestones_total = 0;
         job.milestones_approved = 0;
         job.milestones_amount_total = 0;
-        job.applications = Vec::new();
         job.bump = ctx.bumps.job;
 
-        msg!("Job created: {} - amount {}, fee {}", job.key(), amount, fee_amount);
+        job.applicants = Vec::new();
+
+        msg!(
+            "Job created: {} - amount {}, fee {}",
+            job.key(),
+            amount,
+            fee_amount
+        );
         Ok(())
     }
 
     pub fn deposit_funds(ctx: Context<DepositFunds>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
-        require!(job.status == JobStatus::Created, ErrorCode::InvalidJobStatus);
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
+        require!(
+            job.status == JobStatus::Created,
+            ErrorCode::InvalidJobStatus
+        );
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
         check_not_paused(job)?;
 
         let total = job
@@ -499,6 +806,7 @@ pub mod escrow {
     pub fn apply_to_job(
         ctx: Context<ApplyToJob>,
         _job_id: u64,
+        application_index: u8,
         proposal: String,
     ) -> Result<()> {
         let job = &mut ctx.accounts.job;
@@ -508,30 +816,43 @@ pub mod escrow {
             ctx.accounts.applicant.key() != job.client,
             ErrorCode::CannotWorkOnOwnJob
         );
-        require!(proposal.len() <= MAX_PROPOSAL_LENGTH, ErrorCode::ProposalTooLong);
+        require!(!proposal.is_empty(), ErrorCode::EmptyProposal);
         require!(
-            job.applications.len() < MAX_APPLICATIONS,
+            proposal.len() <= MAX_PROPOSAL_LENGTH,
+            ErrorCode::ProposalTooLong
+        );
+        require!(
+            !job.applicants
+                .iter()
+                .any(|a| *a == ctx.accounts.applicant.key()),
+            ErrorCode::AlreadyApplied
+        );
+        require!(
+            job.applicants.len() < MAX_APPLICATIONS,
             ErrorCode::InvalidApplicationIndex
         );
         require!(
-            !job
-                .applications
-                .iter()
-                .any(|a| a.applicant == ctx.accounts.applicant.key()),
-            ErrorCode::AlreadyApplied
+            application_index as usize == job.applicants.len(),
+            ErrorCode::ApplicationIndexMismatch
         );
 
         let now = Clock::get()?.unix_timestamp;
-        let new_index = job.applications.len() as u8;
-        job.applications.push(Application {
-            applicant: ctx.accounts.applicant.key(),
-            proposal,
-            applied_at: now,
-            status: ApplicationStatus::Pending,
-        });
+        let application = &mut ctx.accounts.application;
+        application.job = job.key();
+        application.index = application_index;
+        application.applicant = ctx.accounts.applicant.key();
+        application.proposal = proposal;
+        application.applied_at = now;
+        application.status = ApplicationStatus::Pending;
+        application.bump = ctx.bumps.application;
+        job.applicants.push(ctx.accounts.applicant.key());
         job.updated_at = now;
 
-        msg!("Application {} submitted for job: {}", new_index, job.key());
+        msg!(
+            "Application {} submitted for job: {}",
+            application_index,
+            job.key()
+        );
         Ok(())
     }
 
@@ -543,12 +864,30 @@ pub mod escrow {
         let job = &mut ctx.accounts.job;
         require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
         check_not_paused(job)?;
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
 
-        let idx = application_index as usize;
-        require!(idx < job.applications.len(), ErrorCode::InvalidApplicationIndex);
-        let applicant = job.applications[idx].applicant;
-        job.applications[idx].status = ApplicationStatus::Accepted;
+        let application = &mut ctx.accounts.application;
+        require!(
+            application.job == job.key(),
+            ErrorCode::InvalidApplicationAccount
+        );
+        require!(
+            application.index == application_index,
+            ErrorCode::InvalidApplicationIndex
+        );
+        require!(
+            application.status == ApplicationStatus::Pending,
+            ErrorCode::ApplicationNotPending
+        );
+        require!(
+            job.applicants.get(application_index as usize) == Some(&application.applicant),
+            ErrorCode::InvalidApplicationAccount
+        );
+        let applicant = application.applicant;
+        application.status = ApplicationStatus::Accepted;
 
         job.freelancer = Some(applicant);
         job.status = JobStatus::InProgress;
@@ -558,13 +897,43 @@ pub mod escrow {
         Ok(())
     }
 
+    pub fn cleanup_applications(
+        ctx: Context<CleanupApplications>,
+        _job_id: u64,
+        start_index: u8,
+    ) -> Result<()> {
+        let job = &ctx.accounts.job;
+        require!(
+            job.status == JobStatus::InProgress
+                || job.status == JobStatus::Submitted
+                || job.status == JobStatus::Disputed,
+            ErrorCode::InvalidJobStatus
+        );
+        require!(job.freelancer.is_some(), ErrorCode::NoFreelancerAssigned);
+        require!(
+            !ctx.remaining_accounts.is_empty(),
+            ErrorCode::InvalidApplicationCleanupAccounts
+        );
+        cleanup_job_applications(
+            job,
+            &job.key(),
+            start_index,
+            ctx.remaining_accounts,
+            false,
+            false,
+        )
+    }
+
     pub fn submit_work(ctx: Context<SubmitWork>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
         require!(
             job.freelancer == Some(ctx.accounts.freelancer.key()),
             ErrorCode::NotJobFreelancer
         );
-        require!(job.status == JobStatus::InProgress, ErrorCode::InvalidJobStatus);
+        require!(
+            job.status == JobStatus::InProgress,
+            ErrorCode::InvalidJobStatus
+        );
 
         job.status = JobStatus::Submitted;
         job.submitted_at = Some(Clock::get()?.unix_timestamp);
@@ -574,15 +943,85 @@ pub mod escrow {
         Ok(())
     }
 
+    pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<()> {
+        let job = &mut ctx.accounts.job;
+        require!(
+            job.status == JobStatus::Submitted,
+            ErrorCode::InvalidJobStatus
+        );
+        let submitted_at = job.submitted_at.ok_or(ErrorCode::InvalidJobStatus)?;
+        let deadline = submitted_at
+            .checked_add(AUTO_APPROVAL_DELAY)
+            .ok_or(ErrorCode::MathOverflow)?;
+        require!(
+            Clock::get()?.unix_timestamp >= deadline,
+            ErrorCode::AutoApprovalNotReady
+        );
+        require!(
+            ctx.accounts.dispute.is_none(),
+            ErrorCode::AutoApprovalBlocked
+        );
+        require!(
+            job.freelancer == Some(ctx.accounts.freelancer.key()),
+            ErrorCode::NotJobFreelancer
+        );
+        require!(
+            job.milestones_total == 0 || job.milestones_approved == job.milestones_total,
+            ErrorCode::AllMilestonesRequired
+        );
+        require!(
+            ctx.accounts.treasury.key() == ctx.accounts.config.treasury,
+            ErrorCode::InvalidTreasury
+        );
+
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
+
+        let amount = job
+            .amount
+            .checked_sub(job.milestones_amount_total)
+            .ok_or(ErrorCode::MathOverflow)?;
+        let fee_amount = job.fee_amount;
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.freelancer.to_account_info(),
+            amount,
+        )?;
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
+            fee_amount,
+        )?;
+        let remaining = job.to_account_info().get_lamports();
+        let client_balance = ctx
+            .accounts
+            .client
+            .get_lamports()
+            .checked_add(remaining)
+            .ok_or(ErrorCode::MathOverflow)?;
+        **ctx.accounts.client.try_borrow_mut_lamports()? = client_balance;
+        **job.to_account_info().try_borrow_mut_lamports()? = 0;
+        job.to_account_info().assign(&SYSTEM_PROGRAM_ID);
+        job.to_account_info().resize(0)?;
+        Ok(())
+    }
+
     pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
-        require!(job.status == JobStatus::Submitted, ErrorCode::InvalidJobStatus);
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
+        require!(
+            job.status == JobStatus::Submitted,
+            ErrorCode::InvalidJobStatus
+        );
         require!(job.freelancer.is_some(), ErrorCode::NoFreelancerAssigned);
         require!(
             job.milestones_total == 0 || job.milestones_approved == job.milestones_total,
             ErrorCode::AllMilestonesRequired
         );
+
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
 
         let amount = job
             .amount
@@ -590,50 +1029,43 @@ pub mod escrow {
             .ok_or(ErrorCode::MathOverflow)?;
         let fee_amount = job.fee_amount;
 
-        let client_key = ctx.accounts.client.key();
-        let job_id_bytes = _job_id.to_le_bytes();
-        let seeds: &[&[&[u8]]] = &[&[
-            b"job".as_ref(),
-            client_key.as_ref(),
-            job_id_bytes.as_ref(),
-            &[job.bump],
-        ]];
-
-        transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.system_program.to_account_info(),
-                Transfer {
-                    from: job.to_account_info(),
-                    to: ctx.accounts.freelancer.to_account_info(),
-                },
-                seeds,
-            ),
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.freelancer.to_account_info(),
             amount,
         )?;
-
-        transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.system_program.to_account_info(),
-                Transfer {
-                    from: job.to_account_info(),
-                    to: ctx.accounts.treasury.to_account_info(),
-                },
-                seeds,
-            ),
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
             fee_amount,
         )?;
 
         job.status = JobStatus::Released;
         job.updated_at = Clock::get()?.unix_timestamp;
 
-        msg!("Work approved: {} to freelancer, {} fee to treasury", amount, fee_amount);
+        msg!(
+            "Work approved: {} to freelancer, {} fee to treasury",
+            amount,
+            fee_amount
+        );
         Ok(())
     }
 
-    pub fn reject_work(ctx: Context<RejectWork>, _job_id: u64, _reason: String) -> Result<()> {
+    pub fn reject_work(ctx: Context<RejectWork>, _job_id: u64, reason: String) -> Result<()> {
         let job = &mut ctx.accounts.job;
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
-        require!(job.status == JobStatus::Submitted, ErrorCode::InvalidJobStatus);
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
+        require!(
+            job.status == JobStatus::Submitted,
+            ErrorCode::InvalidJobStatus
+        );
+        require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
+        require!(
+            reason.len() <= MAX_DISPUTE_REASON,
+            ErrorCode::DescriptionTooLong
+        );
 
         job.status = JobStatus::InProgress;
         job.updated_at = Clock::get()?.unix_timestamp;
@@ -644,11 +1076,16 @@ pub mod escrow {
 
     pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
         require!(
             job.status == JobStatus::Created || job.status == JobStatus::Funded,
             ErrorCode::InvalidJobStatus
         );
+
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
 
         if job.status == JobStatus::Funded {
             let total = job
@@ -656,24 +1093,9 @@ pub mod escrow {
                 .checked_add(job.fee_amount)
                 .ok_or(ErrorCode::MathOverflow)?;
 
-            let client_key = ctx.accounts.client.key();
-            let job_id_bytes = _job_id.to_le_bytes();
-            let seeds: &[&[&[u8]]] = &[&[
-                b"job".as_ref(),
-                client_key.as_ref(),
-                job_id_bytes.as_ref(),
-                &[job.bump],
-            ]];
-
-            transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    Transfer {
-                        from: job.to_account_info(),
-                        to: ctx.accounts.client.to_account_info(),
-                    },
-                    seeds,
-                ),
+            transfer_job_lamports(
+                &job.to_account_info(),
+                &ctx.accounts.client.to_account_info(),
                 total,
             )?;
         }
@@ -687,9 +1109,16 @@ pub mod escrow {
 
     pub fn pause_job(ctx: Context<PauseJob>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
         require!(
             job.status == JobStatus::Created || job.status == JobStatus::Funded,
+            ErrorCode::CannotPauseWithFreelancer
+        );
+        require!(
+            job.freelancer.is_none(),
             ErrorCode::CannotPauseWithFreelancer
         );
         require!(!job.paused, ErrorCode::JobPaused);
@@ -702,7 +1131,10 @@ pub mod escrow {
 
     pub fn unpause_job(ctx: Context<UnpauseJob>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
         require!(job.paused, ErrorCode::JobPaused);
         job.paused = false;
         job.paused_at = 0;
@@ -712,34 +1144,27 @@ pub mod escrow {
 
     pub fn expire_paused_job(ctx: Context<ExpirePausedJob>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
         require!(job.paused, ErrorCode::JobPaused);
         let now = Clock::get()?.unix_timestamp;
         require!(
-            now.saturating_sub(job.paused_at) > MAX_PAUSE_DURATION,
+            now.checked_sub(job.paused_at)
+                .ok_or(ErrorCode::JobPausedExpired)?
+                > MAX_PAUSE_DURATION,
             ErrorCode::JobPaused
         );
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
         if job.status == JobStatus::Funded {
             let total = job
                 .amount
                 .checked_add(job.fee_amount)
                 .ok_or(ErrorCode::MathOverflow)?;
-            let client_key = ctx.accounts.client.key();
-            let job_id_bytes = _job_id.to_le_bytes();
-            let seeds: &[&[&[u8]]] = &[&[
-                b"job".as_ref(),
-                client_key.as_ref(),
-                job_id_bytes.as_ref(),
-                &[job.bump],
-            ]];
-            transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    Transfer {
-                        from: job.to_account_info(),
-                        to: ctx.accounts.client.to_account_info(),
-                    },
-                    seeds,
-                ),
+            transfer_job_lamports(
+                &job.to_account_info(),
+                &ctx.accounts.client.to_account_info(),
                 total,
             )?;
         }
@@ -748,8 +1173,11 @@ pub mod escrow {
         Ok(())
     }
 
-
     pub fn create_arbiter_pool(ctx: Context<CreateArbiterPool>) -> Result<()> {
+        require!(
+            ctx.accounts.config.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
         let pool = &mut ctx.accounts.pool;
         pool.authority = ctx.accounts.authority.key();
         pool.arbiters = Vec::new();
@@ -759,16 +1187,36 @@ pub mod escrow {
 
     pub fn add_arbiter(ctx: Context<AddArbiter>, new_arbiter: Pubkey) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
-        require!(pool.authority == ctx.accounts.authority.key(), ErrorCode::NotAuthorized);
-        require!(!pool.arbiters.contains(&new_arbiter), ErrorCode::NotValidArbiter);
-        require!(pool.arbiters.len() < MAX_ARBITERS, ErrorCode::NotValidArbiter);
+        require!(
+            ctx.accounts.config.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
+        require!(
+            pool.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
+        require!(
+            !pool.arbiters.contains(&new_arbiter),
+            ErrorCode::NotValidArbiter
+        );
+        require!(
+            pool.arbiters.len() < MAX_ARBITERS,
+            ErrorCode::NotValidArbiter
+        );
         pool.arbiters.push(new_arbiter);
         Ok(())
     }
 
     pub fn remove_arbiter(ctx: Context<RemoveArbiter>, arbiter: Pubkey) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
-        require!(pool.authority == ctx.accounts.authority.key(), ErrorCode::NotAuthorized);
+        require!(
+            ctx.accounts.config.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
+        require!(
+            pool.authority == ctx.accounts.authority.key(),
+            ErrorCode::NotAuthorized
+        );
         let idx = pool
             .arbiters
             .iter()
@@ -778,7 +1226,6 @@ pub mod escrow {
         Ok(())
     }
 
-
     pub fn raise_dispute(ctx: Context<RaiseDispute>, _job_id: u64, reason: String) -> Result<()> {
         require!(
             ctx.accounts.job.status == JobStatus::Submitted
@@ -786,16 +1233,22 @@ pub mod escrow {
             ErrorCode::CannotDisputeAtStage
         );
         require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
+        require!(
+            reason.len() <= MAX_DISPUTE_REASON,
+            ErrorCode::DescriptionTooLong
+        );
         require!(ctx.accounts.ticket.is_none(), ErrorCode::CaseAlreadyOpen);
         let raiser = ctx.accounts.raiser.key();
         require!(
-            raiser == ctx.accounts.job.client
-                || ctx.accounts.job.freelancer == Some(raiser),
+            raiser == ctx.accounts.job.client || ctx.accounts.job.freelancer == Some(raiser),
             ErrorCode::NotAuthorized
         );
 
         let now = Clock::get()?.unix_timestamp;
-        let dispute_amount = ctx.accounts.job.amount
+        let dispute_amount = ctx
+            .accounts
+            .job
+            .amount
             .checked_sub(ctx.accounts.job.milestones_amount_total)
             .ok_or(ErrorCode::MathOverflow)?;
         let bond = compute_fee(dispute_amount, ARBITER_FEE_BPS_PER_PARTY)?;
@@ -827,10 +1280,13 @@ pub mod escrow {
         dispute.raised_by = raiser;
         dispute.arbiter = None;
         dispute.status = DisputeStatus::Open;
-        dispute.evidence = Vec::new();
+        dispute.evidence_count = 0;
+        dispute.evidence_cleanup_cursor = 0;
         dispute.reason = reason;
         dispute.created_at = now;
-        dispute.deadline = now.checked_add(DISPUTE_ACCEPT_GRACE).ok_or(ErrorCode::MathOverflow)?;
+        dispute.deadline = now
+            .checked_add(DISPUTE_ACCEPT_GRACE)
+            .ok_or(ErrorCode::MathOverflow)?;
         dispute.resolved_at = None;
         dispute.resolution = None;
         dispute.client_payout_percent = 0;
@@ -847,7 +1303,10 @@ pub mod escrow {
 
     pub fn accept_dispute(ctx: Context<AcceptDispute>, _job_id: u64) -> Result<()> {
         let dispute = &mut ctx.accounts.dispute;
-        require!(dispute.status == DisputeStatus::Open, ErrorCode::DisputeAlreadyResolved);
+        require!(
+            dispute.status == DisputeStatus::Open,
+            ErrorCode::DisputeAlreadyResolved
+        );
         require!(
             Clock::get()?.unix_timestamp <= dispute.deadline,
             ErrorCode::DisputeDeadlinePassed
@@ -856,12 +1315,14 @@ pub mod escrow {
         let accepter = ctx.accounts.accepter.key();
         require!(accepter != dispute.raised_by, ErrorCode::NotAuthorized);
         require!(
-            accepter == ctx.accounts.job.client
-                || ctx.accounts.job.freelancer == Some(accepter),
+            accepter == ctx.accounts.job.client || ctx.accounts.job.freelancer == Some(accepter),
             ErrorCode::NotAuthorized
         );
 
-        let dispute_amount = ctx.accounts.job.amount
+        let dispute_amount = ctx
+            .accounts
+            .job
+            .amount
             .checked_sub(ctx.accounts.job.milestones_amount_total)
             .ok_or(ErrorCode::MathOverflow)?;
         let bond = compute_fee(dispute_amount, ARBITER_FEE_BPS_PER_PARTY)?;
@@ -894,25 +1355,47 @@ pub mod escrow {
         Ok(())
     }
 
-    pub fn submit_evidence(ctx: Context<SubmitEvidence>, _job_id: u64, content: String) -> Result<()> {
+    pub fn submit_evidence(
+        ctx: Context<SubmitEvidence>,
+        _job_id: u64,
+        index: u8,
+        content: Vec<u8>,
+    ) -> Result<()> {
         let dispute = &mut ctx.accounts.dispute;
         require!(
             dispute.status != DisputeStatus::Resolved && dispute.status != DisputeStatus::Expired,
             ErrorCode::DisputeAlreadyResolved
         );
-        require!(content.len() <= MAX_DISPUTE_EVIDENCE, ErrorCode::EvidenceTooLong);
+        require!(
+            dispute.evidence_count < MAX_EVIDENCE_COUNT,
+            ErrorCode::EvidenceLimitReached
+        );
+        require!(
+            index == dispute.evidence_count,
+            ErrorCode::InvalidEvidenceIndex
+        );
+        require!(!content.is_empty(), ErrorCode::EmptyEvidence);
+        require!(
+            content.len() <= MAX_DISPUTE_EVIDENCE,
+            ErrorCode::EvidenceTooLong
+        );
         let submitter = ctx.accounts.submitter.key();
         require!(
-            submitter == ctx.accounts.job.client
-                || ctx.accounts.job.freelancer == Some(submitter),
+            submitter == ctx.accounts.job.client || ctx.accounts.job.freelancer == Some(submitter),
             ErrorCode::NotAuthorized
         );
 
-        dispute.evidence.push(Evidence {
-            submitter,
-            content,
-            submitted_at: Clock::get()?.unix_timestamp,
-        });
+        let evidence = &mut ctx.accounts.evidence;
+        evidence.dispute = dispute.key();
+        evidence.index = index;
+        evidence.author = submitter;
+        evidence.content = content;
+        evidence.submitted_at = Clock::get()?.unix_timestamp;
+        evidence.bump = ctx.bumps.evidence;
+        dispute.evidence_count = dispute
+            .evidence_count
+            .checked_add(1)
+            .ok_or(ErrorCode::MathOverflow)?;
         if dispute.status == DisputeStatus::Open || dispute.status == DisputeStatus::Active {
             dispute.status = DisputeStatus::EvidenceSubmitted;
         }
@@ -926,6 +1409,10 @@ pub mod escrow {
         );
         let pool = &ctx.accounts.pool;
         require!(
+            pool.authority == ctx.accounts.config.authority,
+            ErrorCode::NotAuthorized
+        );
+        require!(
             pool.arbiters.contains(&ctx.accounts.arbiter.key()),
             ErrorCode::NotValidArbiter
         );
@@ -935,7 +1422,7 @@ pub mod escrow {
         let job_freelancer = ctx.accounts.job.freelancer;
         require!(
             ctx.accounts.arbiter.key() != job_client
-                && job_freelancer.map_or(true, |f| f != ctx.accounts.arbiter.key()),
+                && job_freelancer.is_none_or(|f| f != ctx.accounts.arbiter.key()),
             ErrorCode::ArbiterCannotBeParty
         );
         require!(
@@ -958,7 +1445,10 @@ pub mod escrow {
             dispute.arbiter == Some(ctx.accounts.arbiter.key()),
             ErrorCode::NotArbiter
         );
-        require!(dispute.status == DisputeStatus::ArbiterAssigned, ErrorCode::DisputeAlreadyResolved);
+        require!(
+            dispute.status == DisputeStatus::ArbiterAssigned,
+            ErrorCode::DisputeAlreadyResolved
+        );
         require!(client_payout_percent <= 100, ErrorCode::InvalidPercent);
 
         dispute.client_payout_percent = client_payout_percent;
@@ -980,12 +1470,15 @@ pub mod escrow {
         client_payout_percent: u8,
     ) -> Result<()> {
         let config = &ctx.accounts.config;
-        require!(config.advisor == ctx.accounts.advisor.key(), ErrorCode::NotAuthorized);
+        require!(
+            config.advisor == ctx.accounts.advisor.key(),
+            ErrorCode::NotAuthorized
+        );
         let job_client = ctx.accounts.job.client;
         let job_freelancer = ctx.accounts.job.freelancer;
         require!(
             ctx.accounts.advisor.key() != job_client
-                && job_freelancer.map_or(true, |f| f != ctx.accounts.advisor.key()),
+                && job_freelancer.is_none_or(|f| f != ctx.accounts.advisor.key()),
             ErrorCode::ArbiterCannotBeParty
         );
         let dispute = &mut ctx.accounts.dispute;
@@ -1018,15 +1511,17 @@ pub mod escrow {
         _job_id: u64,
     ) -> Result<()> {
         let dispute = &mut ctx.accounts.dispute;
-        require!(dispute.status == DisputeStatus::Open, ErrorCode::DisputeAlreadyResolved);
+        require!(
+            dispute.status == DisputeStatus::Open,
+            ErrorCode::DisputeAlreadyResolved
+        );
         require!(
             Clock::get()?.unix_timestamp <= dispute.deadline,
             ErrorCode::DisputeDeadlinePassed
         );
         let requester = ctx.accounts.requester.key();
         require!(
-            requester == ctx.accounts.job.client
-                || ctx.accounts.job.freelancer == Some(requester),
+            requester == ctx.accounts.job.client || ctx.accounts.job.freelancer == Some(requester),
             ErrorCode::NotAuthorized
         );
         dispute.status = DisputeStatus::EvidenceSubmitted;
@@ -1043,12 +1538,17 @@ pub mod escrow {
             job.status == JobStatus::InProgress || job.status == JobStatus::Submitted,
             ErrorCode::InvalidJobStatus
         );
+
         let opener = ctx.accounts.opener.key();
         require!(
             opener == job.client || job.freelancer == Some(opener),
             ErrorCode::NotAuthorized
         );
         require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
+        require!(
+            reason.len() <= MAX_DISPUTE_REASON,
+            ErrorCode::DescriptionTooLong
+        );
         require!(ctx.accounts.dispute.is_none(), ErrorCode::CaseAlreadyOpen);
 
         let ticket = &mut ctx.accounts.ticket;
@@ -1071,21 +1571,51 @@ pub mod escrow {
         resolution: String,
     ) -> Result<()> {
         let config = &ctx.accounts.config;
-        require!(config.advisor == ctx.accounts.advisor.key(), ErrorCode::NotAuthorized);
+        require!(
+            config.advisor == ctx.accounts.advisor.key(),
+            ErrorCode::NotAuthorized
+        );
         let job_client = ctx.accounts.job.client;
         let job_freelancer = ctx.accounts.job.freelancer;
         require!(
             ctx.accounts.advisor.key() != job_client
-                && job_freelancer.map_or(true, |f| f != ctx.accounts.advisor.key()),
+                && job_freelancer.is_none_or(|f| f != ctx.accounts.advisor.key()),
             ErrorCode::ArbiterCannotBeParty
         );
         let ticket = &mut ctx.accounts.ticket;
-        require!(ticket.status == SupportTicketStatus::Open, ErrorCode::DisputeAlreadyResolved);
+        require!(
+            ticket.status == SupportTicketStatus::Open,
+            ErrorCode::DisputeAlreadyResolved
+        );
+        require!(!resolution.is_empty(), ErrorCode::EmptyDisputeReason);
+        require!(
+            resolution.len() <= MAX_DISPUTE_REASON,
+            ErrorCode::DescriptionTooLong
+        );
         let job = &mut ctx.accounts.job;
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
         require!(
             job.status == JobStatus::InProgress || job.status == JobStatus::Submitted,
             ErrorCode::InvalidJobStatus
         );
+
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
+
+        let remaining_principal = job
+            .amount
+            .checked_sub(job.milestones_amount_total)
+            .ok_or(ErrorCode::MathOverflow)?;
+        let refund = remaining_principal
+            .checked_add(job.fee_amount)
+            .ok_or(ErrorCode::MathOverflow)?;
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.client.to_account_info(),
+            refund,
+        )?;
 
         job.status = JobStatus::Cancelled;
         job.updated_at = Clock::get()?.unix_timestamp;
@@ -1102,7 +1632,10 @@ pub mod escrow {
         _job_id: u64,
     ) -> Result<()> {
         let dispute = &ctx.accounts.dispute;
-        require!(dispute.status == DisputeStatus::Resolved, ErrorCode::DisputeAlreadyResolved);
+        require!(
+            dispute.status == DisputeStatus::Resolved,
+            ErrorCode::DisputeAlreadyResolved
+        );
 
         let resolver = ctx.accounts.resolver.key();
         require!(
@@ -1111,6 +1644,22 @@ pub mod escrow {
         );
 
         let job = &mut ctx.accounts.job;
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
+        let expected_evidence = dispute
+            .evidence_count
+            .checked_sub(dispute.evidence_cleanup_cursor)
+            .ok_or(ErrorCode::InvalidEvidenceCleanupAccounts)?;
+        require!(
+            ctx.remaining_accounts.len() >= expected_evidence as usize,
+            ErrorCode::InvalidEvidenceCleanupAccounts
+        );
+        let (evidence_accounts, application_accounts) =
+            ctx.remaining_accounts.split_at(expected_evidence as usize);
+        cleanup_job_applications(job, &job.key(), 0, application_accounts, true, true)?;
+
         let amount = job
             .amount
             .checked_sub(job.milestones_amount_total)
@@ -1125,73 +1674,54 @@ pub mod escrow {
             .client_bond
             .checked_add(ctx.accounts.escrow.freelancer_bond)
             .ok_or(ErrorCode::MathOverflow)?;
-        let shortfall = resolver_fee_total.saturating_sub(posted);
+        let shortfall = compute_shortfall(resolver_fee_total, posted);
         let to_parties = amount
             .checked_sub(shortfall)
             .ok_or(ErrorCode::MathOverflow)?;
 
-        let client_key = ctx.accounts.client.key();
-        let job_id_bytes = _job_id.to_le_bytes();
-        let seeds: &[&[&[u8]]] = &[&[
-            b"job".as_ref(),
-            client_key.as_ref(),
-            job_id_bytes.as_ref(),
-            &[job.bump],
-        ]];
-
-        transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.system_program.to_account_info(),
-                Transfer {
-                    from: job.to_account_info(),
-                    to: ctx.accounts.treasury.to_account_info(),
-                },
-                seeds,
-            ),
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.treasury.to_account_info(),
             fee_amount,
         )?;
 
         let client_net = (to_parties as u128 * client_pct as u128 / 100) as u64;
         if client_net > 0 {
-            transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    Transfer {
-                        from: job.to_account_info(),
-                        to: ctx.accounts.client.to_account_info(),
-                    },
-                    seeds,
-                ),
+            transfer_job_lamports(
+                &job.to_account_info(),
+                &ctx.accounts.client.to_account_info(),
                 client_net,
             )?;
         }
 
         let freelancer_net = (to_parties as u128 * freelancer_pct as u128 / 100) as u64;
         if freelancer_net > 0 {
-            transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    Transfer {
-                        from: job.to_account_info(),
-                        to: ctx.accounts.freelancer.to_account_info(),
-                    },
-                    seeds,
-                ),
+            transfer_job_lamports(
+                &job.to_account_info(),
+                &ctx.accounts.freelancer.to_account_info(),
                 freelancer_net,
             )?;
         }
 
         if shortfall > 0 {
-            transfer(
-                CpiContext::new_with_signer(
-                    ctx.accounts.system_program.to_account_info(),
-                    Transfer {
-                        from: job.to_account_info(),
-                        to: ctx.accounts.arbitration_treasury.to_account_info(),
-                    },
-                    seeds,
-                ),
+            transfer_job_lamports(
+                &job.to_account_info(),
+                &ctx.accounts.arbitration_treasury.to_account_info(),
                 shortfall,
+            )?;
+        }
+
+        require!(
+            evidence_accounts.len() == expected_evidence as usize,
+            ErrorCode::InvalidEvidenceCleanupAccounts
+        );
+        for (offset, evidence) in evidence_accounts.iter().enumerate() {
+            let index = dispute.evidence_cleanup_cursor + offset as u8;
+            close_evidence_account(
+                evidence,
+                &ctx.accounts.client.to_account_info(),
+                &dispute.key(),
+                index,
             )?;
         }
 
@@ -1199,6 +1729,48 @@ pub mod escrow {
         Ok(())
     }
 
+    pub fn cleanup_dispute_evidence(
+        ctx: Context<CleanupDisputeEvidence>,
+        _job_id: u64,
+    ) -> Result<()> {
+        let dispute = &mut ctx.accounts.dispute;
+        require!(
+            dispute.status == DisputeStatus::Resolved || dispute.status == DisputeStatus::Expired,
+            ErrorCode::DisputeAlreadyResolved
+        );
+        let resolver = ctx.accounts.resolver.key();
+        require!(
+            dispute.arbiter == Some(resolver) || ctx.accounts.config.advisor == resolver,
+            ErrorCode::NotAuthorized
+        );
+        require!(
+            !ctx.remaining_accounts.is_empty(),
+            ErrorCode::InvalidEvidenceCleanupAccounts
+        );
+
+        let remaining = dispute
+            .evidence_count
+            .checked_sub(dispute.evidence_cleanup_cursor)
+            .ok_or(ErrorCode::InvalidEvidenceCleanupAccounts)?;
+        require!(
+            ctx.remaining_accounts.len() <= remaining as usize,
+            ErrorCode::InvalidEvidenceCleanupAccounts
+        );
+        for (offset, evidence) in ctx.remaining_accounts.iter().enumerate() {
+            let index = dispute.evidence_cleanup_cursor + offset as u8;
+            close_evidence_account(
+                evidence,
+                &ctx.accounts.client.to_account_info(),
+                &dispute.key(),
+                index,
+            )?;
+        }
+        dispute.evidence_cleanup_cursor = dispute
+            .evidence_cleanup_cursor
+            .checked_add(ctx.remaining_accounts.len() as u8)
+            .ok_or(ErrorCode::MathOverflow)?;
+        Ok(())
+    }
 
     pub fn create_milestone(
         ctx: Context<CreateMilestone>,
@@ -1210,7 +1782,10 @@ pub mod escrow {
         deadline: i64,
     ) -> Result<()> {
         let job = &mut ctx.accounts.job;
-        require!(job.status == JobStatus::InProgress, ErrorCode::InvalidJobStatus);
+        require!(
+            job.status == JobStatus::InProgress,
+            ErrorCode::InvalidJobStatus
+        );
         require!(!title.is_empty(), ErrorCode::EmptyTitle);
         require!(title.len() <= MAX_MILESTONE_TITLE, ErrorCode::TitleTooLong);
         require!(
@@ -1221,7 +1796,10 @@ pub mod escrow {
             deadline > Clock::get()?.unix_timestamp,
             ErrorCode::DeadlineMustBeFuture
         );
-        require!(index == job.milestones_total, ErrorCode::InvalidMilestoneIndex);
+        require!(
+            index == job.milestones_total,
+            ErrorCode::InvalidMilestoneIndex
+        );
         require!(
             job.milestones_total < MAX_MILESTONES as u8,
             ErrorCode::MilestoneAlreadyCompleted
@@ -1231,7 +1809,10 @@ pub mod escrow {
             .milestones_amount_total
             .checked_add(amount)
             .ok_or(ErrorCode::MathOverflow)?;
-        require!(new_total <= job.amount, ErrorCode::MilestoneAmountExceedsFunds);
+        require!(
+            new_total <= job.amount,
+            ErrorCode::MilestoneAmountExceedsFunds
+        );
 
         let milestone = &mut ctx.accounts.milestone;
         milestone.job = job.key();
@@ -1246,21 +1827,31 @@ pub mod escrow {
         milestone.bump = ctx.bumps.milestone;
         milestone.created_at = Clock::get()?.unix_timestamp;
 
-        job.milestones_total = job.milestones_total.checked_add(1).ok_or(ErrorCode::MathOverflow)?;
+        job.milestones_total = job
+            .milestones_total
+            .checked_add(1)
+            .ok_or(ErrorCode::MathOverflow)?;
         job.milestones_amount_total = new_total;
         job.updated_at = Clock::get()?.unix_timestamp;
 
         Ok(())
     }
 
-    pub fn submit_milestone(ctx: Context<SubmitMilestone>, _job_id: u64, _milestone_index: u8) -> Result<()> {
+    pub fn submit_milestone(
+        ctx: Context<SubmitMilestone>,
+        _job_id: u64,
+        _milestone_index: u8,
+    ) -> Result<()> {
         let job = &ctx.accounts.job;
         let milestone = &mut ctx.accounts.milestone;
         require!(
             job.freelancer == Some(ctx.accounts.freelancer.key()),
             ErrorCode::NotJobFreelancer
         );
-        require!(job.status == JobStatus::InProgress, ErrorCode::InvalidJobStatus);
+        require!(
+            job.status == JobStatus::InProgress,
+            ErrorCode::InvalidJobStatus
+        );
         require!(
             milestone.status == MilestoneStatus::Pending
                 || milestone.status == MilestoneStatus::Rejected,
@@ -1272,37 +1863,38 @@ pub mod escrow {
         Ok(())
     }
 
-    pub fn approve_milestone(ctx: Context<ApproveMilestone>, _job_id: u64, _milestone_index: u8) -> Result<()> {
+    pub fn approve_milestone(
+        ctx: Context<ApproveMilestone>,
+        _job_id: u64,
+        _milestone_index: u8,
+    ) -> Result<()> {
         let job = &mut ctx.accounts.job;
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
-        require!(job.status == JobStatus::InProgress, ErrorCode::InvalidJobStatus);
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
+        require!(
+            job.status == JobStatus::InProgress,
+            ErrorCode::InvalidJobStatus
+        );
         let milestone = &mut ctx.accounts.milestone;
-        require!(milestone.status == MilestoneStatus::Submitted, ErrorCode::MilestoneAlreadyCompleted);
+        require!(
+            milestone.status == MilestoneStatus::Submitted,
+            ErrorCode::MilestoneAlreadyCompleted
+        );
 
         let amount = milestone.amount;
 
-        let client_key = ctx.accounts.client.key();
-        let job_id_bytes = _job_id.to_le_bytes();
-        let seeds: &[&[&[u8]]] = &[&[
-            b"job".as_ref(),
-            client_key.as_ref(),
-            job_id_bytes.as_ref(),
-            &[job.bump],
-        ]];
-
-        transfer(
-            CpiContext::new_with_signer(
-                ctx.accounts.system_program.to_account_info(),
-                Transfer {
-                    from: job.to_account_info(),
-                    to: ctx.accounts.freelancer.to_account_info(),
-                },
-                seeds,
-            ),
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.freelancer.to_account_info(),
             amount,
         )?;
 
-        job.milestones_approved = job.milestones_approved.checked_add(1).ok_or(ErrorCode::MathOverflow)?;
+        job.milestones_approved = job
+            .milestones_approved
+            .checked_add(1)
+            .ok_or(ErrorCode::MathOverflow)?;
         milestone.status = MilestoneStatus::Approved;
         milestone.approved_at = Some(Clock::get()?.unix_timestamp);
         job.updated_at = Clock::get()?.unix_timestamp;
@@ -1310,19 +1902,30 @@ pub mod escrow {
         Ok(())
     }
 
-    pub fn reject_milestone(ctx: Context<RejectMilestone>, _job_id: u64, _milestone_index: u8) -> Result<()> {
+    pub fn reject_milestone(
+        ctx: Context<RejectMilestone>,
+        _job_id: u64,
+        _milestone_index: u8,
+    ) -> Result<()> {
         let job = &ctx.accounts.job;
         let milestone = &mut ctx.accounts.milestone;
-        require!(job.client == ctx.accounts.client.key(), ErrorCode::NotJobClient);
-        require!(job.status == JobStatus::InProgress, ErrorCode::InvalidJobStatus);
-        require!(milestone.status == MilestoneStatus::Submitted, ErrorCode::MilestoneAlreadyCompleted);
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
+        require!(
+            job.status == JobStatus::InProgress,
+            ErrorCode::InvalidJobStatus
+        );
+        require!(
+            milestone.status == MilestoneStatus::Submitted,
+            ErrorCode::MilestoneAlreadyCompleted
+        );
 
         milestone.status = MilestoneStatus::Rejected;
         Ok(())
     }
-
 }
-
 
 #[derive(Accounts)]
 pub struct InitializeConfig<'info> {
@@ -1330,6 +1933,8 @@ pub struct InitializeConfig<'info> {
     pub authority: Signer<'info>,
     /// CHECK: Treasury wallet que recibe fees. Almacenada en config.
     pub treasury: UncheckedAccount<'info>,
+    /// CHECK: Cuenta system que recibe fees de arbitraje.
+    pub arbitration_treasury: UncheckedAccount<'info>,
     #[account(
         init,
         payer = authority,
@@ -1360,6 +1965,8 @@ pub struct UpdateTreasury<'info> {
     pub authority: Signer<'info>,
     #[account(mut, seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
+    /// CHECK: Validated in the instruction as a non-default System account distinct from arbitration_treasury.
+    pub new_treasury: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1367,6 +1974,8 @@ pub struct UpdateArbitrationTreasury<'info> {
     pub authority: Signer<'info>,
     #[account(mut, seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
+    /// CHECK: Validated in the instruction as a non-default System account distinct from treasury.
+    pub new_arbitration_treasury: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1398,7 +2007,6 @@ pub struct WithdrawArbitration<'info> {
     pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
-
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
@@ -1450,6 +2058,30 @@ pub struct SubmitWork<'info> {
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
+pub struct AutoApproveWork<'info> {
+    pub keeper: Signer<'info>,
+    /// CHECK: Debe ser el cliente ligado al PDA del job y recibe la rent restante.
+    #[account(mut, constraint = client.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::NotAuthorized)]
+    pub client: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()],
+        bump = job.bump
+    )]
+    pub job: Account<'info, Job>,
+    #[account(mut, constraint = job.freelancer == Some(freelancer.key()) @ ErrorCode::NotJobFreelancer)]
+    pub freelancer: SystemAccount<'info>,
+    /// CHECK: Validada contra Config.treasury.
+    #[account(mut, constraint = treasury.key() == config.treasury @ ErrorCode::InvalidTreasury)]
+    pub treasury: UncheckedAccount<'info>,
+    #[account(seeds = [b"dispute", job.key().as_ref()], bump)]
+    pub dispute: Option<Account<'info, Dispute>>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+}
+
+#[derive(Accounts)]
+#[instruction(job_id: u64)]
 pub struct ApproveWork<'info> {
     pub client: Signer<'info>,
     #[account(
@@ -1464,7 +2096,8 @@ pub struct ApproveWork<'info> {
     /// CHECK: Treasury que recibe la comision; validado contra config.treasury.
     #[account(
         mut,
-        constraint = treasury.key() == config.treasury @ ErrorCode::InvalidTreasury
+        constraint = treasury.key() == config.treasury @ ErrorCode::InvalidTreasury,
+        constraint = treasury.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::InvalidTreasury
     )]
     pub treasury: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump)]
@@ -1528,6 +2161,7 @@ pub struct UnpauseJob<'info> {
 pub struct ExpirePausedJob<'info> {
     pub caller: Signer<'info>,
     /// CHECK: client validado por el PDA del job (es job.client, a quien se reembolsa).
+    #[account(constraint = client.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::NotAuthorized)]
     pub client: UncheckedAccount<'info>,
     #[account(
         mut,
@@ -1539,9 +2173,8 @@ pub struct ExpirePausedJob<'info> {
     pub system_program: Program<'info, System>,
 }
 
-
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, application_index: u8)]
 pub struct ApplyToJob<'info> {
     #[account(mut)]
     pub applicant: Signer<'info>,
@@ -1553,11 +2186,19 @@ pub struct ApplyToJob<'info> {
         bump = job.bump
     )]
     pub job: Account<'info, Job>,
+    #[account(
+        init,
+        payer = applicant,
+        space = Application::INIT_SPACE + 8,
+        seeds = [b"application", job.key().as_ref(), &[application_index], applicant.key().as_ref()],
+        bump
+    )]
+    pub application: Account<'info, Application>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, application_index: u8)]
 pub struct AcceptApplication<'info> {
     #[account(mut)]
     pub client: Signer<'info>,
@@ -1567,9 +2208,28 @@ pub struct AcceptApplication<'info> {
         bump = job.bump
     )]
     pub job: Account<'info, Job>,
-    pub system_program: Program<'info, System>,
+    #[account(mut)]
+    pub applicant: SystemAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"application", job.key().as_ref(), &[application_index], applicant.key().as_ref()],
+        bump = application.bump
+    )]
+    pub application: Account<'info, Application>,
 }
 
+#[derive(Accounts)]
+#[instruction(job_id: u64, start_index: u8)]
+pub struct CleanupApplications<'info> {
+    pub client: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()],
+        bump = job.bump,
+        constraint = job.client == client.key() @ ErrorCode::NotJobClient
+    )]
+    pub job: Account<'info, Job>,
+}
 
 #[derive(Accounts)]
 pub struct CreateArbiterPool<'info> {
@@ -1577,6 +2237,8 @@ pub struct CreateArbiterPool<'info> {
     pub authority: Signer<'info>,
     #[account(init, payer = authority, space = ArbiterPool::INIT_SPACE + 8, seeds = [b"arbiter_pool"], bump)]
     pub pool: Account<'info, ArbiterPool>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1585,6 +2247,8 @@ pub struct AddArbiter<'info> {
     pub authority: Signer<'info>,
     #[account(mut, seeds = [b"arbiter_pool"], bump = pool.bump)]
     pub pool: Account<'info, ArbiterPool>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
@@ -1592,8 +2256,9 @@ pub struct RemoveArbiter<'info> {
     pub authority: Signer<'info>,
     #[account(mut, seeds = [b"arbiter_pool"], bump = pool.bump)]
     pub pool: Account<'info, ArbiterPool>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
-
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
@@ -1616,6 +2281,7 @@ pub struct RaiseDispute<'info> {
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
 pub struct AcceptDispute<'info> {
+    #[account(mut)]
     pub accepter: Signer<'info>,
     /// CHECK: client validado por el PDA del job.
     pub client: UncheckedAccount<'info>,
@@ -1629,8 +2295,9 @@ pub struct AcceptDispute<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, index: u8)]
 pub struct SubmitEvidence<'info> {
+    #[account(mut)]
     pub submitter: Signer<'info>,
     /// CHECK: client validado por el PDA del job.
     pub client: UncheckedAccount<'info>,
@@ -1638,6 +2305,15 @@ pub struct SubmitEvidence<'info> {
     pub job: Account<'info, Job>,
     #[account(mut, seeds = [b"dispute", job.key().as_ref()], bump = dispute.bump)]
     pub dispute: Account<'info, Dispute>,
+    #[account(
+        init,
+        payer = submitter,
+        space = Evidence::INIT_SPACE + 8,
+        seeds = [b"evidence", dispute.key().as_ref(), &[index]],
+        bump
+    )]
+    pub evidence: Account<'info, Evidence>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -1723,6 +2399,7 @@ pub struct OpenSupportTicket<'info> {
 pub struct ResolveSupportTicket<'info> {
     pub advisor: Signer<'info>,
     /// CHECK: client validado por el PDA del job.
+    #[account(constraint = client.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::NotAuthorized)]
     pub client: UncheckedAccount<'info>,
     #[account(
         mut,
@@ -1751,6 +2428,7 @@ pub struct ResolveSupportTicket<'info> {
 pub struct FinalizeDisputePayouts<'info> {
     pub resolver: Signer<'info>,
     /// CHECK: client validado por el PDA del job.
+    #[account(constraint = client.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::NotAuthorized)]
     pub client: UncheckedAccount<'info>,
     #[account(
         mut,
@@ -1778,13 +2456,15 @@ pub struct FinalizeDisputePayouts<'info> {
     /// CHECK: Treasury que recibe la comision de protocolo; validado contra config.treasury.
     #[account(
         mut,
-        constraint = treasury.key() == config.treasury @ ErrorCode::InvalidTreasury
+        constraint = treasury.key() == config.treasury @ ErrorCode::InvalidTreasury,
+        constraint = treasury.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::InvalidTreasury
     )]
     pub treasury: UncheckedAccount<'info>,
     /// CHECK: Cuenta SEPARADA de la empresa que recibe las fees de arbitraje (5%).
     #[account(
         mut,
-        constraint = arbitration_treasury.key() == config.arbitration_treasury @ ErrorCode::InvalidTreasury
+        constraint = arbitration_treasury.key() == config.arbitration_treasury @ ErrorCode::InvalidTreasury,
+        constraint = arbitration_treasury.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::InvalidTreasury
     )]
     pub arbitration_treasury: UncheckedAccount<'info>,
     #[account(seeds = [b"config"], bump = config.bump)]
@@ -1792,6 +2472,20 @@ pub struct FinalizeDisputePayouts<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[derive(Accounts)]
+#[instruction(job_id: u64)]
+pub struct CleanupDisputeEvidence<'info> {
+    pub resolver: Signer<'info>,
+    /// CHECK: client validado por el PDA del job y debe ser una cuenta System.
+    #[account(constraint = client.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::NotAuthorized)]
+    pub client: UncheckedAccount<'info>,
+    #[account(seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()], bump = job.bump)]
+    pub job: Account<'info, Job>,
+    #[account(mut, seeds = [b"dispute", job.key().as_ref()], bump = dispute.bump)]
+    pub dispute: Account<'info, Dispute>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+}
 
 #[derive(Accounts)]
 #[instruction(job_id: u64, index: u8)]

@@ -1,0 +1,17 @@
+################################################################
+# Manage trust-escrow-v3 deployment through Crypto Infrastructure as Code
+################################################################
+
+addon "svm" {
+    rpc_api_url = input.rpc_api_url
+    network_id = input.network_id
+}
+
+action "deploy_trust_escrow_v3" "svm::deploy_program" {
+    description = "Deploy trust_escrow_v3 program"
+    program = svm::get_program_from_anchor_project("trust_escrow_v3") 
+    authority = signer.authority
+    payer = signer.payer
+    // Deploy via cheatcode on Surfnet: writes program data directly so it ends up EXECUTABLE.
+    instant_surfnet_deployment = true
+}

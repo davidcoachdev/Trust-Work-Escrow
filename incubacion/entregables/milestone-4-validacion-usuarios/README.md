@@ -4,6 +4,8 @@
 
 **Documento completo:** [`trust-escrow-milestone-4-plan-validacion.md`](trust-escrow-milestone-4-plan-validacion.md)
 
+> 📎 **Complemento (solicitud de Cristina — Product · GTM · Growth & Ecosystem):** [`complemento-producto-gtm-growth.md`](complemento-producto-gtm-growth.md) — consolida los tres ejes pedidos sin alterar la validación de usuarios.
+
 ### 🔗 Enlaces de la validación (live)
 - 📝 Encuesta: https://docs.google.com/forms/d/e/1FAIpQLSdcLscMK1SB-yztWKhvWvAEQhRYx6sYd2Q1bPBZIeWq7GCVpQ/viewform?usp=send_form
 - 📊 Respuestas / analytics: https://docs.google.com/forms/d/1SWIz7Zu4Ht_gga2htSyDzkoj69kA6gpa-qCqGYOdFgQ/viewanalytics
@@ -37,6 +39,7 @@
 |---------|-------------|
 | `README.md` | Este índice + checklist |
 | `trust-escrow-milestone-4-plan-validacion.md` | Plan completo de validación con templates para registro |
+| [`complemento-producto-gtm-growth.md`](complemento-producto-gtm-growth.md) | 🧩 Complemento: Product (avances + tracción), Go-to-Market y Growth & Ecosystem Readiness |
 | [`herramientas/README.md`](herramientas/README.md) | 🧰 Índice de las herramientas listas-para-usar (ver abajo) |
 
 ### 🧰 Carpeta `herramientas/` (materiales ejecutables)

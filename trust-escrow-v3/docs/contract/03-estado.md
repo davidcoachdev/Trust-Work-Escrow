@@ -19,13 +19,14 @@ por las instrucciones documentadas en las demás partes.
 | `MAX_APPLICATIONS` | `50` | Cantidad máxima de aplicaciones por job. |
 | `MAX_ARBITERS` | `50` | Cantidad máxima de árbitros en el pool. |
 | `ARBITER_FEE_BPS_PER_PARTY` | `250` (=2.5%) | Fee de arbitraje por parte. Se cobra al cliente y al freelancer (5% total del job) **solo en disputas**. |
+| `AUTO_APPROVAL_DELAY` | `604800` segundos | Ventana exacta desde `submitted_at`; el límite es inclusivo (`now >= submitted_at + 604800`). |
 
 ## Enums (con `Space` impl manual, estilo v2)
 
 Cada enum implementa manualmente `anchor_lang::Space` (`INIT_SPACE = 1`) porque
 se serializa en 1 byte.
 
-- **`JobStatus`**: `Created, Funded, InProgress, Submitted, Released, Disputed, Resolved, Cancelled`.
+- **`JobStatus`**: `Created, Funded, InProgress, Submitted, Released, Disputed, Resolved, Cancelled`. `submit_work` pasa directamente a `Submitted`; no existe `Received`.
 - **`ApplicationStatus`**: `Pending, Accepted, Rejected, Withdrawn`.
 - **`DisputeStatus`**: `Open, EvidenceSubmitted, ArbiterAssigned, Resolved, Expired`.
 - **`MilestoneStatus`**: `Pending, Submitted, Approved, Rejected`.
@@ -36,20 +37,23 @@ se serializa en 1 byte.
 - `authority: Pubkey` — quien puede pausar/actualizar treasury.
 - `advisor: Pubkey` — asesor de plataforma; resuelve `PlatformCase` y disputeos no mutuos. **Separado de `authority`.**
 - `treasury: Pubkey` — wallet que recibe las fees de plataforma (debe firmar en `withdraw_treasury`).
+- `arbitration_treasury: Pubkey` — destino separado de fee/shortfall de arbitraje.
 - `fee_bps: u16` — fee de plataforma en basis points.
 - `paused: bool`
 - `bump: u8`
 
 ### `ArbitrationEscrow` — seed `[b"arb_fee", job]` (se crea al abrir disputa)
 Guarda los bonos de arbitraje: `client_bond` (2.5%) y `freelancer_bond` (2.5%).
-Se cierra en `finalize` pagando el 5% al resolutor.
+Se cierra en `finalize` enviando los bonos posteados a
+`arbitration_treasury`; el resolutor solo autoriza la operación.
 
 ### `Job` — seed `[b"job", client, job_id]`
 Campos clave: `client`, `freelancer: Option<Pubkey>`,
 `amount`, `fee_amount`, `status`, `title`, `description`, `deadline`,
 `created_at`, `updated_at`, `submitted_at: Option<i64>`,
 `milestones_total`, `milestones_approved`, `milestones_amount_total`,
-`applications: Vec<Application>`, `bump`.
+`applicants: Vec<Pubkey>` (máximo 50, solo índice compacto para detectar
+duplicados), `bump`. Las propuestas no se almacenan inline.
 
 > **Nota de diseño (arbitraje):** el `Job` **no** guarda un árbitro. El árbitro
 > es neutral y lo asigna la **plataforma** (`config.authority`) únicamente cuando
@@ -61,7 +65,7 @@ Campos clave: `client`, `freelancer: Option<Pubkey>`,
 
 ### `Dispute` — seed `[b"dispute", job]`
 `job`, `raised_by`, `arbiter: Option<Pubkey>` (asignado por la plataforma en
-`assign_arbiter`), `status`, `evidence: Vec<Evidence>`, `reason`,
+`assign_arbiter`), `status`, `evidence_count`, `evidence_cleanup_cursor`, `reason`,
 `created_at`, `deadline`, `resolved_at`, `resolution`,
 `client_payout_percent`, `freelancer_payout_percent`, `bump`.
 
@@ -69,9 +73,21 @@ Campos clave: `client`, `freelancer: Option<Pubkey>`,
 `job`, `title`, `description`, `amount`, `deadline`, `status`, `index`,
 `submitted_at`, `approved_at`, `bump`, `created_at`.
 
-### Estructuras auxiliares
-- `Application { applicant, proposal, applied_at, status }`
-- `Evidence { submitter, content, submitted_at }`
+### `Application` — seed `[b"application", job, index, applicant]`
+- PDA individual creada por `apply_to_job`; contiene `job`, `index`, `applicant`,
+  `proposal` (máximo `MAX_PROPOSAL_LENGTH`), `applied_at`, `status` y `bump`.
+- El índice debe ser el siguiente (0–49), el job y applicant deben coincidir con
+  las seeds, y `Job.applicants` impide duplicados.
+- `accept_application` valida la PDA y cierra la cuenta, devolviendo su rent al
+  applicant; la rent nunca se considera parte del payout.
+
+### Evidence PDA — seed `[b"evidence", dispute, index]`
+- Cada evidencia vive en una cuenta PDA individual `Evidence`; `Dispute` solo
+  conserva contadores y cursores de cleanup.
+- `Evidence { dispute, index, author, content, submitted_at, bump }`.
+- Máximo 10 PDAs por disputa y máximo 2048 bytes por `content`.
+- `finalize_dispute_payouts`/`cleanup_dispute_evidence` cierran las PDAs en
+  orden y devuelven su rent al cliente; esa rent no es payout.
 
 ## Helper: `compute_fee`
 

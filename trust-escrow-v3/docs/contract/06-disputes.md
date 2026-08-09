@@ -24,7 +24,9 @@ disputa abierta → $0$ de arbitraje.
 - Estado debe ser `Open` → `DisputeAlreadyResolved`.
 
 ## `submit_evidence`
-- Cliente o freelancer adjunta `Evidence` (<= `MAX_DISPUTE_EVIDENCE`).
+- Cliente o freelancer adjunta una cuenta PDA `Evidence` individual (seed
+  `[b"evidence", dispute, index]`, <= `MAX_DISPUTE_EVIDENCE`). `Dispute` solo
+  conserva el contador; no contiene una colección inline de evidencias.
 - Estado no puede ser `Resolved`/`Expired`. Pasa a `EvidenceSubmitted`.
 
 ## `assign_arbiter` (plataforma = `config.authority`)
@@ -54,10 +56,14 @@ disputa abierta → $0$ de arbitraje.
 ## `finalize_dispute_payouts` (resolutor: árbitro o asesor)
 El PDA `job` firma (`new_with_signer`):
 - `treasury` ← `fee_amount` (comisión de plataforma).
-- `client` ← `%` de `amount` **menos su bono si no lo posteó** (`saturating_sub`).
-- `freelancer` ← `%` de `amount` **menos su bono si no lo posteó**.
+- `client` ← su `%` de `amount`, con el bono faltante descontado de su reparto
+  cuando corresponda.
+- `freelancer` ← su `%` de `amount`, con el bono faltante descontado de su
+  reparto cuando corresponda.
 - `ArbitrationEscrow` se cierra (`close = arbitration_treasury`) → envía el 5% de
   bonos a la **cuenta de arbitraje de la empresa**.
+- El faltante entre el 5% exigido y los bonos ya posteados se transfiere desde
+  `job` a `arbitration_treasury`; el resolutor nunca es destino de lamports.
 - `job` y `dispute` se cierran (`close = client`, renta devuelta).
 
 **Conservación:** `treasury(fee) + arbitration_treasury(5% de lo disputado) + cliente + freelancer = amount + fee`
@@ -73,12 +79,13 @@ sequenceDiagram
     participant J as PDA Job
     participant A as Arbitro/Asesor
     participant T as Treasury
+    participant AT as Arbitration treasury
     C->>J: raise_dispute + bono 2.5%
     F->>J: accept_dispute + bono 2.5%
     A->>J: resolve / resolve_platform_case (%)
     A->>J: finalize_dispute_payouts
     J->>T: fee_amount
-    J->>A: 5% (bonos, al cerrar escrow)
+    J->>AT: bonos + shortfall (5% total)
 ```
 
 ## `SupportTicket` (cancelación por incumplimiento, sin bono)

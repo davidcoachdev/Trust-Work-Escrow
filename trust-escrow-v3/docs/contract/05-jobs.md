@@ -2,7 +2,7 @@
 
 Estado: ✅ implementado completo (create_job, deposit_funds, apply_to_job,
 accept_application, submit_work, approve_work, reject_work, cancel_job,
-pause_job, unpause_job, expire_paused_job).
+pause_job, unpause_job, expire_paused_job, auto_approve_work).
 
 > **Pausa por job:** `deposit_funds` y `accept_application` quedan bloqueados si el job
 > está pausado (`check_not_paused`). La pausa solo la puede poner el cliente y
@@ -16,7 +16,7 @@ pause_job, unpause_job, expire_paused_job).
 Crea el PDA `Job` (seed `[b"job", client, job_id]`) en estado `Created`. Calcula
 la fee de plataforma con `compute_fee(amount, fee_bps)` (aritmética chequeada) y
 la guarda en `fee_amount`. Inicializa los contadores de milestones en 0 y
-`applications` vacío.
+`applicants` vacío. No reserva una cuenta de colección de postulaciones.
 
 **Por qué**
 - La fee se calcula **una sola vez** aquí y se guarda, evitando recalcular y
@@ -38,31 +38,36 @@ la guarda en `fee_amount`. Inicializa los contadores de milestones en 0 y
 ## `apply_to_job`
 
 **Qué hace**
-Un freelancer se postula al job fondeado: agrega una `Application { applicant,
-proposal, applied_at, status: Pending }` al `Vec<Application>` del job (hasta
-`MAX_APPLICATIONS` = 50). El job queda en `Funded` (sigue abierto a más
-postulaciones).
+Un freelancer se postula al job fondeado creando una PDA individual
+`[b"application", job, application_index, applicant]` con
+`Application { job, index, applicant, proposal, applied_at, status: Pending }`.
+El Job solo conserva `applicants` para contar hasta `MAX_APPLICATIONS` = 50 y
+rechazar duplicados; el job queda en `Funded`.
 
 **Por qué**
 Modelo de postulaciones múltiples: el cliente elige luego con `accept_application`
-(en vez del auto-aceptar directo). El `Vec<Application>` del PDA `job` es el que
-reservaba espacio (`#[max_len(50)]`); ahora se usa de verdad.
+(en vez del auto-aceptar directo). Separar cada postulación mantiene
+`create_job` por debajo del límite de asignación de cuentas de Anchor/Solana.
 
 **Validaciones**
 - `job.status == Funded` → `InvalidJobStatus`
 - `applicant.key() != job.client` → `CannotWorkOnOwnJob`
+- `!proposal.is_empty()` → `EmptyProposal`
 - `proposal.len() <= MAX_PROPOSAL_LENGTH` → `ProposalTooLong`
-- `applications.len() < MAX_APPLICATIONS` → `InvalidApplicationIndex`
-- no postularse dos veces (`applicant` ya en el vec) → `AlreadyApplied`
+- `application_index == applicants.len()` y longitud menor que 50
+  → `ApplicationIndexMismatch` / `InvalidApplicationIndex`
+- no postularse dos veces (`applicant` ya en `Job.applicants`) → `AlreadyApplied`
 
-**Cuentas**: `applicant` (Signer, paga), `client` (UncheckedAccount), `job` (mut PDA), `system_program`.
+**Cuentas**: `applicant` (Signer, paga), `client` (UncheckedAccount), `job`
+(mut PDA), `application` (init PDA individual), `system_program`.
 
 ## `accept_application`
 
 **Qué hace**
-El cliente elige una postulación por índice: marca esa `Application` como
-`Accepted`, setea `job.freelancer = Some(applicant)` y pasa el job a `InProgress`.
-Requiere `client == job.client`.
+El cliente elige una postulación por índice y applicant: valida la PDA
+individual, marca `Application` como `Accepted`, setea
+`job.freelancer = Some(applicant)` y pasa el job a `InProgress`. La cuenta de
+Application se cierra en la misma transacción y su rent vuelve al applicant.
 
 **Por qué**
 Asigna quién entregará el trabajo (requisito para `submit_work`/`approve_work` y
@@ -73,9 +78,12 @@ las postulaciones recibidas.
 - `job.status == Funded` → `InvalidJobStatus`
 - `check_not_paused` → `JobPaused` / `JobPausedExpired`
 - `job.client == firmante` → `NotJobClient`
-- `application_index < applications.len()` → `InvalidApplicationIndex`
+- seeds `[job, application_index, applicant]`, `application.job`, `index`,
+  `status == Pending` y correspondencia con `Job.applicants` → errores de PDA,
+  índice o estado
 
-**Cuentas**: `client` (Signer), `job` (mut PDA), `system_program`.
+**Cuentas**: `client` (Signer), `job` (mut PDA), `applicant` (SystemAccount),
+`application` (mut PDA, `close = applicant`).
 
 ## `deposit_funds`
 
@@ -137,6 +145,14 @@ milestones_amount_total`) al freelancer y `fee_amount` a `treasury`. Job →
 **Cuentas**: `client` (Signer), `job` (mut PDA, close), `freelancer` (SystemAccount),
 `treasury` (UncheckedAccount + constraint), `config`, `system_program`.
 
+## `auto_approve_work`
+
+Un keeper cualquiera puede ejecutar el payout cuando `now >= submitted_at +
+604800` y el Job sigue en `Submitted`. Paga exactamente el principal restante al
+freelancer ligado al Job, `fee_amount` a `Config.treasury` y devuelve la rent al
+cliente antes de cerrar el PDA. La existencia de cualquier `Dispute` PDA bloquea
+la operación. Repetirla falla por estado y no puede producir doble payout.
+
 ## `reject_work`
 
 **Qué hace**
@@ -184,8 +200,8 @@ asesor de plataforma resuelve cancelando y reembolsando lo no devengado. Así:
 
 ## `pause_job` / `unpause_job` / `expire_paused_job`
 
-**`pause_job`** — Cliente pausa el job. Requiere `status == Created || Funded`
-(sin freelancer asignado) y que no esté ya pausado. Guarda `paused=true`,
+**`pause_job`** — Cliente pausa el job. Requiere `status == Created || Funded`,
+`job.freelancer == None` y que no esté ya pausado. Guarda `paused=true`,
 `paused_at=now`. Mientras está pausado, `deposit_funds` y `accept_application` se bloquean.
 
 **`unpause_job`** — Cliente reanuda (`paused=false`).

@@ -22,7 +22,8 @@ cuando se abre una disputa (nunca en la creación del job).
 ## Notas de diseño
 - `config.advisor` (separado de `authority`) es quien resuelve los `PlatformCase`
   cuando no hay arbitraje mutuo.
-- El árbitro cobra el 5% de los bonos al resolver (vía `finalize_dispute_payouts`).
+- El árbitro solo autoriza la resolución; el 5% de los bonos se enruta a
+  `Config.arbitration_treasury` vía `finalize_dispute_payouts`.
 
 ## Diagrama
 

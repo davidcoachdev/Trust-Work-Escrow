@@ -39,16 +39,14 @@ Lista los hallazgos y su estado.
 
 ### 🟡 Recomendaciones (pendientes / decisión de diseño)
 9. **Fuga de la fee de arbitraje al cliente del job (CRÍTICO, corregido)**
-   `finalize_dispute_payouts` restaba el bono no posteado de la parte de la
-   contraparte con `saturating_sub`, pero esa lamportada nunca se enviaba al
-   resolutor: el PDA `job` tiene `close = client`, así que el 2.5% recuperado
-   volvía al dueño del job. En disputas unilaterales el resolutor cobraba solo
-   el 2.5% posteado y violaba la regla de oro (5% "les guste o no").
-   → Reescrito: la fee de arbitraje es `5% de lo disputado` (`amount`), el
-   `ArbitrationEscrow` paga lo posteado vía `close = resolver`, y el faltante
-   (`shortfall = 5% − posteado`) se transfiere del PDA `job` al `resolver`.
-   `resolver` ahora es `mut`. Conservación: `fee + cliente + freelancer +
-   shortfall = amount + fee` siempre (incluso con 0% para una parte o con
+     `finalize_dispute_payouts` cubre el bono no posteado desde el reparto de la
+     parte correspondiente y transfiere el faltante explícito desde el PDA
+     `job`, respetando la regla de oro (5% "les guste o no").
+    → Reescrito: la fee de arbitraje es `5% de lo disputado` (`amount`), el
+    `ArbitrationEscrow` paga lo posteado vía `close = arbitration_treasury`, y el faltante
+    (`shortfall = 5% − posteado`) se transfiere del PDA `job` a
+    `arbitration_treasury`. Conservación: `fee + cliente + freelancer +
+    arbitration_treasury = amount + fee` siempre (incluso con 0% para una parte o con
    milestones grandes).
    Además los bonos se postean sobre `amount = job.amount − milestones_amount_total`
    (no sobre `job.amount` completo) en `raise_dispute`/`accept_dispute`, para
@@ -72,12 +70,11 @@ Lista los hallazgos y su estado.
    tratando. Así la disputa nunca queda colgada.
 
    **Qué pasa con la fee de arbitraje cobrada:** NUNCA se pierde ni se reembolsa.
-   La "regla de oro" dice que si se abrio disputa se cobra el 5% "les guste o no".
-   En el caso de oficio (vencida la gracia sin interaccion), el resolutor es el
-   asesor de plataforma y se queda con el 5%: `finalize_dispute_payouts` le paga lo
-   posteado en el `ArbitrationEscrow` (via `close = resolver`) mas el `shortfall`
-   recuperado del PDA `job`. La parte que no posteo su bono lo paga igual (se le
-   descuenta de su reparto). Los fondos siempre se liberan.
+    La "regla de oro" dice que si se abrio disputa se cobra el 5% "les guste o no".
+    En el caso de oficio (vencida la gracia sin interaccion), el asesor de plataforma
+    solo autoriza: `finalize_dispute_payouts` envía lo posteado y el `shortfall` a
+    `arbitration_treasury`. La parte que no posteo su bono lo paga igual (se le
+    descuenta de su reparto). Los fondos siempre se liberan.
 
 12. **`create_milestone` valida `_index` (corregido).** Ahora `index` debe ser
    `== job.milestones_total` (`InvalidMilestoneIndex`): los milestones son

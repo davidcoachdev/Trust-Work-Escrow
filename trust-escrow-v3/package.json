@@ -1,8 +1,16 @@
 {
   "scripts": {
     "test": "ts-mocha -p ./tsconfig.json -t 1000000 \"tests/**/*.ts\"",
-    "build": "anchor build",
-    "deploy": "anchor deploy"
+    "build": "node scripts/build-v3.mjs",
+    "build:sbf:v3": "cargo-build-sbf --arch v3 --sbf-out-dir target/deploy --manifest-path programs/trust-escrow-v3/Cargo.toml",
+    "deploy": "node scripts/preflight.mjs && anchor deploy --provider.cluster localnet",
+    "preflight": "node scripts/preflight.mjs",
+    "bootstrap:config": "node scripts/bootstrap-config.mjs",
+    "check:docs": "node scripts/check-doc-sync.mjs",
+    "test:deploy-verifier": "node --test scripts/verify-deploy.test.mjs",
+    "test:scripts": "node --test scripts/*.test.mjs",
+    "verify:deploy": "node scripts/preflight.mjs && node scripts/verify-deploy.mjs",
+    "test:isolated": "node scripts/run-isolated-localnet.mjs"
   },
   "dependencies": {
     "@coral-xyz/anchor": "0.32.1",

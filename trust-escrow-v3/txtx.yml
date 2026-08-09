@@ -1,0 +1,15 @@
+---
+name: trust-escrow-v3
+id: trust-escrow-v3
+runbooks:
+  - name: deployment
+    description: Deploy programs after explicit localnet preflight
+    location: runbooks/deployment
+environments:
+  localnet:
+      network_id: localnet
+      rpc_api_url: http://127.0.0.1:8899
+
+# Devnet is intentionally not a default environment. If an operator needs it,
+# use a separate untracked override and provide the endpoint explicitly; never
+# add a public RPC or keypair path to this manifest.

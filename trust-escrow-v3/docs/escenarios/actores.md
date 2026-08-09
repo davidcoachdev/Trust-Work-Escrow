@@ -51,5 +51,6 @@ Cuentas que custodian estado y fondos:
 
 ## Principio de cobro (resumen)
 - Comisión de plataforma: siempre que el job se paga (treasury).
-- Arbitraje 5% (2.5% c/u): **solo si se abrió una disputa**; va al resolutor
-  (árbitro o asesor). Sin disputa abierta → $0$ de arbitraje.
+- Arbitraje 5% (2.5% c/u): **solo si se abrió una disputa**; va a
+  `arbitration_treasury`. El resolutor solo autoriza. Sin disputa abierta →
+  $0$ de arbitraje.
