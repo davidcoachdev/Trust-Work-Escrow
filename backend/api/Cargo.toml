@@ -1,0 +1,26 @@
+[package]
+name = "trust-escrow-api"
+version = "3.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "REST API (axum) for Trust Work Escrow v3 (scaffold / stubs, no endpoints yet)"
+
+[[bin]]
+name = "trust-escrow-api"
+path = "src/main.rs"
+
+[dependencies]
+# Local SDK crate (path dependency).
+trust-escrow-sdk = { path = "../sdk" }
+
+# Web framework — pinned; optional in the scaffold so the default build stays light.
+# Later tasks (T13+) enable the `server` feature to mount the axum router.
+axum = { version = "0.7", optional = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
+
+[features]
+default = []
+# Enables the axum/tokio web server for implementation tasks.
+server = ["dep:axum", "dep:tokio"]

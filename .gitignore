@@ -55,3 +55,6 @@ yarn-error.log*
 
 # Atlassian / skills registry (generated, local)
 .atl/*
+
+# Tooling local state
+.serena/
