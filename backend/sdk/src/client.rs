@@ -411,11 +411,15 @@ mod inner {
             start_index: u8,
         ) -> Result<Signature> {
             let client = self.payer.pubkey();
-            let (job, _) = pda::get_job_pda(&client, job_id)?;
-            let accounts = vec![
+            let (job_addr, _) = pda::get_job_pda(&client, job_id)?;
+            let job = self
+                .get_job(&client, job_id)?
+                .ok_or_else(|| BackendError::config_error("job not found"))?;
+            let mut accounts = vec![
                 AccountMeta::new(client, true),
-                AccountMeta::new(job, false),
+                AccountMeta::new(job_addr, false),
             ];
+            accounts.extend(application_cleanup_metas(&job_addr, &job, start_index)?);
             self.anchor_ix(
                 "cleanup_applications",
                 accounts,
@@ -441,21 +445,30 @@ mod inner {
             job_id: u64,
             freelancer: &Pubkey,
         ) -> Result<Signature> {
-            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (job_addr, _) = pda::get_job_pda(client, job_id)?;
             let (config, _) = pda::get_config_pda()?;
-            let (dispute, _) = pda::get_dispute_pda(&job)?;
+            let job = self
+                .get_job(client, job_id)?
+                .ok_or_else(|| BackendError::config_error("job not found"))?;
             let cfg = self
                 .get_config()?
                 .ok_or_else(|| BackendError::config_error("config not initialized"))?;
-            let accounts = vec![
+            // Anchor serializes a `None` `Option<Account<Dispute>>` as the
+            // program ID in read-only mode; the SDK must mirror that when no
+            // dispute account exists yet.
+            let program_id = crate::PROGRAM_ID_STR
+                .parse::<Pubkey>()
+                .map_err(BackendError::SolanaSdk)?;
+            let mut accounts = vec![
                 AccountMeta::new(self.payer.pubkey(), true),
                 AccountMeta::new(*client, false),
-                AccountMeta::new(job, false),
+                AccountMeta::new(job_addr, false),
                 AccountMeta::new(*freelancer, false),
                 AccountMeta::new(cfg.treasury, false),
-                AccountMeta::new_readonly(dispute, false),
+                AccountMeta::new_readonly(program_id, false),
                 AccountMeta::new_readonly(config, false),
             ];
+            accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
             self.anchor_ix("auto_approve_work", accounts, Self::ser(&(job_id,))?)
                 .await
         }
@@ -466,19 +479,23 @@ mod inner {
             freelancer: &Pubkey,
         ) -> Result<Signature> {
             let client = self.payer.pubkey();
-            let (job, _) = pda::get_job_pda(&client, job_id)?;
+            let (job_addr, _) = pda::get_job_pda(&client, job_id)?;
             let (config, _) = pda::get_config_pda()?;
+            let job = self
+                .get_job(&client, job_id)?
+                .ok_or_else(|| BackendError::config_error("job not found"))?;
             let cfg = self
                 .get_config()?
                 .ok_or_else(|| BackendError::config_error("config not initialized"))?;
-            let accounts = vec![
+            let mut accounts = vec![
                 AccountMeta::new(client, true),
-                AccountMeta::new(job, false),
+                AccountMeta::new(job_addr, false),
                 AccountMeta::new(*freelancer, false),
                 AccountMeta::new(cfg.treasury, false),
                 AccountMeta::new_readonly(config, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
+            accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
             self.anchor_ix("approve_work", accounts, Self::ser(&(job_id,))?).await
         }
 
@@ -495,12 +512,16 @@ mod inner {
 
         pub async fn cancel_job(&self, job_id: u64) -> Result<Signature> {
             let client = self.payer.pubkey();
-            let (job, _) = pda::get_job_pda(&client, job_id)?;
-            let accounts = vec![
+            let (job_addr, _) = pda::get_job_pda(&client, job_id)?;
+            let job = self
+                .get_job(&client, job_id)?
+                .ok_or_else(|| BackendError::config_error("job not found"))?;
+            let mut accounts = vec![
                 AccountMeta::new(client, true),
-                AccountMeta::new(job, false),
+                AccountMeta::new(job_addr, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
+            accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
             self.anchor_ix("cancel_job", accounts, Self::ser(&(job_id,))?).await
         }
 
@@ -529,16 +550,38 @@ mod inner {
             client: &Pubkey,
             job_id: u64,
         ) -> Result<Signature> {
-            let (job, _) = pda::get_job_pda(client, job_id)?;
-            let accounts = vec![
+            let (job_addr, _) = pda::get_job_pda(client, job_id)?;
+            let job = self
+                .get_job(client, job_id)?
+                .ok_or_else(|| BackendError::config_error("job not found"))?;
+            let mut accounts = vec![
                 AccountMeta::new(self.payer.pubkey(), true),
                 AccountMeta::new_readonly(*client, false),
-                AccountMeta::new(job, false),
+                AccountMeta::new(job_addr, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
+            accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
             self.anchor_ix("expire_paused_job", accounts, Self::ser(&(job_id,))?)
                 .await
         }
+    }
+
+    /// Build the (application, applicant) remaining-account pairs the on-chain
+    /// `cleanup_job_applications` requires, starting at `start_index`. Each pair
+    /// must be passed as writable, non-signer metas; the applicant must be a
+    /// system account so the contract can reclaim rent when closing.
+    fn application_cleanup_metas(
+        job_addr: &Pubkey,
+        job: &Job,
+        start_index: u8,
+    ) -> Result<Vec<AccountMeta>> {
+        let mut metas = Vec::with_capacity(job.applicants.len().saturating_sub(start_index as usize) * 2);
+        for (i, applicant) in job.applicants.iter().enumerate().skip(start_index as usize) {
+            let (application, _) = pda::get_application_pda(job_addr, i as u8, applicant)?;
+            metas.push(AccountMeta::new(application, false));
+            metas.push(AccountMeta::new(*applicant, false));
+        }
+        Ok(metas)
     }
 
     /// Heuristic detection of an "account not found" RPC error.
