@@ -25,7 +25,8 @@ Asesor de plataforma (`config.advisor`) · Treasury
 
 ## Resumen de fees
 - Plataforma: `fee_amount`. Arbitraje: 5% a `arbitration_treasury`; el asesor
-  solo firma porque resolvió la disputa abierta.
+  solo firma porque resolvió la disputa abierta; cualquier compensación off-chain
+  es futura/no implementada y no parte de este payout.
 
 ```mermaid
 sequenceDiagram

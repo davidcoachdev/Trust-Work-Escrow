@@ -7,6 +7,10 @@ license.workspace = true
 repository.workspace = true
 description = "REST API (axum) for Trust Work Escrow v3 (scaffold / stubs, no endpoints yet)"
 
+[lib]
+name = "trust_escrow_api"
+path = "src/lib.rs"
+
 [[bin]]
 name = "trust-escrow-api"
 path = "src/main.rs"

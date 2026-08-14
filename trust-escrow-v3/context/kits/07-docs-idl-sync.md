@@ -59,12 +59,23 @@ Hacer que código, IDL, documentación contractual y runbooks describan exactame
 - [ ] Un check de drift falla si el IDL, las seeds, el máximo 50, los límites de texto, las instrucciones o los docs describen el modelo inline anterior.
 **Dependencies:** R3 R6, R5 R6, R6 R1/R3.
 
+### R6: Verdad documental del backend v3
+**Description:** La documentación de API, terminal/TUI, `trust-escrow-sdk`, DB y sincronización describe la misma frontera de autoridad y no sobredeclara evidencia.
+**Acceptance Criteria:**
+- [ ] Existe una matriz endpoint/comando → application service → SDK → transacción/lectura Solana → proyección DB → finality, sin una ruta API/terminal directa a Anchor/RPC.
+- [ ] Se documenta Solana como canónica para contrato y DB como proyección enriquecida, metadata, auditoría y sync; cualquier divergencia queda visible y reparable.
+- [ ] Se documentan `submitted`, `processed`, `confirmed`, `finalized`, `failed` y `reorged` (o vocabulario equivalente elegido) con transiciones y fuentes verificables.
+- [ ] La documentación distingue user-signed/server-signed, tombstones de cuentas cerradas y hashes externos de un hash realmente almacenado por el contrato; un check falla ante claims no respaldados por IDL/código.
+- [ ] Reportes y ejemplos identifican fecha, commit, cluster, program ID, hash y estado PASS/FAIL/BLOCKED/ACCEPTED; evidencia histórica o stale no se presenta como vigente.
+**Dependencies:** `backend-v3-sketch.md` R1–R11, R3.
+
 ## Security Gates
 - [ ] No se documentan secretos ni endpoints de producción como valores por defecto.
 - [ ] Fees y destinos están expresados sin ambigüedad de unidades/basis points.
 - [ ] La docs no promete una garantía que el IDL/código no verifica.
 - [ ] Toda instrucción administrativa documenta signer y constraints.
 - [ ] La documentación no permite interpretar el índice o applicant como input confiable: ambos quedan sujetos a constraints on-chain y a la PDA determinista.
+- [ ] No se documenta DB como autoridad contractual, acceso API directo a Anchor/RPC, ni hash on-chain sin respaldo del contrato/IDL.
 
 ## Verification Plan
 - `yarn build` para regenerar IDL/binario.
@@ -82,3 +93,4 @@ Hacer que código, IDL, documentación contractual y runbooks describan exactame
 - **Depende de:** [03-deadlines-auto-approval.md](03-deadlines-auto-approval.md) R1–R4; [06-reproducibility.md](06-reproducibility.md) R1/R4.
 - **Relacionado:** [04-deploy-runbook.md](04-deploy-runbook.md) R2/R3.
 - **Relacionado:** [03-deadlines-auto-approval.md](03-deadlines-auto-approval.md) R6; [05-security-tests.md](05-security-tests.md) R6.
+- **Relacionado:** [backend-v3-sketch.md](backend-v3-sketch.md) R2/R10/R11.

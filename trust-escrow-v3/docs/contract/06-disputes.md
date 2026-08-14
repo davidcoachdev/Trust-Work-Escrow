@@ -11,6 +11,10 @@ resolutor es un árbitro neutral asignado por la plataforma; en caso de oficio
 (una parte no acepta / el árbitro falla) resuelve el asesor de plataforma. Sin
 disputa abierta → $0$ de arbitraje.
 
+El árbitro o asesor solo firma/autoriza; ningún resolutor recibe la fee en su
+wallet personal. Una compensación off-chain, si se adopta, es futura y no forma
+parte del payout contractual.
+
 ## `raise_dispute`
 - Quien abre (`raiser`, cliente o freelancer) firma y postea su bono 2.5% al
   `ArbitrationEscrow` (nuevo PDA, seed `[b"arb_fee", job]`).

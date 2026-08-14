@@ -21,13 +21,13 @@ mod inner {
             pubkey::Pubkey,
             signature::{read_keypair_file, Keypair, Signature},
             signer::Signer,
-            system_program,
             transaction::Transaction,
         },
         Client, Cluster, Program,
     };
     use anchor_lang::AccountDeserialize;
     use borsh::ser::BorshSerialize;
+    use solana_system_interface::program;
 
     /// Deserialize an Anchor account from raw on-chain bytes.
     pub fn deserialize_account<T: AccountDeserialize>(data: &[u8]) -> Option<T> {
@@ -211,7 +211,7 @@ mod inner {
                 AccountMeta::new_readonly(*treasury, false),
                 AccountMeta::new_readonly(*arbitration_treasury, false),
                 AccountMeta::new(config, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             let args = Self::ser(&(
                 *advisor,
@@ -282,7 +282,7 @@ mod inner {
                 AccountMeta::new(cfg.treasury, true),
                 AccountMeta::new(*destination, false),
                 AccountMeta::new_readonly(config_addr, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             self.anchor_ix("withdraw_treasury", accounts, Self::ser(&amount)?)
                 .await
@@ -301,7 +301,7 @@ mod inner {
                 AccountMeta::new(cfg.arbitration_treasury, true),
                 AccountMeta::new(*destination, false),
                 AccountMeta::new_readonly(config_addr, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             self.anchor_ix("withdraw_arbitration", accounts, Self::ser(&amount)?)
                 .await
@@ -334,7 +334,7 @@ mod inner {
                 AccountMeta::new(client, true),
                 AccountMeta::new(job, false),
                 AccountMeta::new_readonly(config, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             let args = Self::ser(&(
                 job_id,
@@ -354,7 +354,7 @@ mod inner {
                 AccountMeta::new(client, true),
                 AccountMeta::new(job, false),
                 AccountMeta::new_readonly(config, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             self.anchor_ix("deposit_funds", accounts, Self::ser(&(job_id,))?).await
         }
@@ -375,7 +375,7 @@ mod inner {
                 AccountMeta::new_readonly(*client, false),
                 AccountMeta::new(job, false),
                 AccountMeta::new(application, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             let args = Self::ser(&(job_id, application_index, proposal.to_string()))?;
             self.anchor_ix("apply_to_job", accounts, args).await
@@ -493,7 +493,7 @@ mod inner {
                 AccountMeta::new(*freelancer, false),
                 AccountMeta::new(cfg.treasury, false),
                 AccountMeta::new_readonly(config, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
             self.anchor_ix("approve_work", accounts, Self::ser(&(job_id,))?).await
@@ -519,7 +519,7 @@ mod inner {
             let mut accounts = vec![
                 AccountMeta::new(client, true),
                 AccountMeta::new(job_addr, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
             self.anchor_ix("cancel_job", accounts, Self::ser(&(job_id,))?).await
@@ -558,7 +558,7 @@ mod inner {
                 AccountMeta::new(self.payer.pubkey(), true),
                 AccountMeta::new_readonly(*client, false),
                 AccountMeta::new(job_addr, false),
-                AccountMeta::new_readonly(system_program::ID, false),
+                AccountMeta::new_readonly(program::ID, false),
             ];
             accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
             self.anchor_ix("expire_paused_job", accounts, Self::ser(&(job_id,))?)
@@ -596,10 +596,12 @@ mod inner {
     fn parse_cluster(s: &str) -> Result<Cluster> {
         match s.to_lowercase().as_str() {
             "localnet" | "localhost" => Ok(Cluster::Localnet),
-            "devnet" => Ok(Cluster::Devnet),
-            "testnet" => Ok(Cluster::Testnet),
-            "mainnet" | "mainnet-beta" => Ok(Cluster::Mainnet),
-            other => Ok(Cluster::Custom(other.to_string(), other.to_string())),
+            "devnet" | "testnet" | "mainnet" | "mainnet-beta" => Err(
+                BackendError::config_error("public cluster endpoints are forbidden; use localnet"),
+            ),
+            other => Err(BackendError::config_error(format!(
+                "unsupported cluster endpoint {other}; use localnet"
+            ))),
         }
     }
 }

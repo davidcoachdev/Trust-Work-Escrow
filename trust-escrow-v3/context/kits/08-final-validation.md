@@ -56,6 +56,16 @@ Impedir que una remediación de auditoría se declare lista sin evidencia técni
 - [ ] El IDL, docs, tests y escenarios coinciden en seeds/constraints, instrucciones, límites y estados; cualquier referencia al modelo inline anterior bloquea el gate.
 **Dependencies:** R3 R6, R5 R6, R7 R5.
 
+### R6: Gate de arquitectura backend v3 y sincronización
+**Description:** La validación final demuestra que el backend respeta la frontera SDK, la autoridad Solana y la proyección durable sin claims de evidencia no probados.
+**Acceptance Criteria:**
+- [ ] El análisis de dependencias no encuentra API, application service, terminal/TUI, listener o reconciliador llamando Anchor/RPC fuera de `trust-escrow-sdk`.
+- [ ] La matriz de ownership demuestra que DB solo proyecta/metadata/auditoría/sync y que una divergencia no autoriza mutaciones ni reemplaza estado, ownership, balances o finality on-chain.
+- [ ] Tests de reinicio, cursor, duplicados, retries, idempotency keys, finality y tombstones pasan sin doble payout, doble efecto o recreación de cuentas cerradas.
+- [ ] Tests de signer cubren user-signed/server-signed sin secretos persistidos y con autorización explícita.
+- [ ] El check documental falla si evidencia externa se etiqueta como hash on-chain o si evidencia stale/bloqueada se presenta como validación vigente.
+**Dependencies:** `backend-v3-sketch.md` R1–R12, R7 R6.
+
 ## Security Gates
 - [ ] SAST/secret scan sin findings críticos o altos no aceptados explícitamente.
 - [ ] Authorization/account constraints revisados con tests negativos.
@@ -63,6 +73,7 @@ Impedir que una remediación de auditoría se declare lista sin evidencia técni
 - [ ] Application PDA seeds, ownership, applicant/Job/index constraints, máximo 50 y rent/cleanup checks PASS.
 - [ ] Upgrade authority, program ID, hash, endpoint y Config authority verificados desde fuente confiable.
 - [ ] No se declara DONE con tests bloqueados por ambiente sin reportar BLOCKED.
+- [ ] Boundary SDK, DB authority, finality/reconciliation, tombstones, signer modes y evidence truthfulness están enlazados a evidencia por requirement.
 
 ## Verification Plan
 - Ejecutar, en orden, los comandos de R1.
@@ -78,3 +89,4 @@ Impedir que una remediación de auditoría se declare lista sin evidencia técni
 ## Cross-References
 - **Consolida:** [01-config-bootstrap.md](01-config-bootstrap.md) a [07-docs-idl-sync.md](07-docs-idl-sync.md).
 - **Siguiente fase:** `/sdd-cavekit map` debe derivar tasks una por cada requirement y security gate aplicable.
+- **Relacionado:** [backend-v3-sketch.md](backend-v3-sketch.md) R1–R12; [07-docs-idl-sync.md](07-docs-idl-sync.md) R6.

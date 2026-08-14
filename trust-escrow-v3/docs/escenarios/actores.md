@@ -21,13 +21,15 @@ permisos distintos y paga/no paga según el flujo.
 - Parte del `ArbiterPool`, asignado por la plataforma (`assign_arbiter`).
 - Solo interviene en **arbitraje mutuo** (ambas partes aceptaron).
 - `resolve_dispute` fija el reparto; `finalize_dispute_payouts` paga.
-- **Cobra el 5%** de los bonos de arbitraje cuando resuelve.
+- **No cobra on-chain:** solo autoriza; el 5% de los bonos va a
+  `arbitration_treasury`. Una compensación off-chain es futura/no implementada.
 
 ## 4. Asesor de plataforma (`config.advisor`)
 - Rol **separado** de `authority`.
 - Resuelve `PlatformCase` (cuando una parte no acepta la disputa, o el árbitro
   falla, o el cliente desaparece tras la entrega).
-- **Cobra el 5%** de los bonos cuando resuelve una disputa abierta.
+- **No cobra on-chain:** solo autoriza; el 5% de los bonos va a
+  `arbitration_treasury`. Una compensación off-chain es futura/no implementada.
 - Es **gratis** solo en administración SIN disputa abierta (p.ej. ninguna
   intervención real).
 

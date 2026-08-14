@@ -83,10 +83,10 @@ fn assert_program_available() {
     assert!(acc.executable, "program must be executable");
 }
 
-async fn initialize_config(client: &TrustEscrowClient) -> (Pubkey, Pubkey) {
+async fn initialize_config(client: &TrustEscrowClient) -> (Pubkey, Pubkey, u16) {
     if let Ok(Some(cfg)) = client.get_config() {
         // Config already initialized on a reused validator — reuse it.
-        return (cfg.treasury, cfg.arbitration_treasury);
+        return (cfg.treasury, cfg.arbitration_treasury, cfg.fee_bps);
     }
     let advisor = Keypair::new();
     let treasury = Keypair::new();
@@ -105,7 +105,7 @@ async fn initialize_config(client: &TrustEscrowClient) -> (Pubkey, Pubkey) {
     let cfg = client.get_config().unwrap().expect("config present");
     assert_eq!(cfg.fee_bps, FEE_BPS);
     assert!(!cfg.paused);
-    (treasury.pubkey(), arb_treasury.pubkey())
+    (treasury.pubkey(), arb_treasury.pubkey(), FEE_BPS)
 }
 
 #[test]
@@ -130,7 +130,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
         + 1;
 
     // ===== Grupo config: initialize + pause/unpause =====
-    let (treasury, arb_treasury) = initialize_config(&client).await;
+    let (treasury, arb_treasury, fee_bps) = initialize_config(&client).await;
     let cfg = client.get_config().unwrap().expect("config present");
     assert_eq!(cfg.authority, client_pk);
     assert_eq!(cfg.treasury, treasury);
@@ -152,7 +152,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     assert_eq!(job.status, JobStatus::Created);
     assert_eq!(job.amount, AMOUNT);
     assert_eq!(job.client, client_pk);
-    assert_eq!(job.fee_amount, compute_fee(AMOUNT, FEE_BPS));
+    assert_eq!(job.fee_amount, compute_fee(AMOUNT, fee_bps));
 
     client.deposit_funds(j).await.expect("deposit_funds");
     let job = client.get_job(&client_pk, j).unwrap().unwrap();

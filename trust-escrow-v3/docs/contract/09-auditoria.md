@@ -1,11 +1,24 @@
 # 09 · Auditoría de Seguridad (v3)
 
-Revisión de lógica/seguridad del contrato tras la implementación completa.
-Lista los hallazgos y su estado.
+Baseline histórico de revisión de lógica/seguridad del contrato. Lista los
+hallazgos y el estado que tenían en esa revisión; no es una certificación del
+runtime actual.
+
+> **Alcance de evidencia:** este documento es baseline histórico de decisiones de
+> contrato. No es prueba de runtime del backend v3 ni de un deploy actual. La
+> separación vigente es `treasury`/`arbitration_treasury`; el resolutor autoriza y
+> no recibe lamports. Ver también `docs/architecture/backend-v3.md`.
+
+> **Lectura temporal obligatoria:** `corregido`, `✅` y las descripciones de
+> instrucciones que siguen significan “corregido/documentado en el source y en
+> la revisión histórica”. No significan que exista un deploy actual, evidencia
+> de finality, backend SDK/API/TUI, proyección DB o validación runtime vigente.
+> Esos elementos permanecen `BLOCKED` o `PLANNED / NOT IMPLEMENTED` hasta que
+> exista evidencia actual reproducible.
 
 ## Hallazgos y correcciones
 
-### 🔴 Críticos (corregidos)
+### 🔴 Críticos (corregidos en el baseline histórico)
 1. **Destino de pago no validado en `approve_work`**
    `freelancer` (SystemAccount) no estaba atado a `job.freelancer`. El cliente
    firmante podía pasar cualquier wallet y desviar el pago.
@@ -25,7 +38,7 @@ Lista los hallazgos y su estado.
    → Añadido `ArbiterCannotBeParty`: el árbitro (y el asesor en
    `resolve_platform_case`) no puede ser `job.client` ni `job.freelancer`.
 
-### 🟠 Medios (corregidos)
+### 🟠 Medios (corregidos en el baseline histórico)
 5. **Pagos de milestone durante una disputa**
    `submit/approve/reject_milestone` no chequeaban `job.status`, permitiendo
    pagar desde el PDA `job` mientras estaba en disputa (doble pago con `finalize`).
@@ -37,7 +50,7 @@ Lista los hallazgos y su estado.
    → Ahora permite también `dispute.status == ArbiterAssigned` (fallback de
    plataforma).
 
-### 🟡 Recomendaciones (pendientes / decisión de diseño)
+### 🟡 Recomendaciones (estado histórico; pendientes / decisión de diseño actual)
 9. **Fuga de la fee de arbitraje al cliente del job (CRÍTICO, corregido)**
      `finalize_dispute_payouts` cubre el bono no posteado desde el reparto de la
      parte correspondiente y transfiere el faltante explícito desde el PDA

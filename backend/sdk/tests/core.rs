@@ -121,6 +121,29 @@ fn test_client_builds_offline_and_getters_return_none() {
     assert!(client_getter_none::<ArbitrationEscrow>(&client));
 }
 
+#[test]
+fn test_from_env_rejects_public_clusters_before_loading_secrets() {
+    let previous_cluster = std::env::var_os("CLUSTER");
+    let previous_keypair = std::env::var_os("KEYPAIR_PATH");
+    std::env::set_var("CLUSTER", "devnet");
+    std::env::remove_var("KEYPAIR_PATH");
+
+    let err = match TrustEscrowClient::from_env() {
+        Ok(_) => panic!("public clusters must be rejected"),
+        Err(err) => err,
+    };
+    match previous_cluster {
+        Some(value) => std::env::set_var("CLUSTER", value),
+        None => std::env::remove_var("CLUSTER"),
+    }
+    match previous_keypair {
+        Some(value) => std::env::set_var("KEYPAIR_PATH", value),
+        None => std::env::remove_var("KEYPAIR_PATH"),
+    }
+    assert!(matches!(err, BackendError::Config { .. }));
+    assert!(err.to_string().contains("public cluster"));
+}
+
 /// Helper: exercise the deserialize path a getter would use on an absent account.
 fn client_getter_none<T: anchor_lang::AccountDeserialize>(_client: &TrustEscrowClient) -> bool {
     deserialize_account::<T>(&[]).is_none()

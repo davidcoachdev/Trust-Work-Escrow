@@ -88,6 +88,9 @@ duplicados), `bump`. Las propuestas no se almacenan inline.
 - Máximo 10 PDAs por disputa y máximo 2048 bytes por `content`.
 - `finalize_dispute_payouts`/`cleanup_dispute_evidence` cierran las PDAs en
   orden y devuelven su rent al cliente; esa rent no es payout.
+- `Evidence` no documenta ni almacena un hash de evidencia salvo que el IDL/código
+  vigente muestre explícitamente ese campo. Los digests de archivos o reportes
+  fuera del contrato son evidencia externa.
 
 ## Helper: `compute_fee`
 

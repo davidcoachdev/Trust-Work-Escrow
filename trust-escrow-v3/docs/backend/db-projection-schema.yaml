@@ -1,0 +1,108 @@
+schema_version: "1.0"
+document_status: planned-documentation-only
+authority:
+  canonical: solana
+  projection: database
+  rule: DB never authorizes mutations or replaces contractual state.
+  prohibited: [generic-indexer, microservices, event-sourcing]
+projection_semantics:
+  projection_version: "Version of the projection mapping/schema that produced a row; increment when mapping or interpretation changes. It is not a contract or IDL version."
+  source_origin: "Authoritative origin of the observed value: solana-account, solana-transaction, sdk-intent, reconciliation, or external-evidence. External origin never becomes on-chain authority."
+tables:
+  onchain_projections:
+    purpose: Latest projection of known Solana accounts and their observed status.
+    primary_key: [cluster, program_id, account_pubkey]
+    columns:
+      cluster: {type: text, nullable: false}
+      program_id: {type: pubkey, nullable: false}
+      account_pubkey: {type: pubkey, nullable: false}
+      account_kind: {type: text, nullable: false, values: [config, job, application, arbiter_pool, dispute, evidence, milestone, support_ticket]}
+      projection_version: {type: text, nullable: false, note: mapping version that produced payload_json}
+      source_origin: {type: text, nullable: false, values: [solana-account, solana-transaction, reconciliation]}
+      pda_seed_descriptor: {type: text, nullable: false}
+      payload_json: {type: json, nullable: false}
+      observed_slot: {type: uint64, nullable: false}
+      observed_commitment: {type: text, nullable: false, values: [processed, confirmed, finalized]}
+      projection_status: {type: text, nullable: false, values: [current, stale, divergent, closed]}
+      observed_signature: {type: signature, nullable: true}
+      observed_at: {type: timestamp, nullable: false}
+  transaction_intents:
+    purpose: Durable intent and retry correlation; never a substitute for chain confirmation.
+    primary_key: [id]
+    unique: [[cluster, idempotency_key]]
+    columns:
+      id: {type: uuid, nullable: false}
+      idempotency_key: {type: text, nullable: false}
+      operation: {type: text, nullable: false}
+      actor_subject: {type: pubkey_or_subject, nullable: false}
+      signer_mode: {type: text, nullable: false, values: [read-only, user-signed, server-signed]}
+      cluster: {type: text, nullable: false}
+      program_id: {type: pubkey, nullable: false}
+      projection_version: {type: text, nullable: false, note: version of intent-to-projection mapping}
+      source_origin: {type: text, nullable: false, values: [sdk-intent, reconciliation]}
+      sanitized_payload_json: {type: json, nullable: false}
+      status: {type: text, nullable: false, values: [intent, submitted, processed, confirmed, finalized, failed, reorged]}
+      signature: {type: signature, nullable: true}
+      last_error_code: {type: text, nullable: true}
+      attempt_count: {type: uint32, nullable: false}
+      created_at: {type: timestamp, nullable: false}
+      updated_at: {type: timestamp, nullable: false}
+  audit_entries:
+    purpose: Sanitized request, SDK boundary, authority, and outcome trail.
+    primary_key: [id]
+    columns:
+      id: {type: uuid, nullable: false}
+      intent_id: {type: uuid, nullable: true}
+      operation: {type: text, nullable: false}
+      boundary: {type: text, nullable: false, value: application-service-to-sdk}
+      actor_subject: {type: pubkey_or_subject, nullable: false}
+      projection_version: {type: text, nullable: false, note: version of the audit projection mapping}
+      source_origin: {type: text, nullable: false, values: [sdk-intent, solana-transaction, reconciliation, external-evidence]}
+      outcome: {type: text, nullable: false}
+      signature: {type: signature, nullable: true}
+      slot: {type: uint64, nullable: true}
+      commitment: {type: text, nullable: true}
+      payload_json: {type: json, nullable: false, note: no secrets or private keys}
+      created_at: {type: timestamp, nullable: false}
+  sync_cursors:
+    purpose: Durable in-process worker checkpoint and reconciliation position.
+    primary_key: [cluster, program_id, stream]
+    columns:
+      cluster: {type: text, nullable: false}
+      program_id: {type: pubkey, nullable: false}
+      stream: {type: text, nullable: false}
+      projection_version: {type: text, nullable: false, note: version of the cursor/projection mapping}
+      source_origin: {type: text, nullable: false, values: [solana-transaction, reconciliation]}
+      cursor: {type: text, nullable: false}
+      last_finalized_slot: {type: uint64, nullable: true}
+      updated_at: {type: timestamp, nullable: false}
+  tombstones:
+    purpose: Prevent closed PDA projections from being resurrected by stale data.
+    primary_key: [cluster, program_id, account_pubkey]
+    columns:
+      cluster: {type: text, nullable: false}
+      program_id: {type: pubkey, nullable: false}
+      account_pubkey: {type: pubkey, nullable: false}
+      projection_version: {type: text, nullable: false, note: version of the closure/tombstone mapping}
+      source_origin: {type: text, nullable: false, values: [solana-transaction, reconciliation]}
+      closed_slot: {type: uint64, nullable: false}
+      closed_signature: {type: signature, nullable: true}
+      finality: {type: text, nullable: false, values: [processed, confirmed, finalized]}
+      reason: {type: text, nullable: false}
+      created_at: {type: timestamp, nullable: false}
+  external_evidence:
+    purpose: Metadata for evidence whose source is outside the contract.
+    primary_key: [id]
+    columns:
+      id: {type: uuid, nullable: false}
+      dispute_pubkey: {type: pubkey, nullable: false}
+      projection_version: {type: text, nullable: false, note: version of the external-evidence mapping}
+      source_origin: {type: text, nullable: false, values: [external-evidence]}
+      source: {type: text, nullable: false, value: external}
+      locator: {type: text, nullable: true}
+      sha256_digest: {type: hex_digest, nullable: true}
+      verification_status: {type: text, nullable: false, values: [external, observed, confirmed, finalized]}
+      created_at: {type: timestamp, nullable: false}
+    constraints:
+      - A digest is not an on-chain commitment without a proven contract field and instruction.
+      - Private keys, tokens, and secrets are forbidden.

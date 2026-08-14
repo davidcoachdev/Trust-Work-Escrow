@@ -35,10 +35,10 @@ ambas versiones y corrigiendo los bugs encontrados en la auditoría.
 - **v3** lleva `milestones_amount_total` y contadores aprobados para garantizar
   que la suma de hitos nunca supere `job.amount`.
 
-### 6. Arbiter designado por job (estilo v1)
-- El modelo de pool de árbitros de v2 era complejo y propenso a errores. v3 usa
-  un árbitro designado por el cliente al crear el job (probado y correcto en v1),
-  con un `ArbiterPool` opcional documentado aparte.
+### 6. ArbiterPool y asignación neutral
+- v3 no guarda ni asigna un árbitro en la creación del job. La autoridad de
+  `Config` gobierna un `ArbiterPool` global y asigna un árbitro neutral cuando la
+  disputa está activa; el árbitro no puede ser cliente ni freelancer.
 
 ## Modelo de fee
 
@@ -64,6 +64,17 @@ ambas versiones y corrigiendo los bugs encontrados en la auditoría.
 - **Sin disputa abierta** (aprobación normal, o auto-aprueba por `SUBMITTED_GRACE`):
   $0$ de arbitraje; el asesor es gratis solo en esa administración.
 - Conservación (con disputa): `arbitration_treasury(5%) + cliente + freelancer + treasury(fee) = amount + fee`.
+
+El árbitro o asesor resolutor solo autoriza la resolución; la fee de arbitraje no
+se paga a su wallet personal. La compensación off-chain de un árbitro, si existe,
+es una política futura y no una transferencia contractual documentada.
+
+## Boundary backend (planificado)
+
+API y terminal/TUI no hablan directamente con Anchor/RPC: usan
+`trust-escrow-sdk`. Solana/IDL sigue siendo canónica para el contrato; DB solo es
+proyección, metadata, auditoría y sync. Ver
+`../architecture/backend-v3.md`.
 
 ## Flujo de estados del Job
 

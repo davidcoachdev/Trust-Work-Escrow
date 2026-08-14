@@ -1,6 +1,7 @@
 # 08 · Arbiter Pool
 
-Estado: ✅ implementado.
+Estado: ✅ implementado en el contrato; la compensación off-chain del árbitro no
+forma parte del contrato.
 
 El pool es el registro de árbitros neutrales de los que la plataforma elige al
 asignar una disputa (`assign_arbiter`). El árbitro es **neutral** y se asigna solo
@@ -22,8 +23,10 @@ cuando se abre una disputa (nunca en la creación del job).
 ## Notas de diseño
 - `config.advisor` (separado de `authority`) es quien resuelve los `PlatformCase`
   cuando no hay arbitraje mutuo.
-- El árbitro solo autoriza la resolución; el 5% de los bonos se enruta a
-  `Config.arbitration_treasury` vía `finalize_dispute_payouts`.
+- El árbitro/asesor solo autoriza la resolución; el 5% de los bonos se enruta a
+  `Config.arbitration_treasury` vía `finalize_dispute_payouts`, nunca a su wallet.
+- Cualquier pago off-chain al árbitro es una política operativa futura y no una
+  capacidad on-chain implementada.
 
 ## Diagrama
 

@@ -25,6 +25,7 @@ Definir el comportamiento verificable necesario para remediar los hallazgos de a
 | R6 | [06-reproducibility.md](06-reproducibility.md) | Toolchain alineada, localnet obligatorio, clippy y advisor sin secretos |
 | R7 | [07-docs-idl-sync.md](07-docs-idl-sync.md) | Sincronización de docs, IDL, constantes, estados, cuentas y Application PDAs |
 | R8 | [08-final-validation.md](08-final-validation.md) | Validation gate final y security gates de release |
+| R9 | [backend-v3-sketch.md](backend-v3-sketch.md) | Bridge SDK compartido, API/application flow, proyección DB, transacciones, listener, reconciliación, finality, signers y evidencia |
 
 ## Dependency graph
 1. R1 → R2: el pool debe depender de la autoridad de `Config` ya bootstrappeada.
@@ -33,11 +34,14 @@ Definir el comportamiento verificable necesario para remediar los hallazgos de a
 4. R3 → R5/R7: `create_job`, `apply_to_job` y `accept_application` deben probarse y documentarse con PDAs individuales, índice, applicant, duplicados, límites de texto, máximo 50 y cleanup/rent.
 5. R2/R3 → R5: los tests negativos y de replay cubren autorización, disputas, postulaciones y auto-aprobación.
 6. R1–R7 → R8: la validación final no puede declarar release si algún dominio no pasa sus gates.
+7. R1/R3/R5/R6/R7/R8 → R9: el backend v3 reutiliza autoridad contractual, seguridad, deploy, documentación y validación sin duplicar esos contratos.
+8. R9 → R8: los gates finales deben incluir boundary SDK, proyección/DB, transacciones, sincronización, finality, signers y veracidad de evidencia.
 
 ## Cross-cutting constraints
 - **Strict TDD:** para cada criterio se escribe primero una prueba fallida (RED), luego el cambio mínimo (GREEN) y finalmente el refactor; no se acepta cobertura solo nominal.
 - **Security first:** no secretos en el repositorio, no autoridades permissionless, no destinos de payout no ligados, no input sin límites, no SQL/shell crudo aplicable, no `unwrap`/catch silencioso en rutas críticas.
 - **ROI/YAGNI:** no se agregan features de producto, UI, nuevos roles, nuevos tipos de disputa ni cambios de economía no requeridos por estos kits.
+- **Backend v3:** terminal/TUI y API comparten `trust-escrow-sdk`; Solana es canónica y DB solo proyección/metadata/auditoría/sync. Se permite worker/reconciliador in-process; no indexer/microservicio/event-sourcing genérico.
 
 ## Verification baseline
 Los comandos de verificación se derivan de los artefactos actuales y deben ejecutarse desde `trust-escrow-v3/`:

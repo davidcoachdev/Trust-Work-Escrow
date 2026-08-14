@@ -1,4 +1,4 @@
-# Build Site: trust-escrow-v3 remediation
+# Build Site: trust-escrow-v3 remediation + shared trust-escrow-sdk boundary
 
 > Mapa generado desde todos los kits de `context/kits/`. Este artefacto es un
 > plan: no implementa código, no regenera IDL y no ejecuta deploy.
@@ -7,6 +7,8 @@
 
 - **Depth global:** `thorough` — seguridad on-chain, payout, autoridad,
   reproducibilidad y cambio cross-cutting.
+- **Estrategia:** `quality` — pipeline profundo, security gates primero,
+  trazabilidad por criterio y validación independiente por capa.
 - **Presupuesto orientativo:** quick 8k, standard 20k, thorough 45k tokens por
   task, según complejidad individual.
 - **Orden obligatorio:** tests/fixtures antes de la implementación; gates de
@@ -235,4 +237,147 @@ CI or secret-free fixture capability.
 
 ## Result
 
-**26 tasks across 12 waves. Coverage: 208/208 criteria + gates mapped. Next: `/sdd-cavekit make`.**
+**Baseline preservado: 26 tasks across 11 legacy waves; 208/208 legacy criteria + gates mapped.**
+
+## Backend v3 delta — shared `trust-escrow-sdk` boundary
+
+Este delta actualiza el mapa existente desde los kits revisados y el reporte
+obligatorio `context/refs/reuse-report.md`. No agrega indexer genérico,
+microservicios, event sourcing general, bus distribuido ni una nueva superficie
+de producto. El listener y reconciliador quedan como worker in-process durable
+para MVP. Solana/IDL/commitment son autoridad contractual; DB solo proyecta,
+enriquece metadata y conserva auditoría/sync.
+
+### Backend waves y dependencias
+
+Las tareas `T-027`–`T-061` forman el subgrafo nuevo. Dentro de cada wave son
+paralelizables y toda dependencia apunta únicamente a una wave anterior.
+
+### Wave 11 — Security gates y límites de autoridad primero
+
+| Task | Title | Deps | Spec / gates | Effort |
+|---|---|---|---|---|
+| T-027 | Boundary y autoridad de datos: threat model + pruebas de arquitectura | T-001, T-002 | backend-v3 R1–R2; SG Boundary, Data authority | T |
+| T-028 | Signer modes, custodia y secret-handling contract | T-001, T-002 | backend-v3 R9; SG Secrets/signers, Input/injection | T |
+| T-029 | Replay, atomicidad, finality, reorg y tombstone threat model | T-001, T-002 | backend-v3 R7–R8; SG Replay/atomicity, Finality/reorg | T |
+
+### Wave 12 — Contratos y matrices verificables
+
+| Task | Title | Deps | Spec / coverage | Effort |
+|---|---|---|---|---|
+| T-030 | Ownership matrix y contrato Solana→DB | T-027 | backend-v3 R1.1–R1.4 | T |
+| T-031 | Contrato público versionado de `trust-escrow-sdk` | T-027, T-028 | backend-v3 R3.1–R3.4; `07-docs-idl-sync` R3–R4 | T |
+| T-032 | Application/API/TUI route contract sin acceso directo a RPC | T-027 | backend-v3 R2.1–R2.4 | T |
+| T-033 | Idempotency, finality vocabulary y tombstone state machine | T-029 | backend-v3 R7.1–R7.5, R8.1–R8.4 | T |
+| T-034 | Explicit user-signed/server-signed policy contract | T-028 | backend-v3 R9.1–R9.4; `01-config-bootstrap`, `04-deploy-runbook` | T |
+| T-035 | Evidence provenance, hash semantics y freshness contract | T-027 | backend-v3 R10.1–R10.4; `08-final-validation` R3–R4 | T |
+
+### Wave 13 — Strict TDD: pruebas RED antes de implementación
+
+| Task | Title | Deps | Spec / coverage | Effort |
+|---|---|---|---|---|
+| T-036 | Tests de boundary API/application/SDK y equivalencia terminal/TUI | T-032, T-027 | backend-v3 R2.1–R2.4; SG Boundary/Input | T |
+| T-037 | Tests del contrato SDK: tipos, errores, versionado y no-panic | T-031 | backend-v3 R3.1–R3.4; SG Input/injection | T |
+| T-038 | Tests negativos de ownership y proyección DB | T-030, T-027 | backend-v3 R1.1–R1.4, R4.1–R4.4; SG Data authority | T |
+| T-039 | Tests de intención durable, crash recovery y correlación transaccional | T-030, T-033 | backend-v3 R5.1–R5.4; SG Replay/atomicity | T |
+| T-040 | Tests de cursor, deduplicación, orden, restart y reconciliación | T-030, T-033 | backend-v3 R6.1–R6.4; SG Finality/reorg | T |
+| T-041 | Tests de idempotency key, retry classification y finality transitions | T-033 | backend-v3 R7.1–R7.5; SG Replay/atomicity, Finality/reorg | T |
+| T-042 | Tests de cierre duplicado, stale resurrection y rent semantics | T-033 | backend-v3 R8.1–R8.4; SG Finality/reorg | T |
+| T-043 | Tests negativos de signer ausente/equivocado/escalado | T-034 | backend-v3 R9.1–R9.4; SG Secrets/signers | T |
+| T-044 | Tests de evidencia externa vs on-chain y etiquetas de verificación | T-035 | backend-v3 R10.1–R10.4; SG Evidence truthfulness | T |
+| T-045 | Tests de drift documental, claims stale y matriz de trazabilidad | T-035, T-032 | backend-v3 R11.1–R11.4; SG Documentation/release | S |
+| T-046 | Smoke del worker in-process, límites, shutdown y logs sanitizados | T-033, T-035 | backend-v3 R12.1–R12.4; `06-reproducibility` R1–R4 | S |
+
+### Wave 14 — Implementación mínima por frontera
+
+| Task | Title | Deps | Spec / coverage | Effort |
+|---|---|---|---|---|
+| T-047 | Implementar boundary compartido: application service + SDK adapter | T-036, T-037 | backend-v3 R2–R3 | T |
+| T-048 | Implementar schema/proyección DB, metadata, audit y sync cursor | T-038 | backend-v3 R1, R4 | T |
+| T-049 | Implementar transaction intents, idempotency y retry/finality persistence | T-039, T-041 | backend-v3 R5, R7 | T |
+| T-050 | Implementar listener durable, reconciliación y tombstones | T-040, T-042 | backend-v3 R6, R8 | T |
+| T-051 | Implementar selección explícita de signer y políticas de custodia | T-043 | backend-v3 R9 | T |
+| T-052 | Integrar API y terminal/TUI contra el mismo application service | T-036, T-037 | backend-v3 R2, R12 | T |
+| T-053 | Implementar provenance de evidencia y hash honesto | T-044 | backend-v3 R10 | T |
+
+### Wave 15 — Documentación y operación truthful
+
+| Task | Title | Deps | Spec / coverage | Effort |
+|---|---|---|---|---|
+| T-054 | Actualizar docs/IDL/escenarios con route matrix y autoridad real | T-045, T-047, T-048, T-050, T-051, T-053 | backend-v3 R11; `07-docs-idl-sync` R1–R6 | T |
+| T-055 | Actualizar runbook, reproducibilidad y límites MVP del worker | T-046, T-050 | backend-v3 R12; `04-deploy-runbook`, `06-reproducibility` | S |
+
+### Wave 16 — Verificación por capa
+
+| Task | Title | Deps | Spec / coverage | Effort |
+|---|---|---|---|---|
+| T-056 | Security suite integrada: secrets, auth, signers, input e inyección | T-047, T-051, T-052, T-053 | SG Boundary, Input/injection, Secrets/signers | T |
+| T-057 | Dependency architecture check: ningún Anchor/RPC fuera del SDK | T-047, T-052 | backend-v3 R2.2–R2.4; SG Boundary | T |
+| T-058 | Integration de restart, cursor, duplicates, retry, finality y tombstones | T-048, T-049, T-050, T-052 | backend-v3 R4–R8; SG Data authority, Replay/atomicity, Finality/reorg | T |
+| T-059 | Truthfulness audit: docs/IDL/hash/freshness y evidencia stale | T-053, T-054, T-055 | backend-v3 R10–R11; SG Evidence truthfulness, Documentation/release | T |
+
+### Wave 17 — Gate backend v3 y validación profunda
+
+| Task | Title | Deps | Spec / coverage | Effort |
+|---|---|---|---|---|
+| T-060 | Gate final de arquitectura, sincronización, seguridad y operación | T-056, T-057, T-058, T-059 | backend-v3 R1–R12; `08-final-validation` R6 | T |
+
+### Wave 18 — Reporte de release del delta
+
+| Task | Title | Deps | Spec / coverage | Effort |
+|---|---|---|---|---|
+| T-061 | Reporte PASS/FAIL/BLOCKED/ACCEPTED y decisión de release truthful | T-060 | `08-final-validation` R1–R4; todos los security gates | S |
+
+## Backend v3 coverage matrix
+
+Cada rango cubre cada acceptance criterion individual del requirement, no solo
+el encabezado. El delta revisado contiene **63 acceptance criteria + 8 security
+gates = 71 puntos**, todos asignados:
+
+| Requirement / gate | Task(s) |
+|---|---|
+| R1.1–R1.4 Ownership y autoridad | T-027, T-030, T-038, T-048, T-058, T-060 |
+| R2.1–R2.4 Frontera API→service→SDK | T-027, T-032, T-036, T-047, T-052, T-057, T-060 |
+| R3.1–R3.4 Contrato SDK | T-031, T-037, T-047, T-057, T-060 |
+| R4.1–R4.4 Schema/proyección DB | T-030, T-038, T-048, T-058, T-060 |
+| R5.1–R5.4 Seguimiento durable de transacciones | T-033, T-039, T-049, T-058, T-060 |
+| R6.1–R6.4 Listener/reconciliación | T-033, T-040, T-050, T-055, T-058, T-060 |
+| R7.1–R7.5 Idempotencia/retries/finality | T-029, T-033, T-041, T-049, T-058, T-060 |
+| R8.1–R8.4 Tombstones | T-029, T-033, T-042, T-050, T-058, T-060 |
+| R9.1–R9.4 Signer modes | T-028, T-034, T-043, T-051, T-056, T-060 |
+| R10.1–R10.4 Evidence/hash | T-035, T-044, T-053, T-059, T-060 |
+| R11.1–R11.4 Docs/trazabilidad | T-035, T-045, T-054, T-055, T-059, T-061 |
+| R12.1–R12.4 MVP observable | T-046, T-052, T-055, T-058, T-060, T-061 |
+| SG Boundary | T-027, T-036, T-056, T-057, T-060 |
+| SG Data authority | T-027, T-038, T-048, T-058, T-060 |
+| SG Input/injection | T-028, T-036, T-037, T-056, T-060 |
+| SG Secrets/signers | T-028, T-043, T-051, T-056, T-060 |
+| SG Replay/atomicity | T-029, T-039, T-041, T-049, T-058, T-060 |
+| SG Finality/reorg | T-029, T-040, T-041, T-042, T-050, T-058, T-060 |
+| SG Evidence truthfulness | T-035, T-044, T-053, T-059, T-060 |
+| SG Documentation/release | T-035, T-045, T-054, T-055, T-059, T-061 |
+
+**Coverage check: 71/71 backend criteria + gates mapped; legacy baseline
+208/208 remains mapped. No coverage gap.**
+
+## Mandatory reuse decisions
+
+- `07-docs-idl-sync.md`: contrato documental y drift gate, extendido al bridge,
+  finality, signer modes y límites Solana/DB (`T-035`, `T-045`, `T-054`, `T-059`).
+- `08-final-validation.md`: release gate, freshness, hashes, signers,
+  reproducibilidad y backend synchronization (`T-059`–`T-061`).
+- `05-security-tests.md`: pruebas negativas de autorización, atomicidad,
+  replay, cleanup y conservación; ampliadas a listener/reconciliación.
+- `04-deploy-runbook.md` y `01-config-bootstrap.md`: preflight, upgrade
+  authority, treasury separation y signer policy; sin custodiar secretos.
+- v2 SDK/core/DB docs: patrones de typed client, shared core, retries y audit
+  log únicamente como referencia; no se copia implementación ni se convierte
+  DB en autoridad.
+
+## Result
+
+Estrategia: `quality`.
+**61 tasks across 19 waves** (26 legacy + 35 backend delta).
+Coverage: **71/71 backend criteria + gates mapped**; legacy **208/208**
+preserved. Security gates are first-class and precede implementation.
+Next: `/sdd-cavekit make`.

@@ -6,26 +6,29 @@
 
 ## Result
 
-La remediación P2 queda completa. La suite TypeScript define **8 tests**; su
-evidencia runtime histórica validada fue **9/9** en la ejecución completa
-anterior. Los scripts actuales están en **15/15** y los tests Rust en **3/3**.
-La validación runtime actual queda bloqueada por ausencia del validator.
+Este archivo conserva un **baseline histórico** de la remediación P2; no es una
+certificación runtime vigente. La suite TypeScript tenía **8 tests definidos**,
+con evidencia histórica 9/9 en una ejecución anterior; los scripts registraban
+15/15 y Rust 3/3. Esa evidencia no se reutiliza como prueba actual. La validación
+runtime actual está bloqueada por ausencia del validator y el backend v3 de
+proyección/sync todavía está planificado.
 
 ## Estado final
 
 | Gate | Resultado |
 |---|---|
-| Deploy | PASS |
-| Hash byte-a-byte del programa | PASS |
-| IDL / Anchor.toml / Program ID | PASS |
-| Upgrade authority | PASS |
-| Config on-chain | PASS |
+| Deploy | BLOCKED — sin Program account actual |
+| Hash byte-a-byte del programa | BLOCKED — no hay artefacto on-chain actual verificable |
+| IDL / Anchor.toml / Program ID | PASS estático; runtime BLOCKED |
+| Upgrade authority | BLOCKED — sin ProgramData actual |
+| Config on-chain | BLOCKED — sin cuenta Program/Config actual |
 | Evidencia local actual | BLOCKED — validator ausente; histórica 9/9 PASS |
 | Scripts | 15/15 PASS |
 | Rust | 3/3 PASS |
 
-**Resultado de release:** `APPROVE` (P0=0, P1=0; quedan únicamente mejoras
-P2 documentales/procedurales ya aplicadas en este cambio).
+**Resultado de release de este baseline:** `BLOCKED` para claims runtime. Los
+checks estáticos/documentales pueden quedar `PASS`; no autorizan declarar deploy,
+finality, sincronización backend o evidencia on-chain.
 
 ## Passing evidence
 
@@ -35,7 +38,7 @@ P2 documentales/procedurales ya aplicadas en este cambio).
 - `yarn check:docs`
 - `yarn test:deploy-verifier` (parser/hash tests)
 - `yarn test:scripts` (15/15 script tests)
-- `TRUST_ESCROW_V3_TEST_GREP='disputa mutua' yarn test:isolated` (retry de expiración: 1/1 pasa en segundo intento)
+- `TRUST_ESCROW_V3_TEST_GREP='disputa mutua' yarn test:isolated` — evidencia histórica, no ejecución vigente
 - `ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 yarn preflight`
 - `ANCHOR_PROVIDER_URL=http://127.0.0.1:8899 anchor build`
 
