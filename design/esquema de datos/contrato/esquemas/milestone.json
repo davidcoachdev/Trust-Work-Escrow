@@ -1,0 +1,56 @@
+{
+  "pda": "Milestone",
+  "seed": [
+    "milestone",
+    "job",
+    "index"
+  ],
+  "onchain_fields": [
+    {
+      "name": "job",
+      "type": "Pubkey"
+    },
+    {
+      "name": "amount",
+      "type": "u64"
+    },
+    {
+      "name": "status",
+      "type": "MilestoneStatus (enum)"
+    },
+    {
+      "name": "index",
+      "type": "u8"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": [
+    {
+      "name": "title",
+      "to": "postgres:milestones_metadata"
+    },
+    {
+      "name": "description",
+      "to": "postgres:milestones_metadata"
+    },
+    {
+      "name": "deadline",
+      "to": "postgres:milestones_metadata"
+    },
+    {
+      "name": "submitted_at",
+      "to": "postgres:milestones_metadata"
+    },
+    {
+      "name": "approved_at",
+      "to": "postgres:milestones_metadata"
+    },
+    {
+      "name": "created_at",
+      "to": "postgres:milestones_metadata"
+    }
+  ]
+}

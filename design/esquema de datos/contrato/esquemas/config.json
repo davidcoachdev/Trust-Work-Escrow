@@ -1,0 +1,37 @@
+{
+  "pda": "Config",
+  "seed": [
+    "config"
+  ],
+  "onchain_fields": [
+    {
+      "name": "authority",
+      "type": "Pubkey"
+    },
+    {
+      "name": "advisor",
+      "type": "Pubkey"
+    },
+    {
+      "name": "treasury",
+      "type": "Pubkey"
+    },
+    {
+      "name": "arbitration_treasury",
+      "type": "Pubkey"
+    },
+    {
+      "name": "fee_bps",
+      "type": "u16"
+    },
+    {
+      "name": "paused",
+      "type": "bool"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": []
+}

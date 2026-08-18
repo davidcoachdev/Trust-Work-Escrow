@@ -1,0 +1,31 @@
+{
+  "collection": "events",
+  "purpose": "Eventos / streams del indexer (sync on-chain -> off-chain)",
+  "jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "type",
+      "payload",
+      "ts"
+    ],
+    "properties": {
+      "type": {
+        "bsonType": "string"
+      },
+      "payload": {
+        "bsonType": "object"
+      },
+      "ts": {
+        "bsonType": "date"
+      }
+    }
+  },
+  "indexes": [
+    {
+      "keys": {
+        "type": 1,
+        "ts": 1
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "collection": "dispute_evidence",
+  "purpose": "Contenido de evidencias de disputa (el hash vive on-chain en el PDA Evidence)",
+  "jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "dispute_pda",
+      "index",
+      "author",
+      "content"
+    ],
+    "properties": {
+      "dispute_pda": {
+        "bsonType": "string"
+      },
+      "index": {
+        "bsonType": "int"
+      },
+      "author": {
+        "bsonType": "string"
+      },
+      "content": {
+        "bsonType": "string"
+      },
+      "submitted_at": {
+        "bsonType": "date"
+      }
+    }
+  },
+  "indexes": [
+    {
+      "keys": {
+        "dispute_pda": 1,
+        "index": 1
+      }
+    }
+  ]
+}

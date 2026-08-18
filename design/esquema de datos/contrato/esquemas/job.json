@@ -1,0 +1,84 @@
+{
+  "pda": "Job",
+  "seed": [
+    "job",
+    "client",
+    "job_id"
+  ],
+  "onchain_fields": [
+    {
+      "name": "client",
+      "type": "Pubkey"
+    },
+    {
+      "name": "freelancer",
+      "type": "Option<Pubkey>"
+    },
+    {
+      "name": "amount",
+      "type": "u64"
+    },
+    {
+      "name": "fee_amount",
+      "type": "u64"
+    },
+    {
+      "name": "status",
+      "type": "JobStatus (enum)"
+    },
+    {
+      "name": "paused",
+      "type": "bool"
+    },
+    {
+      "name": "paused_at",
+      "type": "i64"
+    },
+    {
+      "name": "deadline",
+      "type": "i64"
+    },
+    {
+      "name": "submitted_at",
+      "type": "Option<i64>"
+    },
+    {
+      "name": "milestones_total",
+      "type": "u8"
+    },
+    {
+      "name": "milestones_approved",
+      "type": "u8"
+    },
+    {
+      "name": "milestones_amount_total",
+      "type": "u64"
+    },
+    {
+      "name": "applicants",
+      "type": "Vec<Pubkey>"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": [
+    {
+      "name": "title",
+      "to": "postgres:jobs_metadata"
+    },
+    {
+      "name": "description",
+      "to": "postgres:jobs_metadata"
+    },
+    {
+      "name": "created_at",
+      "to": "postgres:jobs_metadata"
+    },
+    {
+      "name": "updated_at",
+      "to": "postgres:jobs_metadata"
+    }
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "pda": "SupportTicket",
+  "seed": [
+    "support_ticket",
+    "job"
+  ],
+  "onchain_fields": [
+    {
+      "name": "job",
+      "type": "Pubkey"
+    },
+    {
+      "name": "opened_by",
+      "type": "Pubkey"
+    },
+    {
+      "name": "status",
+      "type": "SupportTicketStatus (enum)"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": [
+    {
+      "name": "reason",
+      "to": "postgres:support_tickets_metadata"
+    },
+    {
+      "name": "created_at",
+      "to": "postgres:support_tickets_metadata"
+    },
+    {
+      "name": "resolved_at",
+      "to": "postgres:support_tickets_metadata"
+    },
+    {
+      "name": "resolution",
+      "to": "postgres:support_tickets_metadata"
+    }
+  ]
+}

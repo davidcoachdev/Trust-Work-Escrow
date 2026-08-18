@@ -1,0 +1,40 @@
+{
+  "pda": "Evidence",
+  "seed": [
+    "evidence",
+    "dispute",
+    "index"
+  ],
+  "onchain_fields": [
+    {
+      "name": "dispute",
+      "type": "Pubkey"
+    },
+    {
+      "name": "index",
+      "type": "u8"
+    },
+    {
+      "name": "author",
+      "type": "Pubkey"
+    },
+    {
+      "name": "content_hash",
+      "type": "[u8; 32]"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": [
+    {
+      "name": "content",
+      "to": "mongo:dispute_evidence (solo el hash queda on-chain)"
+    },
+    {
+      "name": "submitted_at",
+      "to": "mongo:dispute_evidence"
+    }
+  ]
+}

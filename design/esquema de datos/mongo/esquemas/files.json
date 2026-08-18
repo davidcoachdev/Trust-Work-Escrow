@@ -1,0 +1,37 @@
+{
+  "collection": "files",
+  "purpose": "Referencias a adjuntos (el binario vive en object storage)",
+  "jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "ref",
+      "owner_pda",
+      "url",
+      "mime"
+    ],
+    "properties": {
+      "ref": {
+        "bsonType": "string"
+      },
+      "owner_pda": {
+        "bsonType": "string"
+      },
+      "url": {
+        "bsonType": "string"
+      },
+      "mime": {
+        "bsonType": "string"
+      },
+      "ts": {
+        "bsonType": "date"
+      }
+    }
+  },
+  "indexes": [
+    {
+      "keys": {
+        "owner_pda": 1
+      }
+    }
+  ]
+}
