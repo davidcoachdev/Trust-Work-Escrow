@@ -16,13 +16,7 @@ const INITIAL_AUTHORITY: Pubkey = pubkey!("3whY1ohdAV3uRXSpyzsKtwLg84X9fTZ1pSdCS
 const MAX_PAUSE_DURATION: i64 = 30 * 24 * 60 * 60;
 
 const MIN_JOB_AMOUNT: u64 = 100_000;
-const MAX_TITLE_LENGTH: usize = 100;
-const MAX_DESCRIPTION_LENGTH: usize = 500;
-const MAX_PROPOSAL_LENGTH: usize = 512;
-const MAX_DISPUTE_REASON: usize = 500;
-const MAX_DISPUTE_EVIDENCE: usize = 2048;
 const MAX_EVIDENCE_COUNT: u8 = 10;
-const MAX_MILESTONE_TITLE: usize = 64;
 const MAX_MILESTONES: usize = 20;
 const MAX_APPLICATIONS: usize = 50;
 const MAX_ARBITERS: usize = 50;
@@ -407,13 +401,7 @@ pub struct Job {
     pub status: JobStatus,
     pub paused: bool,
     pub paused_at: i64,
-    #[max_len(MAX_TITLE_LENGTH)]
-    pub title: String,
-    #[max_len(MAX_DESCRIPTION_LENGTH)]
-    pub description: String,
     pub deadline: i64,
-    pub created_at: i64,
-    pub updated_at: i64,
     pub submitted_at: Option<i64>,
     pub milestones_total: u8,
     pub milestones_approved: u8,
@@ -429,9 +417,7 @@ pub struct Application {
     pub job: Pubkey,
     pub index: u8,
     pub applicant: Pubkey,
-    #[max_len(MAX_PROPOSAL_LENGTH)]
-    pub proposal: String,
-    pub applied_at: i64,
+    pub proposal_hash: [u8; 32],
     pub status: ApplicationStatus,
     pub bump: u8,
 }
@@ -454,13 +440,7 @@ pub struct Dispute {
     pub status: DisputeStatus,
     pub evidence_count: u8,
     pub evidence_cleanup_cursor: u8,
-    #[max_len(MAX_DISPUTE_REASON)]
-    pub reason: String,
-    pub created_at: i64,
     pub deadline: i64,
-    pub resolved_at: Option<i64>,
-    #[max_len(MAX_DISPUTE_REASON)]
-    pub resolution: Option<String>,
     pub client_payout_percent: u8,
     pub freelancer_payout_percent: u8,
     pub bump: u8,
@@ -472,9 +452,7 @@ pub struct Evidence {
     pub dispute: Pubkey,
     pub index: u8,
     pub author: Pubkey,
-    #[max_len(MAX_DISPUTE_EVIDENCE)]
-    pub content: Vec<u8>,
-    pub submitted_at: i64,
+    pub content_hash: [u8; 32],
     pub bump: u8,
 }
 
@@ -482,18 +460,10 @@ pub struct Evidence {
 #[derive(InitSpace)]
 pub struct Milestone {
     pub job: Pubkey,
-    #[max_len(MAX_MILESTONE_TITLE)]
-    pub title: String,
-    #[max_len(MAX_DESCRIPTION_LENGTH)]
-    pub description: String,
     pub amount: u64,
-    pub deadline: i64,
     pub status: MilestoneStatus,
     pub index: u8,
-    pub submitted_at: Option<i64>,
-    pub approved_at: Option<i64>,
     pub bump: u8,
-    pub created_at: i64,
 }
 
 #[account]
@@ -501,13 +471,7 @@ pub struct Milestone {
 pub struct SupportTicket {
     pub job: Pubkey,
     pub opened_by: Pubkey,
-    #[max_len(MAX_DISPUTE_REASON)]
-    pub reason: String,
     pub status: SupportTicketStatus,
-    pub created_at: i64,
-    pub resolved_at: Option<i64>,
-    #[max_len(MAX_DISPUTE_REASON)]
-    pub resolution: Option<String>,
     pub bump: u8,
 }
 
@@ -718,20 +682,12 @@ pub mod escrow {
     pub fn create_job(
         ctx: Context<CreateJob>,
         _job_id: u64,
-        title: String,
-        description: String,
         amount: u64,
         deadline: i64,
     ) -> Result<()> {
         let config = &ctx.accounts.config;
         require!(!config.paused, ErrorCode::ProgramPaused);
         require!(amount >= MIN_JOB_AMOUNT, ErrorCode::AmountTooSmall);
-        require!(!title.is_empty(), ErrorCode::EmptyTitle);
-        require!(title.len() <= MAX_TITLE_LENGTH, ErrorCode::TitleTooLong);
-        require!(
-            description.len() <= MAX_DESCRIPTION_LENGTH,
-            ErrorCode::DescriptionTooLong
-        );
         require!(
             deadline > Clock::get()?.unix_timestamp,
             ErrorCode::DeadlineMustBeFuture
@@ -739,18 +695,13 @@ pub mod escrow {
 
         let fee_amount = compute_fee(amount, config.fee_bps)?;
 
-        let now = Clock::get()?.unix_timestamp;
         let job = &mut ctx.accounts.job;
         job.client = ctx.accounts.client.key();
         job.freelancer = None;
         job.amount = amount;
         job.fee_amount = fee_amount;
         job.status = JobStatus::Created;
-        job.title = title;
-        job.description = description;
         job.deadline = deadline;
-        job.created_at = now;
-        job.updated_at = now;
         job.submitted_at = None;
         job.milestones_total = 0;
         job.milestones_approved = 0;
@@ -797,7 +748,6 @@ pub mod escrow {
         )?;
 
         job.status = JobStatus::Funded;
-        job.updated_at = Clock::get()?.unix_timestamp;
 
         msg!("Funds deposited: {}", total);
         Ok(())
@@ -807,7 +757,7 @@ pub mod escrow {
         ctx: Context<ApplyToJob>,
         _job_id: u64,
         application_index: u8,
-        proposal: String,
+        proposal_hash: [u8; 32],
     ) -> Result<()> {
         let job = &mut ctx.accounts.job;
         require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
@@ -816,11 +766,7 @@ pub mod escrow {
             ctx.accounts.applicant.key() != job.client,
             ErrorCode::CannotWorkOnOwnJob
         );
-        require!(!proposal.is_empty(), ErrorCode::EmptyProposal);
-        require!(
-            proposal.len() <= MAX_PROPOSAL_LENGTH,
-            ErrorCode::ProposalTooLong
-        );
+
         require!(
             !job.applicants
                 .iter()
@@ -836,17 +782,14 @@ pub mod escrow {
             ErrorCode::ApplicationIndexMismatch
         );
 
-        let now = Clock::get()?.unix_timestamp;
         let application = &mut ctx.accounts.application;
         application.job = job.key();
         application.index = application_index;
         application.applicant = ctx.accounts.applicant.key();
-        application.proposal = proposal;
-        application.applied_at = now;
+        application.proposal_hash = proposal_hash;
         application.status = ApplicationStatus::Pending;
         application.bump = ctx.bumps.application;
         job.applicants.push(ctx.accounts.applicant.key());
-        job.updated_at = now;
 
         msg!(
             "Application {} submitted for job: {}",
@@ -891,7 +834,6 @@ pub mod escrow {
 
         job.freelancer = Some(applicant);
         job.status = JobStatus::InProgress;
-        job.updated_at = Clock::get()?.unix_timestamp;
 
         msg!("Application accepted: freelancer {}", applicant);
         Ok(())
@@ -937,7 +879,6 @@ pub mod escrow {
 
         job.status = JobStatus::Submitted;
         job.submitted_at = Some(Clock::get()?.unix_timestamp);
-        job.updated_at = Clock::get()?.unix_timestamp;
 
         msg!("Work submitted for job: {}", job.key());
         Ok(())
@@ -1041,7 +982,6 @@ pub mod escrow {
         )?;
 
         job.status = JobStatus::Released;
-        job.updated_at = Clock::get()?.unix_timestamp;
 
         msg!(
             "Work approved: {} to freelancer, {} fee to treasury",
@@ -1051,7 +991,7 @@ pub mod escrow {
         Ok(())
     }
 
-    pub fn reject_work(ctx: Context<RejectWork>, _job_id: u64, reason: String) -> Result<()> {
+    pub fn reject_work(ctx: Context<RejectWork>, _job_id: u64) -> Result<()> {
         let job = &mut ctx.accounts.job;
         require!(
             job.client == ctx.accounts.client.key(),
@@ -1061,14 +1001,9 @@ pub mod escrow {
             job.status == JobStatus::Submitted,
             ErrorCode::InvalidJobStatus
         );
-        require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
-        require!(
-            reason.len() <= MAX_DISPUTE_REASON,
-            ErrorCode::DescriptionTooLong
-        );
+
 
         job.status = JobStatus::InProgress;
-        job.updated_at = Clock::get()?.unix_timestamp;
 
         msg!("Work rejected, returned to InProgress: {}", job.key());
         Ok(())
@@ -1101,7 +1036,6 @@ pub mod escrow {
         }
 
         job.status = JobStatus::Cancelled;
-        job.updated_at = Clock::get()?.unix_timestamp;
 
         msg!("Job cancelled: {}", job.key());
         Ok(())
@@ -1125,7 +1059,6 @@ pub mod escrow {
         let now = Clock::get()?.unix_timestamp;
         job.paused = true;
         job.paused_at = now;
-        job.updated_at = now;
         Ok(())
     }
 
@@ -1138,7 +1071,6 @@ pub mod escrow {
         require!(job.paused, ErrorCode::JobPaused);
         job.paused = false;
         job.paused_at = 0;
-        job.updated_at = Clock::get()?.unix_timestamp;
         Ok(())
     }
 
@@ -1169,7 +1101,6 @@ pub mod escrow {
             )?;
         }
         job.status = JobStatus::Cancelled;
-        job.updated_at = Clock::get()?.unix_timestamp;
         Ok(())
     }
 
@@ -1226,17 +1157,13 @@ pub mod escrow {
         Ok(())
     }
 
-    pub fn raise_dispute(ctx: Context<RaiseDispute>, _job_id: u64, reason: String) -> Result<()> {
+    pub fn raise_dispute(ctx: Context<RaiseDispute>, _job_id: u64) -> Result<()> {
         require!(
             ctx.accounts.job.status == JobStatus::Submitted
                 || ctx.accounts.job.status == JobStatus::InProgress,
             ErrorCode::CannotDisputeAtStage
         );
-        require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
-        require!(
-            reason.len() <= MAX_DISPUTE_REASON,
-            ErrorCode::DescriptionTooLong
-        );
+
         require!(ctx.accounts.ticket.is_none(), ErrorCode::CaseAlreadyOpen);
         let raiser = ctx.accounts.raiser.key();
         require!(
@@ -1282,20 +1209,15 @@ pub mod escrow {
         dispute.status = DisputeStatus::Open;
         dispute.evidence_count = 0;
         dispute.evidence_cleanup_cursor = 0;
-        dispute.reason = reason;
-        dispute.created_at = now;
         dispute.deadline = now
             .checked_add(DISPUTE_ACCEPT_GRACE)
             .ok_or(ErrorCode::MathOverflow)?;
-        dispute.resolved_at = None;
-        dispute.resolution = None;
         dispute.client_payout_percent = 0;
         dispute.freelancer_payout_percent = 0;
         dispute.bump = ctx.bumps.dispute;
 
         let job = &mut ctx.accounts.job;
         job.status = JobStatus::Disputed;
-        job.updated_at = now;
 
         msg!("Dispute raised for job: {}", job.key());
         Ok(())
@@ -1359,7 +1281,7 @@ pub mod escrow {
         ctx: Context<SubmitEvidence>,
         _job_id: u64,
         index: u8,
-        content: Vec<u8>,
+        content_hash: [u8; 32],
     ) -> Result<()> {
         let dispute = &mut ctx.accounts.dispute;
         require!(
@@ -1374,11 +1296,7 @@ pub mod escrow {
             index == dispute.evidence_count,
             ErrorCode::InvalidEvidenceIndex
         );
-        require!(!content.is_empty(), ErrorCode::EmptyEvidence);
-        require!(
-            content.len() <= MAX_DISPUTE_EVIDENCE,
-            ErrorCode::EvidenceTooLong
-        );
+
         let submitter = ctx.accounts.submitter.key();
         require!(
             submitter == ctx.accounts.job.client || ctx.accounts.job.freelancer == Some(submitter),
@@ -1389,8 +1307,7 @@ pub mod escrow {
         evidence.dispute = dispute.key();
         evidence.index = index;
         evidence.author = submitter;
-        evidence.content = content;
-        evidence.submitted_at = Clock::get()?.unix_timestamp;
+        evidence.content_hash = content_hash;
         evidence.bump = ctx.bumps.evidence;
         dispute.evidence_count = dispute
             .evidence_count
@@ -1454,7 +1371,6 @@ pub mod escrow {
         dispute.client_payout_percent = client_payout_percent;
         dispute.freelancer_payout_percent = 100 - client_payout_percent;
         dispute.status = DisputeStatus::Resolved;
-        dispute.resolved_at = Some(Clock::get()?.unix_timestamp);
 
         msg!(
             "Dispute resolved: {}% client, {}% freelancer",
@@ -1502,7 +1418,6 @@ pub mod escrow {
         dispute.client_payout_percent = client_payout_percent;
         dispute.freelancer_payout_percent = 100 - client_payout_percent;
         dispute.status = DisputeStatus::Resolved;
-        dispute.resolved_at = Some(Clock::get()?.unix_timestamp);
         Ok(())
     }
 
@@ -1531,7 +1446,6 @@ pub mod escrow {
     pub fn open_support_ticket(
         ctx: Context<OpenSupportTicket>,
         _job_id: u64,
-        reason: String,
     ) -> Result<()> {
         let job = &ctx.accounts.job;
         require!(
@@ -1544,21 +1458,13 @@ pub mod escrow {
             opener == job.client || job.freelancer == Some(opener),
             ErrorCode::NotAuthorized
         );
-        require!(!reason.is_empty(), ErrorCode::EmptyDisputeReason);
-        require!(
-            reason.len() <= MAX_DISPUTE_REASON,
-            ErrorCode::DescriptionTooLong
-        );
+
         require!(ctx.accounts.dispute.is_none(), ErrorCode::CaseAlreadyOpen);
 
         let ticket = &mut ctx.accounts.ticket;
         ticket.job = job.key();
         ticket.opened_by = opener;
-        ticket.reason = reason;
         ticket.status = SupportTicketStatus::Open;
-        ticket.created_at = Clock::get()?.unix_timestamp;
-        ticket.resolved_at = None;
-        ticket.resolution = None;
         ticket.bump = ctx.bumps.ticket;
 
         msg!("Support ticket opened for job: {}", job.key());
@@ -1568,7 +1474,6 @@ pub mod escrow {
     pub fn resolve_support_ticket(
         ctx: Context<ResolveSupportTicket>,
         _job_id: u64,
-        resolution: String,
     ) -> Result<()> {
         let config = &ctx.accounts.config;
         require!(
@@ -1587,11 +1492,7 @@ pub mod escrow {
             ticket.status == SupportTicketStatus::Open,
             ErrorCode::DisputeAlreadyResolved
         );
-        require!(!resolution.is_empty(), ErrorCode::EmptyDisputeReason);
-        require!(
-            resolution.len() <= MAX_DISPUTE_REASON,
-            ErrorCode::DescriptionTooLong
-        );
+
         let job = &mut ctx.accounts.job;
         require!(
             job.client == ctx.accounts.client.key(),
@@ -1618,10 +1519,7 @@ pub mod escrow {
         )?;
 
         job.status = JobStatus::Cancelled;
-        job.updated_at = Clock::get()?.unix_timestamp;
         ticket.status = SupportTicketStatus::Resolved;
-        ticket.resolved_at = Some(Clock::get()?.unix_timestamp);
-        ticket.resolution = Some(resolution);
 
         msg!("Support ticket resolved (job cancelled): {}", job.key());
         Ok(())
@@ -1776,25 +1674,12 @@ pub mod escrow {
         ctx: Context<CreateMilestone>,
         _job_id: u64,
         index: u8,
-        title: String,
-        description: String,
         amount: u64,
-        deadline: i64,
     ) -> Result<()> {
         let job = &mut ctx.accounts.job;
         require!(
             job.status == JobStatus::InProgress,
             ErrorCode::InvalidJobStatus
-        );
-        require!(!title.is_empty(), ErrorCode::EmptyTitle);
-        require!(title.len() <= MAX_MILESTONE_TITLE, ErrorCode::TitleTooLong);
-        require!(
-            description.len() <= MAX_DESCRIPTION_LENGTH,
-            ErrorCode::DescriptionTooLong
-        );
-        require!(
-            deadline > Clock::get()?.unix_timestamp,
-            ErrorCode::DeadlineMustBeFuture
         );
         require!(
             index == job.milestones_total,
@@ -1816,23 +1701,16 @@ pub mod escrow {
 
         let milestone = &mut ctx.accounts.milestone;
         milestone.job = job.key();
-        milestone.title = title;
-        milestone.description = description;
         milestone.amount = amount;
-        milestone.deadline = deadline;
         milestone.status = MilestoneStatus::Pending;
         milestone.index = index;
-        milestone.submitted_at = None;
-        milestone.approved_at = None;
         milestone.bump = ctx.bumps.milestone;
-        milestone.created_at = Clock::get()?.unix_timestamp;
 
         job.milestones_total = job
             .milestones_total
             .checked_add(1)
             .ok_or(ErrorCode::MathOverflow)?;
         job.milestones_amount_total = new_total;
-        job.updated_at = Clock::get()?.unix_timestamp;
 
         Ok(())
     }
@@ -1859,7 +1737,7 @@ pub mod escrow {
         );
 
         milestone.status = MilestoneStatus::Submitted;
-        milestone.submitted_at = Some(Clock::get()?.unix_timestamp);
+
         Ok(())
     }
 
@@ -1896,8 +1774,6 @@ pub mod escrow {
             .checked_add(1)
             .ok_or(ErrorCode::MathOverflow)?;
         milestone.status = MilestoneStatus::Approved;
-        milestone.approved_at = Some(Clock::get()?.unix_timestamp);
-        job.updated_at = Clock::get()?.unix_timestamp;
 
         Ok(())
     }

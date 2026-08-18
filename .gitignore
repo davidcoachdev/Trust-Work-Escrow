@@ -58,3 +58,6 @@ yarn-error.log*
 
 # Tooling local state
 .serena/
+
+# Surfpool local state
+.surfpool/
