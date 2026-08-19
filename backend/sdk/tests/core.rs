@@ -60,16 +60,17 @@ fn test_deserialize_mock_job_with_optionals() {
         status: JobStatus::Funded,
         paused: false,
         paused_at: 0,
-        title: "Build a website".to_string(),
-        description: "Static site with contact form".to_string(),
         deadline: 1_700_000_000,
-        created_at: 1_690_000_000,
-        updated_at: 1_690_000_001,
         submitted_at: None,
         milestones_total: 2,
         milestones_approved: 0,
         milestones_amount_total: 1_000_000,
-        applicants: vec![Pubkey::new_unique()],
+        applicants: {
+            let mut a = [Pubkey::default(); MAX_APPLICATIONS];
+            a[0] = Pubkey::new_unique();
+            a
+        },
+        applicants_len: 1,
         bump: 254,
     };
 
@@ -79,7 +80,7 @@ fn test_deserialize_mock_job_with_optionals() {
     let got = deserialize_account::<Job>(&buf).expect("deserialize job");
     assert_eq!(got, job);
     assert_eq!(got.status, JobStatus::Funded);
-    assert_eq!(got.applicants.len(), 1);
+    assert_eq!(got.applicants_len, 1);
 }
 
 #[test]

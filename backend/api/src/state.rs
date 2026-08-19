@@ -1,7 +1,9 @@
-//! State module (stub).
+//! Application state.
 //!
-//! Later tasks (T13, T17) hold shared application state: SDK client, repository
-//! and configuration loaded from env/path.
+//! Currently the state is empty because the DB layer is intentionally deferred
+//! until Docker is available. The struct exists so route handlers already
+//! receive a typed `State<AppState>` and future repositories can be wired here
+//! without changing handler signatures.
 
-/// Placeholder app state. Real state arrives in T13/T17.
-pub struct AppState;
+#[derive(Clone, Debug, Default)]
+pub struct AppState {}

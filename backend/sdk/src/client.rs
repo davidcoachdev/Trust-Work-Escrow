@@ -7,7 +7,7 @@
 
 #[cfg(feature = "solana")]
 mod inner {
-    use crate::error::{BackendError, Result};
+    use crate::error::{BackendError, ErrorCode, Result};
     use crate::pda;
     use crate::types::*;
 
@@ -17,12 +17,12 @@ mod inner {
         solana_sdk::{
             commitment_config::CommitmentConfig,
             hash::hash,
-            instruction::{AccountMeta, Instruction},
+            instruction::{AccountMeta, Instruction, InstructionError},
             pubkey::Pubkey,
             signature::{read_keypair_file, Keypair, Signature},
             signer::Signer,
             system_program,
-            transaction::Transaction,
+            transaction::{Transaction, TransactionError},
         },
         Client, Cluster, Program,
     };
@@ -49,13 +49,10 @@ mod inner {
             let program_id = crate::PROGRAM_ID_STR
                 .parse::<Pubkey>()
                 .map_err(BackendError::SolanaSdk)?;
-            let program = Client::new_with_options(
-                cluster,
-                payer.clone(),
-                CommitmentConfig::confirmed(),
-            )
-            .program(program_id)
-            .map_err(|e| BackendError::from(Box::new(e)))?;
+            let program =
+                Client::new_with_options(cluster, payer.clone(), CommitmentConfig::confirmed())
+                    .program(program_id)
+                    .map_err(|e| BackendError::from(Box::new(e)))?;
             Ok(Self { program, payer })
         }
 
@@ -96,12 +93,16 @@ mod inner {
 
         pub fn get_config(&self) -> Result<Option<Config>> {
             let (addr, _) = pda::get_config_pda()?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         pub fn get_job(&self, client: &Pubkey, job_id: u64) -> Result<Option<Job>> {
             let (addr, _) = pda::get_job_pda(client, job_id)?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         pub fn get_application(
@@ -111,37 +112,51 @@ mod inner {
             applicant: &Pubkey,
         ) -> Result<Option<Application>> {
             let (addr, _) = pda::get_application_pda(job, index, applicant)?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         pub fn get_arbiter_pool(&self) -> Result<Option<ArbiterPool>> {
             let (addr, _) = pda::get_arbiter_pool_pda()?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         pub fn get_dispute(&self, job: &Pubkey) -> Result<Option<Dispute>> {
             let (addr, _) = pda::get_dispute_pda(job)?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         pub fn get_arb_fee(&self, job: &Pubkey) -> Result<Option<ArbitrationEscrow>> {
             let (addr, _) = pda::get_arb_fee_pda(job)?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         pub fn get_milestone(&self, job: &Pubkey, index: u8) -> Result<Option<Milestone>> {
             let (addr, _) = pda::get_milestone_pda(job, index)?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         pub fn get_evidence(&self, dispute: &Pubkey, index: u8) -> Result<Option<Evidence>> {
             let (addr, _) = pda::get_evidence_pda(dispute, index)?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         pub fn get_support_ticket(&self, job: &Pubkey) -> Result<Option<SupportTicket>> {
             let (addr, _) = pda::get_support_pda(job)?;
-            Ok(self.fetch_optional(&addr)?.and_then(|d| deserialize_account(&d)))
+            Ok(self
+                .fetch_optional(&addr)?
+                .and_then(|d| deserialize_account(&d)))
         }
 
         // ===== INSTRUCTION BUILDER =====
@@ -184,15 +199,59 @@ mod inner {
                 &signers,
                 blockhash,
             );
-            self.program
+            let signature = self
+                .program
                 .rpc()
                 .send_and_confirm_transaction(&tx)
-                .map_err(|e| BackendError::from(Box::new(e)))
+                .map_err(|e| BackendError::from(Box::new(e)))?;
+
+            // `send_and_confirm_transaction` only guarantees the transaction was
+            // *confirmed* (included in a block), not that the program succeeded.
+            // A program failure still lands as a confirmed transaction whose
+            // `meta.err` is set, so verify the program-level result here. Without
+            // this, an instruction that fails on-chain returns `Ok(Signature)`
+            // and the caller only discovers the failure later (e.g. a missing
+            // account), masking the real cause.
+            let statuses = self
+                .program
+                .rpc()
+                .get_signature_statuses(&[signature])
+                .map_err(|e| BackendError::from(Box::new(e)))?
+                .value;
+            let status = statuses
+                .into_iter()
+                .next()
+                .flatten()
+                .ok_or_else(|| {
+                    BackendError::sdk_error("missing status for confirmed transaction")
+                })?;
+            if let Some(err) = status.err {
+                return Err(Self::map_program_error(err));
+            }
+            Ok(signature)
+        }
+
+        /// Map a confirmed-but-failed transaction error to a typed
+        /// [`BackendError`]. Anchor program failures surface as
+        /// `InstructionError::Custom(code)`, where `code` is the on-chain
+        /// `ErrorCode` discriminant, so we mirror it back to
+        /// [`BackendError::Contract`] when it is a known code. Otherwise the raw
+        /// error is surfaced via [`BackendError::Sdk`] so the failure is never
+        /// silently swallowed.
+        fn map_program_error(err: TransactionError) -> BackendError {
+            if let TransactionError::InstructionError(_, InstructionError::Custom(code)) =
+                &err
+            {
+                if let Some(code) = ErrorCode::from_code(*code) {
+                    return BackendError::Contract(code);
+                }
+                return BackendError::sdk_error(format!("program error code {}", code));
+            }
+            BackendError::sdk_error(format!("transaction failed: {}", err))
         }
 
         fn ser<T: BorshSerialize>(args: &T) -> Result<Vec<u8>> {
-            borsh::to_vec(args)
-                .map_err(|e| BackendError::serialization_error(format!("{}", e)))
+            borsh::to_vec(args).map_err(|e| BackendError::serialization_error(format!("{}", e)))
         }
 
         // ===== CONFIG / PAUSE (T4) =====
@@ -213,12 +272,7 @@ mod inner {
                 AccountMeta::new(config, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
-            let args = Self::ser(&(
-                *advisor,
-                *treasury,
-                *arbitration_treasury,
-                fee_bps,
-            ))?;
+            let args = Self::ser(&(*advisor, *treasury, *arbitration_treasury, fee_bps))?;
             self.anchor_ix("initialize_config", accounts, args).await
         }
 
@@ -312,9 +366,9 @@ mod inner {
         /// Guard: returns an error if the program is paused.
         pub fn check_not_paused(&self) -> Result<()> {
             match self.get_config()? {
-                Some(cfg) if cfg.paused => {
-                    Err(BackendError::contract(crate::error::ErrorCode::ProgramPaused))
-                }
+                Some(cfg) if cfg.paused => Err(BackendError::contract(
+                    crate::error::ErrorCode::ProgramPaused,
+                )),
                 _ => Ok(()),
             }
         }
@@ -322,8 +376,6 @@ mod inner {
         pub async fn create_job(
             &self,
             job_id: u64,
-            title: &str,
-            description: &str,
             amount: u64,
             deadline: i64,
         ) -> Result<Signature> {
@@ -336,13 +388,7 @@ mod inner {
                 AccountMeta::new_readonly(config, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
-            let args = Self::ser(&(
-                job_id,
-                title.to_string(),
-                description.to_string(),
-                amount,
-                deadline,
-            ))?;
+            let args = Self::ser(&(job_id, amount, deadline))?;
             self.anchor_ix("create_job", accounts, args).await
         }
 
@@ -356,7 +402,8 @@ mod inner {
                 AccountMeta::new_readonly(config, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
-            self.anchor_ix("deposit_funds", accounts, Self::ser(&(job_id,))?).await
+            self.anchor_ix("deposit_funds", accounts, Self::ser(&(job_id,))?)
+                .await
         }
 
         pub async fn apply_to_job(
@@ -364,12 +411,11 @@ mod inner {
             client: &Pubkey,
             job_id: u64,
             application_index: u8,
-            proposal: &str,
+            proposal_hash: [u8; 32],
         ) -> Result<Signature> {
             let applicant = self.payer.pubkey();
             let (job, _) = pda::get_job_pda(client, job_id)?;
-            let (application, _) =
-                pda::get_application_pda(&job, application_index, &applicant)?;
+            let (application, _) = pda::get_application_pda(&job, application_index, &applicant)?;
             let accounts = vec![
                 AccountMeta::new(applicant, true),
                 AccountMeta::new_readonly(*client, false),
@@ -377,7 +423,7 @@ mod inner {
                 AccountMeta::new(application, false),
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
-            let args = Self::ser(&(job_id, application_index, proposal.to_string()))?;
+            let args = Self::ser(&(job_id, application_index, proposal_hash))?;
             self.anchor_ix("apply_to_job", accounts, args).await
         }
 
@@ -389,8 +435,7 @@ mod inner {
             freelancer: &Pubkey,
         ) -> Result<Signature> {
             let (job, _) = pda::get_job_pda(client, job_id)?;
-            let (application, _) =
-                pda::get_application_pda(&job, application_index, freelancer)?;
+            let (application, _) = pda::get_application_pda(&job, application_index, freelancer)?;
             let accounts = vec![
                 AccountMeta::new(self.payer.pubkey(), true),
                 AccountMeta::new(job, false),
@@ -436,7 +481,8 @@ mod inner {
                 AccountMeta::new_readonly(*client, false),
                 AccountMeta::new(job, false),
             ];
-            self.anchor_ix("submit_work", accounts, Self::ser(&(job_id,))?).await
+            self.anchor_ix("submit_work", accounts, Self::ser(&(job_id,))?)
+                .await
         }
 
         pub async fn auto_approve_work(
@@ -473,11 +519,7 @@ mod inner {
                 .await
         }
 
-        pub async fn approve_work(
-            &self,
-            job_id: u64,
-            freelancer: &Pubkey,
-        ) -> Result<Signature> {
+        pub async fn approve_work(&self, job_id: u64, freelancer: &Pubkey) -> Result<Signature> {
             let client = self.payer.pubkey();
             let (job_addr, _) = pda::get_job_pda(&client, job_id)?;
             let (config, _) = pda::get_config_pda()?;
@@ -496,17 +538,15 @@ mod inner {
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
             accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
-            self.anchor_ix("approve_work", accounts, Self::ser(&(job_id,))?).await
+            self.anchor_ix("approve_work", accounts, Self::ser(&(job_id,))?)
+                .await
         }
 
-        pub async fn reject_work(&self, job_id: u64, reason: &str) -> Result<Signature> {
+        pub async fn reject_work(&self, job_id: u64) -> Result<Signature> {
             let client = self.payer.pubkey();
             let (job, _) = pda::get_job_pda(&client, job_id)?;
-            let accounts = vec![
-                AccountMeta::new(client, true),
-                AccountMeta::new(job, false),
-            ];
-            self.anchor_ix("reject_work", accounts, Self::ser(&(job_id, reason.to_string()))?)
+            let accounts = vec![AccountMeta::new(client, true), AccountMeta::new(job, false)];
+            self.anchor_ix("reject_work", accounts, Self::ser(&(job_id,))?)
                 .await
         }
 
@@ -522,34 +562,27 @@ mod inner {
                 AccountMeta::new_readonly(system_program::ID, false),
             ];
             accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
-            self.anchor_ix("cancel_job", accounts, Self::ser(&(job_id,))?).await
+            self.anchor_ix("cancel_job", accounts, Self::ser(&(job_id,))?)
+                .await
         }
 
         pub async fn pause_job(&self, job_id: u64) -> Result<Signature> {
             let client = self.payer.pubkey();
             let (job, _) = pda::get_job_pda(&client, job_id)?;
-            let accounts = vec![
-                AccountMeta::new(client, true),
-                AccountMeta::new(job, false),
-            ];
-            self.anchor_ix("pause_job", accounts, Self::ser(&(job_id,))?).await
+            let accounts = vec![AccountMeta::new(client, true), AccountMeta::new(job, false)];
+            self.anchor_ix("pause_job", accounts, Self::ser(&(job_id,))?)
+                .await
         }
 
         pub async fn unpause_job(&self, job_id: u64) -> Result<Signature> {
             let client = self.payer.pubkey();
             let (job, _) = pda::get_job_pda(&client, job_id)?;
-            let accounts = vec![
-                AccountMeta::new(client, true),
-                AccountMeta::new(job, false),
-            ];
-            self.anchor_ix("unpause_job", accounts, Self::ser(&(job_id,))?).await
+            let accounts = vec![AccountMeta::new(client, true), AccountMeta::new(job, false)];
+            self.anchor_ix("unpause_job", accounts, Self::ser(&(job_id,))?)
+                .await
         }
 
-        pub async fn expire_paused_job(
-            &self,
-            client: &Pubkey,
-            job_id: u64,
-        ) -> Result<Signature> {
+        pub async fn expire_paused_job(&self, client: &Pubkey, job_id: u64) -> Result<Signature> {
             let (job_addr, _) = pda::get_job_pda(client, job_id)?;
             let job = self
                 .get_job(client, job_id)?
@@ -564,6 +597,414 @@ mod inner {
             self.anchor_ix("expire_paused_job", accounts, Self::ser(&(job_id,))?)
                 .await
         }
+
+        // ===== ARBITER POOL =====
+
+        pub async fn create_arbiter_pool(&self) -> Result<Signature> {
+            let (config, _) = pda::get_config_pda()?;
+            let (pool, _) = pda::get_arbiter_pool_pda()?;
+            let accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new(pool, false),
+                AccountMeta::new_readonly(config, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+            self.anchor_ix("create_arbiter_pool", accounts, Vec::new())
+                .await
+        }
+
+        pub async fn add_arbiter(&self, new_arbiter: &Pubkey) -> Result<Signature> {
+            let (config, _) = pda::get_config_pda()?;
+            let (pool, _) = pda::get_arbiter_pool_pda()?;
+            let accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new(pool, false),
+                AccountMeta::new_readonly(config, false),
+            ];
+            self.anchor_ix("add_arbiter", accounts, Self::ser(new_arbiter)?)
+                .await
+        }
+
+        pub async fn remove_arbiter(&self, arbiter: &Pubkey) -> Result<Signature> {
+            let (config, _) = pda::get_config_pda()?;
+            let (pool, _) = pda::get_arbiter_pool_pda()?;
+            let accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new(pool, false),
+                AccountMeta::new_readonly(config, false),
+            ];
+            self.anchor_ix("remove_arbiter", accounts, Self::ser(arbiter)?)
+                .await
+        }
+
+        // ===== DISPUTES / EVIDENCE =====
+
+        pub async fn raise_dispute(&self, client: &Pubkey, job_id: u64) -> Result<Signature> {
+            let applicant = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (dispute, _) = pda::get_dispute_pda(&job)?;
+            let (escrow, _) = pda::get_arb_fee_pda(&job)?;
+            let program_id = crate::PROGRAM_ID_STR
+                .parse::<Pubkey>()
+                .map_err(BackendError::SolanaSdk)?;
+            let accounts = vec![
+                AccountMeta::new(applicant, true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new(job, false),
+                AccountMeta::new_readonly(program_id, false),
+                AccountMeta::new(dispute, false),
+                AccountMeta::new(escrow, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+            self.anchor_ix("raise_dispute", accounts, Self::ser(&(job_id,))?)
+                .await
+        }
+
+        pub async fn accept_dispute(&self, client: &Pubkey, job_id: u64) -> Result<Signature> {
+            let accepter = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (dispute, _) = pda::get_dispute_pda(&job)?;
+            let (escrow, _) = pda::get_arb_fee_pda(&job)?;
+            let accounts = vec![
+                AccountMeta::new(accepter, true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job, false),
+                AccountMeta::new(dispute, false),
+                AccountMeta::new(escrow, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+            self.anchor_ix("accept_dispute", accounts, Self::ser(&(job_id,))?)
+                .await
+        }
+
+        pub async fn submit_evidence(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+            index: u8,
+            content_hash: [u8; 32],
+        ) -> Result<Signature> {
+            let submitter = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (dispute, _) = pda::get_dispute_pda(&job)?;
+            let (evidence, _) = pda::get_evidence_pda(&dispute, index)?;
+            let accounts = vec![
+                AccountMeta::new(submitter, true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job, false),
+                AccountMeta::new(dispute, false),
+                AccountMeta::new(evidence, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+            self.anchor_ix(
+                "submit_evidence",
+                accounts,
+                Self::ser(&(job_id, index, content_hash))?,
+            )
+            .await
+        }
+
+        pub async fn assign_arbiter(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+            arbiter: &Pubkey,
+        ) -> Result<Signature> {
+            let (config, _) = pda::get_config_pda()?;
+            let (pool, _) = pda::get_arbiter_pool_pda()?;
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (dispute, _) = pda::get_dispute_pda(&job)?;
+            let accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job, false),
+                AccountMeta::new(dispute, false),
+                AccountMeta::new_readonly(pool, false),
+                AccountMeta::new_readonly(*arbiter, false),
+                AccountMeta::new_readonly(config, false),
+            ];
+            self.anchor_ix("assign_arbiter", accounts, Self::ser(&(job_id,))?)
+                .await
+        }
+
+        pub async fn resolve_dispute(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+            client_payout_percent: u8,
+        ) -> Result<Signature> {
+            let arbiter = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (dispute, _) = pda::get_dispute_pda(&job)?;
+            let accounts = vec![
+                AccountMeta::new(arbiter, true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job, false),
+                AccountMeta::new(dispute, false),
+            ];
+            self.anchor_ix(
+                "resolve_dispute",
+                accounts,
+                Self::ser(&(job_id, client_payout_percent))?,
+            )
+            .await
+        }
+
+        pub async fn resolve_platform_case(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+            client_payout_percent: u8,
+        ) -> Result<Signature> {
+            let (config, _) = pda::get_config_pda()?;
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (dispute, _) = pda::get_dispute_pda(&job)?;
+            let accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job, false),
+                AccountMeta::new(dispute, false),
+                AccountMeta::new_readonly(config, false),
+            ];
+            self.anchor_ix(
+                "resolve_platform_case",
+                accounts,
+                Self::ser(&(job_id, client_payout_percent))?,
+            )
+            .await
+        }
+
+        pub async fn request_platform_intervention(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+        ) -> Result<Signature> {
+            let requester = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (dispute, _) = pda::get_dispute_pda(&job)?;
+            let accounts = vec![
+                AccountMeta::new(requester, true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job, false),
+                AccountMeta::new(dispute, false),
+            ];
+            self.anchor_ix(
+                "request_platform_intervention",
+                accounts,
+                Self::ser(&(job_id,))?,
+            )
+            .await
+        }
+
+        pub async fn finalize_dispute_payouts(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+        ) -> Result<Signature> {
+            let cfg = self
+                .get_config()?
+                .ok_or_else(|| BackendError::config_error("config not initialized"))?;
+            let (job_addr, _) = pda::get_job_pda(client, job_id)?;
+            let job = self
+                .get_job(client, job_id)?
+                .ok_or_else(|| BackendError::config_error("job not found"))?;
+            let (dispute_addr, _) = pda::get_dispute_pda(&job_addr)?;
+            let dispute = self
+                .get_dispute(&job_addr)?
+                .ok_or_else(|| BackendError::config_error("dispute not found"))?;
+            let (escrow_addr, _) = pda::get_arb_fee_pda(&job_addr)?;
+            let freelancer = job
+                .freelancer
+                .ok_or_else(|| BackendError::config_error("no freelancer"))?;
+
+            let mut accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new(job_addr, false),
+                AccountMeta::new(dispute_addr, false),
+                AccountMeta::new(escrow_addr, false),
+                AccountMeta::new(freelancer, false),
+                AccountMeta::new(cfg.treasury, false),
+                AccountMeta::new(cfg.arbitration_treasury, false),
+                AccountMeta::new_readonly(pda::get_config_pda()?.0, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+
+            let expected = dispute
+                .evidence_count
+                .saturating_sub(dispute.evidence_cleanup_cursor);
+            accounts.extend(evidence_cleanup_metas(&dispute_addr, expected)?);
+            accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
+
+            self.anchor_ix("finalize_dispute_payouts", accounts, Self::ser(&(job_id,))?)
+                .await
+        }
+
+        pub async fn cleanup_dispute_evidence(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+            start_index: u8,
+            count: u8,
+        ) -> Result<Signature> {
+            let (config, _) = pda::get_config_pda()?;
+            let (job_addr, _) = pda::get_job_pda(client, job_id)?;
+            let (dispute_addr, _) = pda::get_dispute_pda(&job_addr)?;
+            let mut accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job_addr, false),
+                AccountMeta::new(dispute_addr, false),
+                AccountMeta::new_readonly(config, false),
+            ];
+            for offset in 0..count {
+                let idx = start_index + offset;
+                let (evidence, _) = pda::get_evidence_pda(&dispute_addr, idx)?;
+                accounts.push(AccountMeta::new(evidence, false));
+            }
+            self.anchor_ix("cleanup_dispute_evidence", accounts, Self::ser(&(job_id,))?)
+                .await
+        }
+
+        // ===== SUPPORT TICKETS =====
+
+        pub async fn open_support_ticket(&self, client: &Pubkey, job_id: u64) -> Result<Signature> {
+            let opener = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (ticket, _) = pda::get_support_pda(&job)?;
+            let program_id = crate::PROGRAM_ID_STR
+                .parse::<Pubkey>()
+                .map_err(BackendError::SolanaSdk)?;
+            let accounts = vec![
+                AccountMeta::new(opener, true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job, false),
+                AccountMeta::new_readonly(program_id, false),
+                AccountMeta::new(ticket, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+            self.anchor_ix("open_support_ticket", accounts, Self::ser(&(job_id,))?)
+                .await
+        }
+
+        pub async fn resolve_support_ticket(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+        ) -> Result<Signature> {
+            let (config, _) = pda::get_config_pda()?;
+            let (job_addr, _) = pda::get_job_pda(client, job_id)?;
+            let job = self
+                .get_job(client, job_id)?
+                .ok_or_else(|| BackendError::config_error("job not found"))?;
+            let (ticket_addr, _) = pda::get_support_pda(&job_addr)?;
+            let opener = job.client; // ticket.opened_by validated on-chain; use job.client as refund target
+            let mut accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new(job_addr, false),
+                AccountMeta::new(ticket_addr, false),
+                AccountMeta::new_readonly(opener, false),
+                AccountMeta::new_readonly(config, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+            accounts.extend(application_cleanup_metas(&job_addr, &job, 0)?);
+            self.anchor_ix("resolve_support_ticket", accounts, Self::ser(&(job_id,))?)
+                .await
+        }
+
+        // ===== MILESTONES =====
+
+        pub async fn create_milestone(
+            &self,
+            job_id: u64,
+            index: u8,
+            amount: u64,
+        ) -> Result<Signature> {
+            let client = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(&client, job_id)?;
+            let (milestone, _) = pda::get_milestone_pda(&job, index)?;
+            let accounts = vec![
+                AccountMeta::new(client, true),
+                AccountMeta::new(job, false),
+                AccountMeta::new(milestone, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+            self.anchor_ix(
+                "create_milestone",
+                accounts,
+                Self::ser(&(job_id, index, amount))?,
+            )
+            .await
+        }
+
+        pub async fn submit_milestone(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+            milestone_index: u8,
+        ) -> Result<Signature> {
+            let freelancer = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (milestone, _) = pda::get_milestone_pda(&job, milestone_index)?;
+            let accounts = vec![
+                AccountMeta::new(freelancer, true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new_readonly(job, false),
+                AccountMeta::new(milestone, false),
+            ];
+            self.anchor_ix(
+                "submit_milestone",
+                accounts,
+                Self::ser(&(job_id, milestone_index))?,
+            )
+            .await
+        }
+
+        pub async fn approve_milestone(
+            &self,
+            job_id: u64,
+            milestone_index: u8,
+            freelancer: &Pubkey,
+        ) -> Result<Signature> {
+            let client = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(&client, job_id)?;
+            let (milestone, _) = pda::get_milestone_pda(&job, milestone_index)?;
+            let accounts = vec![
+                AccountMeta::new(client, true),
+                AccountMeta::new(job, false),
+                AccountMeta::new(milestone, false),
+                AccountMeta::new(*freelancer, false),
+                AccountMeta::new_readonly(system_program::ID, false),
+            ];
+            self.anchor_ix(
+                "approve_milestone",
+                accounts,
+                Self::ser(&(job_id, milestone_index))?,
+            )
+            .await
+        }
+
+        pub async fn reject_milestone(
+            &self,
+            job_id: u64,
+            milestone_index: u8,
+        ) -> Result<Signature> {
+            let client = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(&client, job_id)?;
+            let (milestone, _) = pda::get_milestone_pda(&job, milestone_index)?;
+            let accounts = vec![
+                AccountMeta::new(client, true),
+                AccountMeta::new(job, false),
+                AccountMeta::new(milestone, false),
+            ];
+            self.anchor_ix(
+                "reject_milestone",
+                accounts,
+                Self::ser(&(job_id, milestone_index))?,
+            )
+            .await
+        }
     }
 
     /// Build the (application, applicant) remaining-account pairs the on-chain
@@ -575,11 +1016,24 @@ mod inner {
         job: &Job,
         start_index: u8,
     ) -> Result<Vec<AccountMeta>> {
-        let mut metas = Vec::with_capacity(job.applicants.len().saturating_sub(start_index as usize) * 2);
-        for (i, applicant) in job.applicants.iter().enumerate().skip(start_index as usize) {
+        let filled = job.applicants_len as usize;
+        let start = start_index as usize;
+        let mut metas = Vec::with_capacity(filled.saturating_sub(start) * 2);
+        for i in start..filled {
+            let applicant = &job.applicants[i];
             let (application, _) = pda::get_application_pda(job_addr, i as u8, applicant)?;
             metas.push(AccountMeta::new(application, false));
             metas.push(AccountMeta::new(*applicant, false));
+        }
+        Ok(metas)
+    }
+
+    /// Build writable evidence account metas for dispute cleanup.
+    fn evidence_cleanup_metas(dispute_addr: &Pubkey, expected: u8) -> Result<Vec<AccountMeta>> {
+        let mut metas = Vec::with_capacity(expected as usize);
+        for i in 0..expected {
+            let (evidence, _) = pda::get_evidence_pda(dispute_addr, i)?;
+            metas.push(AccountMeta::new(evidence, false));
         }
         Ok(metas)
     }

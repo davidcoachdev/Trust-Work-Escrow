@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "REST API (axum) for Trust Work Escrow v3 (scaffold / stubs, no endpoints yet)"
+description = "REST API (axum) for Trust Work Escrow v3 with OpenAPI/Swagger docs"
 
 [[bin]]
 name = "trust-escrow-api"
@@ -15,12 +15,23 @@ path = "src/main.rs"
 # Local SDK crate (path dependency).
 trust-escrow-sdk = { path = "../sdk" }
 
-# Web framework — pinned; optional in the scaffold so the default build stays light.
-# Later tasks (T13+) enable the `server` feature to mount the axum router.
-axum = { version = "0.7", optional = true }
-tokio = { version = "1.0", features = ["full"], optional = true }
+# Web framework & runtime
+axum = "0.7"
+tokio = { version = "1.0", features = ["full"] }
+
+# OpenAPI / Swagger
+utoipa = { version = "4.2", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
+
+# Serialization & config
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [features]
-default = []
-# Enables the axum/tokio web server for implementation tasks.
-server = ["dep:axum", "dep:tokio"]
+default = ["server"]
+# Keeps the original light scaffold available when explicitly disabled.
+server = []

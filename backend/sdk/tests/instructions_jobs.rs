@@ -12,15 +12,11 @@ use anchor_client::Cluster;
 use solana_client::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
+    hash::hash,
     pubkey::Pubkey,
-    signature::{Keypair, Signer, read_keypair_file},
+    signature::{read_keypair_file, Keypair, Signer},
 };
-use trust_escrow_sdk::{
-    client::TrustEscrowClient,
-    pda,
-    types::*,
-    PROGRAM_ID_STR,
-};
+use trust_escrow_sdk::{client::TrustEscrowClient, pda, types::*, PROGRAM_ID_STR};
 
 const RPC_URL: &str = "http://127.0.0.1:8899";
 const KEYPAIR_PATH: &str = "~/.config/solana/id.json";
@@ -43,9 +39,16 @@ fn compute_fee(amount: u64, fee_bps: u16) -> u64 {
     amount * fee_bps as u64 / 10_000
 }
 
+/// Convert a proposal string into the `[u8; 32]` hash `apply_to_job` expects.
+fn proposal_hash(s: &str) -> [u8; 32] {
+    hash(s.as_bytes()).to_bytes()
+}
+
 fn airdrop(pubkey: &Pubkey, lamports: u64) {
     let before = rpc().get_balance(pubkey).unwrap_or(0);
-    let _ = rpc().request_airdrop(pubkey, lamports).expect("airdrop request");
+    let _ = rpc()
+        .request_airdrop(pubkey, lamports)
+        .expect("airdrop request");
     for _ in 0..100 {
         let after = rpc().get_balance(pubkey).unwrap_or(0);
         if after > before {
@@ -145,7 +148,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     let j = job_id;
     job_id += 1;
     client
-        .create_job(j, "Build a landing page", "Static one-page site", AMOUNT, now_ts() + 3600)
+        .create_job(j, AMOUNT, now_ts() + 3600)
         .await
         .expect("create_job");
     let job = client.get_job(&client_pk, j).unwrap().expect("job");
@@ -167,7 +170,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     let j = job_id;
     job_id += 1;
     client
-        .create_job(j, "Two applicants", "Only one wins", AMOUNT, now_ts() + 3600)
+        .create_job(j, AMOUNT, now_ts() + 3600)
         .await
         .unwrap();
     client.deposit_funds(j).await.unwrap();
@@ -182,17 +185,23 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     let b_client = TrustEscrowClient::new(Cluster::Localnet, fl_b).unwrap();
 
     a_client
-        .apply_to_job(&client_pk, j, 0, "First")
+        .apply_to_job(&client_pk, j, 0, proposal_hash("First"))
         .await
         .expect("apply_to_job (a)");
     b_client
-        .apply_to_job(&client_pk, j, 1, "Second")
+        .apply_to_job(&client_pk, j, 1, proposal_hash("Second"))
         .await
         .expect("apply_to_job (b)");
     let job_pk = pda::get_job_pda(&client_pk, j).unwrap().0;
-    let app_a = client.get_application(&job_pk, 0, &fl_a_pk).unwrap().expect("app a");
+    let app_a = client
+        .get_application(&job_pk, 0, &fl_a_pk)
+        .unwrap()
+        .expect("app a");
     assert_eq!(app_a.status, ApplicationStatus::Pending);
-    let app_b = client.get_application(&job_pk, 1, &fl_b_pk).unwrap().expect("app b");
+    let app_b = client
+        .get_application(&job_pk, 1, &fl_b_pk)
+        .unwrap()
+        .expect("app b");
     assert_eq!(app_b.status, ApplicationStatus::Pending);
 
     client
@@ -202,8 +211,11 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     let job = client.get_job(&client_pk, j).unwrap().unwrap();
     assert_eq!(job.status, JobStatus::InProgress);
     assert_eq!(job.freelancer, Some(fl_a_pk));
-    assert_eq!(job.applicants.len(), 2);
-    let app_a = client.get_application(&job_pk, 0, &fl_a_pk).unwrap().unwrap();
+    assert_eq!(job.applicants_len, 2);
+    let app_a = client
+        .get_application(&job_pk, 0, &fl_a_pk)
+        .unwrap()
+        .unwrap();
     assert_eq!(app_a.status, ApplicationStatus::Accepted);
 
     // Cleanup from index 1 closes freelancer B's still-Pending application.
@@ -223,17 +235,23 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     let fl_client = TrustEscrowClient::new(Cluster::Localnet, freelancer).unwrap();
 
     client
-        .create_job(j, "Write tests", "Cover the SDK", AMOUNT, now_ts() + 3600)
+        .create_job(j, AMOUNT, now_ts() + 3600)
         .await
         .unwrap();
     client.deposit_funds(j).await.unwrap();
     fl_client
-        .apply_to_job(&client_pk, j, 0, "Happy to cover it")
+        .apply_to_job(&client_pk, j, 0, proposal_hash("Happy to cover it"))
         .await
         .unwrap();
-    client.accept_application(&client_pk, j, 0, &fl_pk).await.unwrap();
+    client
+        .accept_application(&client_pk, j, 0, &fl_pk)
+        .await
+        .unwrap();
 
-    fl_client.submit_work(&client_pk, j).await.expect("submit_work");
+    fl_client
+        .submit_work(&client_pk, j)
+        .await
+        .expect("submit_work");
     let job = client.get_job(&client_pk, j).unwrap().unwrap();
     assert_eq!(job.status, JobStatus::Submitted);
 
@@ -242,25 +260,31 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     let job_after = client.get_job(&client_pk, j).unwrap();
     assert!(job_after.is_none(), "approved job account is closed");
     let fl_balance_after = rpc().get_balance(&fl_pk).unwrap();
-    assert!(fl_balance_after > fl_balance_before, "freelancer must be paid on approve");
+    assert!(
+        fl_balance_after > fl_balance_before,
+        "freelancer must be paid on approve"
+    );
     let treasury_balance = rpc().get_balance(&treasury).unwrap();
     assert!(treasury_balance > 0, "fee must land in treasury");
 
     let j = job_id;
     job_id += 1;
     client
-        .create_job(j, "Reject me", "Expect rejection", AMOUNT, now_ts() + 3600)
+        .create_job(j, AMOUNT, now_ts() + 3600)
         .await
         .unwrap();
     client.deposit_funds(j).await.unwrap();
     fl_client
-        .apply_to_job(&client_pk, j, 0, "Accept me?")
+        .apply_to_job(&client_pk, j, 0, proposal_hash("Accept me?"))
         .await
         .unwrap();
-    client.accept_application(&client_pk, j, 0, &fl_pk).await.unwrap();
+    client
+        .accept_application(&client_pk, j, 0, &fl_pk)
+        .await
+        .unwrap();
     fl_client.submit_work(&client_pk, j).await.unwrap();
     client
-        .reject_work(j, "Does not match the spec")
+        .reject_work(j)
         .await
         .expect("reject_work");
     let job = client.get_job(&client_pk, j).unwrap().unwrap();
@@ -269,7 +293,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     // ===== Grupo work: pause_job / unpause_job =====
     let j = job_id;
     client
-        .create_job(j, "Pause me", "Pause/unpause flow", AMOUNT, now_ts() + 3600)
+        .create_job(j, AMOUNT, now_ts() + 3600)
         .await
         .unwrap();
     client.pause_job(j).await.expect("pause_job");

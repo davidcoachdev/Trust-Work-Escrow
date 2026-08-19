@@ -212,18 +212,24 @@ impl ErrorCode {
             }
             ErrorCode::NotValidArbiter => "Not a valid arbiter",
             ErrorCode::NotArbiter => "Not the assigned arbiter",
-            ErrorCode::ArbiterCannotBeParty => "El arbitro no puede ser el cliente ni el freelancer",
+            ErrorCode::ArbiterCannotBeParty => {
+                "El arbitro no puede ser el cliente ni el freelancer"
+            }
             ErrorCode::InvalidPercent => "Payout percent exceeds 100",
             ErrorCode::MilestoneNotFound => "Milestone not found",
             ErrorCode::MilestoneAlreadyCompleted => "Milestone already completed",
             ErrorCode::InvalidMilestoneIndex => {
                 "Invalid milestone index (must be sequential: == milestones_total)"
             }
-            ErrorCode::MilestoneAmountExceedsFunds => "Milestone amount exceeds remaining job funds",
+            ErrorCode::MilestoneAmountExceedsFunds => {
+                "Milestone amount exceeds remaining job funds"
+            }
             ErrorCode::AllMilestonesRequired => "All milestones must be completed before release",
             ErrorCode::AlreadyApplied => "Already applied to this job",
             ErrorCode::InvalidApplicationIndex => "Invalid application index",
-            ErrorCode::CaseAlreadyOpen => "A dispute or support ticket is already open for this job",
+            ErrorCode::CaseAlreadyOpen => {
+                "A dispute or support ticket is already open for this job"
+            }
             ErrorCode::AutoApprovalNotReady => "Auto-approval deadline has not been reached",
             ErrorCode::AutoApprovalBlocked => "Auto-approval is blocked by an open dispute",
             ErrorCode::InvalidBootstrapAuthority => "Invalid bootstrap authority",
@@ -328,10 +334,7 @@ mod tests {
     #[test]
     fn test_error_code_message() {
         assert_eq!(ErrorCode::ProgramPaused.message(), "Program is paused");
-        assert_eq!(
-            ErrorCode::NotAuthorized.message(),
-            "Not authorized"
-        );
+        assert_eq!(ErrorCode::NotAuthorized.message(), "Not authorized");
     }
 
     #[test]

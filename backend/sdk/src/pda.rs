@@ -39,7 +39,10 @@ mod inner {
     pub fn derive_job_pda(client: &Pubkey, job_id: u64) -> Result<(Pubkey, u8)> {
         let pid = program_id()?;
         let id = job_id.to_le_bytes();
-        Ok(Pubkey::find_program_address(&[JOB_SEED, client.as_ref(), &id], &pid))
+        Ok(Pubkey::find_program_address(
+            &[JOB_SEED, client.as_ref(), &id],
+            &pid,
+        ))
     }
 
     pub fn derive_application_pda(
@@ -61,12 +64,18 @@ mod inner {
 
     pub fn derive_dispute_pda(job: &Pubkey) -> Result<(Pubkey, u8)> {
         let pid = program_id()?;
-        Ok(Pubkey::find_program_address(&[DISPUTE_SEED, job.as_ref()], &pid))
+        Ok(Pubkey::find_program_address(
+            &[DISPUTE_SEED, job.as_ref()],
+            &pid,
+        ))
     }
 
     pub fn derive_arb_fee_pda(job: &Pubkey) -> Result<(Pubkey, u8)> {
         let pid = program_id()?;
-        Ok(Pubkey::find_program_address(&[ARB_FEE_SEED, job.as_ref()], &pid))
+        Ok(Pubkey::find_program_address(
+            &[ARB_FEE_SEED, job.as_ref()],
+            &pid,
+        ))
     }
 
     pub fn derive_milestone_pda(job: &Pubkey, index: u8) -> Result<(Pubkey, u8)> {
@@ -87,7 +96,10 @@ mod inner {
 
     pub fn derive_support_pda(job: &Pubkey) -> Result<(Pubkey, u8)> {
         let pid = program_id()?;
-        Ok(Pubkey::find_program_address(&[SUPPORT_SEED, job.as_ref()], &pid))
+        Ok(Pubkey::find_program_address(
+            &[SUPPORT_SEED, job.as_ref()],
+            &pid,
+        ))
     }
 
     // ---- Thread-safe cache ----

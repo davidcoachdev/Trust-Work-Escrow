@@ -7,8 +7,13 @@
 
 #[cfg(feature = "solana")]
 mod inner {
-    use anchor_lang::{AccountDeserialize, AnchorDeserialize, AnchorSerialize};
     use anchor_lang::solana_program::pubkey::Pubkey;
+    use anchor_lang::{AccountDeserialize, AnchorDeserialize, AnchorSerialize};
+
+    /// Maximum number of applicants a job may hold. Must match the on-chain
+    /// `MAX_APPLICATIONS` constant in `trust-escrow-v3` so the serialized
+    /// `Job` account layout stays identical.
+    pub const MAX_APPLICATIONS: usize = 50;
 
     // ---- Enums (declaration order must match the on-chain contract) ----
 
@@ -78,16 +83,13 @@ mod inner {
         pub status: JobStatus,
         pub paused: bool,
         pub paused_at: i64,
-        pub title: String,
-        pub description: String,
         pub deadline: i64,
-        pub created_at: i64,
-        pub updated_at: i64,
         pub submitted_at: Option<i64>,
         pub milestones_total: u8,
         pub milestones_approved: u8,
         pub milestones_amount_total: u64,
-        pub applicants: Vec<Pubkey>,
+        pub applicants: [Pubkey; MAX_APPLICATIONS],
+        pub applicants_len: u8,
         pub bump: u8,
     }
 
@@ -96,8 +98,7 @@ mod inner {
         pub job: Pubkey,
         pub index: u8,
         pub applicant: Pubkey,
-        pub proposal: String,
-        pub applied_at: i64,
+        pub proposal_hash: [u8; 32],
         pub status: ApplicationStatus,
         pub bump: u8,
     }
@@ -117,11 +118,7 @@ mod inner {
         pub status: DisputeStatus,
         pub evidence_count: u8,
         pub evidence_cleanup_cursor: u8,
-        pub reason: String,
-        pub created_at: i64,
         pub deadline: i64,
-        pub resolved_at: Option<i64>,
-        pub resolution: Option<String>,
         pub client_payout_percent: u8,
         pub freelancer_payout_percent: u8,
         pub bump: u8,
@@ -132,35 +129,24 @@ mod inner {
         pub dispute: Pubkey,
         pub index: u8,
         pub author: Pubkey,
-        pub content: Vec<u8>,
-        pub submitted_at: i64,
+        pub content_hash: [u8; 32],
         pub bump: u8,
     }
 
     #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
     pub struct Milestone {
         pub job: Pubkey,
-        pub title: String,
-        pub description: String,
         pub amount: u64,
-        pub deadline: i64,
         pub status: MilestoneStatus,
         pub index: u8,
-        pub submitted_at: Option<i64>,
-        pub approved_at: Option<i64>,
         pub bump: u8,
-        pub created_at: i64,
     }
 
     #[derive(AnchorSerialize, AnchorDeserialize, Clone, Debug, PartialEq)]
     pub struct SupportTicket {
         pub job: Pubkey,
         pub opened_by: Pubkey,
-        pub reason: String,
         pub status: SupportTicketStatus,
-        pub created_at: i64,
-        pub resolved_at: Option<i64>,
-        pub resolution: Option<String>,
         pub bump: u8,
     }
 
@@ -195,7 +181,9 @@ mod inner {
             error_name: "AccountDiscriminatorMismatch".to_string(),
             error_code_number: 3002,
             error_msg: "Account discriminator did not match what was expected".to_string(),
-            error_origin: Some(anchor_lang::error::ErrorOrigin::AccountName(name.to_string())),
+            error_origin: Some(anchor_lang::error::ErrorOrigin::AccountName(
+                name.to_string(),
+            )),
             compared_values: None,
         }))
     }

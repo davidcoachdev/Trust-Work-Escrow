@@ -18,7 +18,7 @@ const MAX_PAUSE_DURATION: i64 = 30 * 24 * 60 * 60;
 const MIN_JOB_AMOUNT: u64 = 100_000;
 const MAX_EVIDENCE_COUNT: u8 = 10;
 const MAX_MILESTONES: usize = 20;
-const MAX_APPLICATIONS: usize = 50;
+const MAX_APPLICATIONS: usize = 10;
 const MAX_ARBITERS: usize = 50;
 
 #[error_code]
@@ -227,7 +227,7 @@ fn cleanup_job_applications(
         start
             .checked_add(application_count)
             .ok_or(ErrorCode::InvalidApplicationCleanupAccounts)?
-            <= job.applicants.len(),
+                <= job.applicants.len(),
         ErrorCode::InvalidApplicationCleanupAccounts
     );
     if require_full_range {
@@ -406,6 +406,11 @@ pub struct Job {
     pub milestones_total: u8,
     pub milestones_approved: u8,
     pub milestones_amount_total: u64,
+    // Bounded applicant list. Stored as a `Vec` with a fixed maximum capacity
+    // (MAX_APPLICATIONS). Anchor reserves the full capacity inside the account's
+    // allocated space, so no runtime heap allocation occurs, while avoiding the
+    // large stack frames that a fixed `[Pubkey; N]` array produced (the cause of
+    // the previous SBF stack overflow at build time).
     #[max_len(MAX_APPLICATIONS)]
     pub applicants: Vec<Pubkey>,
     pub bump: u8,
@@ -710,12 +715,7 @@ pub mod escrow {
 
         job.applicants = Vec::new();
 
-        msg!(
-            "Job created: {} - amount {}, fee {}",
-            job.key(),
-            amount,
-            fee_amount
-        );
+        msg!("Job created");
         Ok(())
     }
 
@@ -768,9 +768,7 @@ pub mod escrow {
         );
 
         require!(
-            !job.applicants
-                .iter()
-                .any(|a| *a == ctx.accounts.applicant.key()),
+            !job.applicants.iter().any(|a| *a == ctx.accounts.applicant.key()),
             ErrorCode::AlreadyApplied
         );
         require!(
