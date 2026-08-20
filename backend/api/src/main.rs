@@ -19,6 +19,7 @@ pub mod evidence;
 pub mod metadata;
 pub mod models;
 pub mod repository;
+pub mod sync;
 mod routes;
 mod state;
 
