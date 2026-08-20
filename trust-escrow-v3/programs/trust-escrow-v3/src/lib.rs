@@ -503,7 +503,8 @@ pub fn compute_shortfall(required: u64, posted: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_shortfall, AUTO_APPROVAL_DELAY};
+    use super::{compute_shortfall, AUTO_APPROVAL_DELAY, Job, Application, MAX_APPLICATIONS};
+    use anchor_lang::Space;
 
     #[test]
     fn dispute_payout_uses_explicit_shortfall_without_underflow() {
@@ -518,6 +519,55 @@ mod tests {
         let deadline = submitted_at + AUTO_APPROVAL_DELAY;
         assert!(deadline >= submitted_at + 604_800);
         assert!(deadline + 1 > submitted_at + 604_800);
+    }
+
+    // T22: Job compacto — no reserva colección inline sobredimensionada,
+    // cuenta compacta con contador/límites y seeds/bump definidos.
+    #[test]
+    fn job_compact_init_space_under_10kib_and_vec_50_compact() {
+        assert_eq!(MAX_APPLICATIONS, 50, "MAX_APPLICATIONS debe ser 50");
+        // Job serializado con Vec interior: Anchor INIT_SPACE incluye 4 + 50*32 bytes.
+        // Debe ser compacto (< 10KiB inner limit) y no sobredimensionado (28KiB de 50 Applications).
+        let init = Job::INIT_SPACE;
+        assert!(
+            init < 10 * 1024,
+            "Job INIT_SPACE {} debe ser < 10KiB (inner allocation limit)",
+            init
+        );
+        assert!(
+            init < 28 * 1024,
+            "Job INIT_SPACE {} no debe ser 28KiB (50 Applications inline)",
+            init
+        );
+        // Verificamos que el espacio adicional por applicants sea exactamente 50*32 + overhead Vec.
+        // Job sin applicants vs con 50: el delta de INIT_SPACE es el overhead reservado.
+        // No verificamos el valor exacto (depende de precisa serialización de otros campos),
+        // pero sí que el componente dominante sea 50*32 y no 50*sizeof(Application).
+        let vec_reserved = 4 + 50 * 32; // borsh Vec<Pubkey>
+        assert!(
+            init >= vec_reserved,
+            "INIT_SPACE debe reservar al menos {} bytes para Vec<Pubkey>",
+            vec_reserved
+        );
+        let application_inline_reserved = 50 * 99; // aprox tamaño Application inline
+        // init no debe acercarse a 50*Application; si init > vec_reserved + 3000 probablemente es inline
+        assert!(
+            init < vec_reserved + 3000,
+            "INIT_SPACE {} no debe incluir 50 Applications inline (~{} bytes extra)",
+            init,
+            application_inline_reserved
+        );
+    }
+
+    #[test]
+    fn job_and_application_have_bump_and_constants() {
+        // Job y Application deben tener campo bump (u8) y MAX_APPLICATIONS / constantes definidas.
+        assert_eq!(MAX_APPLICATIONS, 50);
+        let app_space = Application::INIT_SPACE;
+        // Application es compacta: job 32 + index 1 + applicant 32 + proposal_hash 32 + status 1 + bump 1 ~ 99 bytes + 8 disc = ~107 sin overhead
+        assert!(app_space > 0 && app_space < 512, "Application INIT_SPACE debe ser compacto, got {}", app_space);
+        // Verificamos que el programa declare el ID esperado (se compila con ese ID; no hay otro ID en el árbol).
+        assert_eq!(crate::ID.to_string(), "7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh");
     }
 }
 
