@@ -214,7 +214,11 @@ mod tests {
         let res = check_keypair_permissions(path.to_str().unwrap());
         assert!(res.is_err());
         let msg = res.unwrap_err().to_string();
-        assert!(msg.contains("insecure keypair permissions"), "msg was: {}", msg);
+        assert!(
+            msg.contains("insecure keypair permissions"),
+            "msg was: {}",
+            msg
+        );
         assert!(!msg.contains("0,0,0"), "must not leak key bytes");
         std::fs::remove_file(&path).unwrap();
     }
@@ -225,7 +229,11 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir();
         for mode in [0o600, 0o400] {
-            let path = dir.join(format!("test-kp-perms-{}-{:o}.json", std::process::id(), mode));
+            let path = dir.join(format!(
+                "test-kp-perms-{}-{:o}.json",
+                std::process::id(),
+                mode
+            ));
             std::fs::write(&path, "[]").unwrap();
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
             let res = check_keypair_permissions(path.to_str().unwrap());

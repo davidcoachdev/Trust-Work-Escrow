@@ -9,7 +9,10 @@
 
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 #[allow(unused_imports)]
-use trust_escrow_api::{app, app_with_state, state::{ApiConfig, AppState}};
+use trust_escrow_api::{
+    app, app_with_state,
+    state::{ApiConfig, AppState},
+};
 
 #[tokio::main]
 async fn main() {
@@ -84,30 +87,49 @@ mod tests {
     #[tokio::test]
     async fn ready_ok_or_unavailable() {
         let resp = app()
-            .oneshot(Request::builder().uri("/ready").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/ready")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert!(
-            resp.status() == StatusCode::OK
-                || resp.status() == StatusCode::SERVICE_UNAVAILABLE
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::SERVICE_UNAVAILABLE
         );
     }
 
     #[tokio::test]
     async fn metrics_ok() {
         let resp = app()
-            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
-        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+        let ct = resp
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap();
         assert!(ct.contains("text/plain"));
     }
 
     #[tokio::test]
     async fn metrics_json_ok() {
         let resp = app()
-            .oneshot(Request::builder().uri("/metrics/json").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics/json")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -131,7 +153,12 @@ mod tests {
     async fn health_response_has_version() {
         use axum::body::to_bytes;
         let resp = app()
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         let body = to_bytes(resp.into_body(), 8192).await.unwrap();
@@ -145,7 +172,12 @@ mod tests {
     async fn metrics_prometheus_has_expected_lines() {
         use axum::body::to_bytes;
         let resp = app()
-            .oneshot(Request::builder().uri("/metrics").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         let body = to_bytes(resp.into_body(), 8192).await.unwrap();
@@ -159,7 +191,12 @@ mod tests {
     #[tokio::test]
     async fn security_headers_present_on_health() {
         let resp = app()
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         let h = resp.headers();
@@ -186,13 +223,14 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
         // with valid signature -> 200
-        use ed25519_dalek::{Signer, SigningKey};
         use base64::Engine as _;
+        use ed25519_dalek::{Signer, SigningKey};
         let seed = [7u8; 32];
         let sk = SigningKey::from_bytes(&seed);
         let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
         let msg = "test-auth-message";
-        let sig = base64::engine::general_purpose::STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
+        let sig =
+            base64::engine::general_purpose::STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
         let resp = app()
             .oneshot(
                 Request::builder()

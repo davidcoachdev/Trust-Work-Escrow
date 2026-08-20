@@ -34,12 +34,7 @@ pub struct MetricsResponse {
     responses((status = 200, description = "Prometheus metrics", body = String))
 )]
 pub async fn metrics(State(state): State<AppState>) -> impl IntoResponse {
-    let jobs_count = state
-        .repo
-        .list_jobs()
-        .await
-        .map(|v| v.len())
-        .unwrap_or(0);
+    let jobs_count = state.repo.list_jobs().await.map(|v| v.len()).unwrap_or(0);
 
     let body = render_prometheus(
         state.requests_total.load(Ordering::Relaxed),
@@ -129,7 +124,8 @@ mod tests {
             rate_limit_requests: 100,
             rate_limit_window_secs: 60,
         };
-        let state = AppState::with_config_and_repository(cfg, Arc::new(InMemoryMetadataRepository::new()));
+        let state =
+            AppState::with_config_and_repository(cfg, Arc::new(InMemoryMetadataRepository::new()));
         let body = render_prometheus(0, 0, state.uptime_seconds(), &state.config.version, 0);
         assert!(!body.to_lowercase().contains("private"));
     }

@@ -11,12 +11,7 @@
 
 use anchor_lang::AnchorSerialize;
 use solana_sdk::pubkey::Pubkey;
-use trust_escrow_sdk::{
-    client::deserialize_account,
-    pda,
-    types::*,
-    PROGRAM_ID_STR,
-};
+use trust_escrow_sdk::{client::deserialize_account, pda, types::*, PROGRAM_ID_STR};
 
 // ---------------------------------------------------------------------------
 // Helpers: replica exacta de checks on-chain en `apply_to_job`.
@@ -64,7 +59,10 @@ fn program_id_is_7a2y_in_sdk() {
     let (derived, _) = pda::derive_job_pda(&client, 1).unwrap();
     let (expected, _) =
         Pubkey::find_program_address(&[b"job", client.as_ref(), &1u64.to_le_bytes()], &pid);
-    assert_eq!(derived, expected, "PROGRAM_ID_STR debe ser el del contrato 7a2Y");
+    assert_eq!(
+        derived, expected,
+        "PROGRAM_ID_STR debe ser el del contrato 7a2Y"
+    );
 }
 
 #[test]
@@ -110,10 +108,16 @@ fn job_is_compact_vec_pubkey_not_inline_applications() {
     assert_eq!(delta, 50 * 32, "Job Vec<Pubkey> debe ser compacto 50*32");
     // Si fuera inline de Applications (≈ 32 hash + 32 job + 32 applicant + 1 index + 1 status + 1 bump ≈ 99 bytes c/u),
     // delta sería >= 50*70. Verificamos que NO lo es.
-    assert!(delta < 50 * 70, "Job no debe reservar 50 Applications inline");
+    assert!(
+        delta < 50 * 70,
+        "Job no debe reservar 50 Applications inline"
+    );
     // Requisito de Inner account limit (10 KiB): Job INIT_SPACE debe permitir 50*32 dentro del límite.
     // Tamaño aproximado con overhead borsh fijo ~ 100 bytes + 1600 = ~1700 < 10240.
-    assert!(buf_full.len() < 10 * 1024, "Job serializado con 50 applicants debe ser < 10KiB");
+    assert!(
+        buf_full.len() < 10 * 1024,
+        "Job serializado con 50 applicants debe ser < 10KiB"
+    );
 }
 
 #[test]
@@ -123,13 +127,10 @@ fn job_compact_counter_limits_and_seeds_bump_defined() {
     let pid: Pubkey = PROGRAM_ID_STR.parse().unwrap();
     for job_id in [0u64, 1, 42, u64::MAX] {
         let (pda, bump) = pda::derive_job_pda(&client, job_id).unwrap();
-        let (expected, ebump) = Pubkey::find_program_address(
-            &[b"job", client.as_ref(), &job_id.to_le_bytes()],
-            &pid,
-        );
+        let (expected, ebump) =
+            Pubkey::find_program_address(&[b"job", client.as_ref(), &job_id.to_le_bytes()], &pid);
         assert_eq!(pda, expected, "Job PDA seed mismatch job_id={}", job_id);
         assert_eq!(bump, ebump);
-        assert!(bump <= u8::MAX);
         assert!(!pda.is_on_curve());
     }
 
@@ -163,10 +164,12 @@ fn job_initial_state_is_zero_applicants_compact() {
         applicants: Vec::new(),
         bump: 1,
     };
-    assert_eq!(job.applicants.len(), 0, "Job inicial debe tener 0 applicants");
+    assert_eq!(
+        job.applicants.len(),
+        0,
+        "Job inicial debe tener 0 applicants"
+    );
     assert!(job.applicants.is_empty());
-    // bump definido
-    assert!(job.bump <= u8::MAX);
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +187,11 @@ fn application_pda_seeds_bump_are_canonical() {
             &[b"application", job.as_ref(), &[idx], applicant.as_ref()],
             &pid,
         );
-        assert_eq!(derived, expected, "Application PDA seed mismatch idx={}", idx);
+        assert_eq!(
+            derived, expected,
+            "Application PDA seed mismatch idx={}",
+            idx
+        );
         assert_eq!(bump, ebump);
         assert!(!derived.is_on_curve());
     }

@@ -141,10 +141,7 @@ pub async fn security_headers_middleware(req: Request, next: Next) -> Response {
         HeaderValue::from_static("nosniff"),
     );
     headers.insert("x-frame-options", HeaderValue::from_static("DENY"));
-    headers.insert(
-        "x-xss-protection",
-        HeaderValue::from_static("0"),
-    );
+    headers.insert("x-xss-protection", HeaderValue::from_static("0"));
     headers.insert(
         "referrer-policy",
         HeaderValue::from_static("strict-origin-when-cross-origin"),
@@ -206,7 +203,11 @@ pub async fn rate_limit_middleware(
 
 fn resolve_ip(req: &Request) -> IpAddr {
     // Check X-Forwarded-For first (common behind proxies)
-    if let Some(forwarded) = req.headers().get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+    if let Some(forwarded) = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+    {
         if let Some(first) = forwarded.split(',').next().map(|s| s.trim()) {
             if let Ok(ip) = first.parse::<IpAddr>() {
                 return ip;
@@ -243,7 +244,11 @@ pub async fn https_enforcement_middleware(
             .and_then(|v| v.to_str().ok())
             .map(|v| v.eq_ignore_ascii_case("https"))
             .unwrap_or(false)
-            || req.uri().scheme_str().map(|s| s == "https").unwrap_or(false);
+            || req
+                .uri()
+                .scheme_str()
+                .map(|s| s == "https")
+                .unwrap_or(false);
 
         // In production we also accept requests that arrived via TLS termination
         // (the `is_https` check). If not https, we could redirect or reject.
@@ -252,7 +257,11 @@ pub async fn https_enforcement_middleware(
             // Allow health checks without https in production? No — be strict but
             // allow loopback for liveness probes. Check X-Forwarded-For loopback?
             // For now, only enforce if header explicitly says http.
-            if let Some(proto) = req.headers().get("x-forwarded-proto").and_then(|v| v.to_str().ok()) {
+            if let Some(proto) = req
+                .headers()
+                .get("x-forwarded-proto")
+                .and_then(|v| v.to_str().ok())
+            {
                 if proto.eq_ignore_ascii_case("http") {
                     let body = serde_json::json!({
                         "error": "https required in production",
@@ -298,7 +307,7 @@ pub async fn request_size_guard(req: Request, next: Next) -> Response {
 mod tests {
     use super::*;
     use crate::state::RateLimiter;
-    use axum::{body::Body, http::Request, Router, routing::get};
+    use axum::{body::Body, http::Request, routing::get, Router};
     use tower::ServiceExt;
 
     #[test]
@@ -337,11 +346,16 @@ mod tests {
 
     #[tokio::test]
     async fn security_headers_present() {
-        async fn handler() -> &'static str { "ok" }
+        async fn handler() -> &'static str {
+            "ok"
+        }
         let app = Router::new()
             .route("/", get(handler))
             .layer(axum::middleware::from_fn(security_headers_middleware));
-        let res = app.oneshot(Request::builder().uri("/").body(Body::empty()).unwrap()).await.unwrap();
+        let res = app
+            .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         let h = res.headers();
         assert_eq!(h.get("x-content-type-options").unwrap(), "nosniff");
         assert_eq!(h.get("x-frame-options").unwrap(), "DENY");
@@ -359,7 +373,9 @@ mod tests {
 
     #[tokio::test]
     async fn payload_too_large_rejected() {
-        async fn handler() -> &'static str { "ok" }
+        async fn handler() -> &'static str {
+            "ok"
+        }
         let app = Router::new()
             .route("/", get(handler))
             .layer(axum::middleware::from_fn(request_size_guard));

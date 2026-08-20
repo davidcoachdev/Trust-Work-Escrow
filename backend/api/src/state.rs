@@ -119,11 +119,13 @@ impl ApiConfig {
         crate::config::load_dotenv();
 
         let port = crate::config::parse_port()?.unwrap_or(3000);
-        let rpc_url = crate::config::parse_rpc_url()?.unwrap_or_else(|| "http://127.0.0.1:8899".to_string());
+        let rpc_url =
+            crate::config::parse_rpc_url()?.unwrap_or_else(|| "http://127.0.0.1:8899".to_string());
         let database_url = crate::config::parse_database_url()?;
         let mongo_url = crate::config::parse_mongo_url()?;
         let version = env!("CARGO_PKG_VERSION").to_string();
-        let environment = crate::config::parse_environment()?.unwrap_or_else(|| "development".to_string());
+        let environment =
+            crate::config::parse_environment()?.unwrap_or_else(|| "development".to_string());
         let cors_allowed_origins = crate::config::parse_cors_origins()?;
         let rate_limit_requests = crate::config::parse_rate_limit_requests()?.unwrap_or(100);
         let rate_limit_window_secs = crate::config::parse_rate_limit_window_secs()?.unwrap_or(60);
@@ -218,7 +220,10 @@ impl AppState {
     }
 
     /// Create state with explicit config and repository (useful in tests).
-    pub fn with_config_and_repository(config: ApiConfig, repo: Arc<dyn MetadataRepository>) -> Self {
+    pub fn with_config_and_repository(
+        config: ApiConfig,
+        repo: Arc<dyn MetadataRepository>,
+    ) -> Self {
         let rate_limiter = RateLimiter::new(
             config.rate_limit_requests,
             Duration::from_secs(config.rate_limit_window_secs),

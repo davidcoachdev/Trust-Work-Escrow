@@ -118,44 +118,124 @@ fn accept_only_pending_of_correct_job_and_index_by_client() {
         bump: 1,
     };
     // ok
-    assert!(validate_accept(&client, JobStatus::Funded, false, &client, &job_key, &app, 0, &applicants).is_ok());
+    assert!(validate_accept(
+        &client,
+        JobStatus::Funded,
+        false,
+        &client,
+        &job_key,
+        &app,
+        0,
+        &applicants
+    )
+    .is_ok());
     // no cliente
     assert_eq!(
-        validate_accept(&client, JobStatus::Funded, false, &other, &job_key, &app, 0, &applicants).unwrap_err(),
+        validate_accept(
+            &client,
+            JobStatus::Funded,
+            false,
+            &other,
+            &job_key,
+            &app,
+            0,
+            &applicants
+        )
+        .unwrap_err(),
         trust_escrow_sdk::error::ErrorCode::NotJobClient
     );
     // no pending
     let mut app2 = app.clone();
     app2.status = ApplicationStatus::Accepted;
     assert_eq!(
-        validate_accept(&client, JobStatus::Funded, false, &client, &job_key, &app2, 0, &applicants).unwrap_err(),
+        validate_accept(
+            &client,
+            JobStatus::Funded,
+            false,
+            &client,
+            &job_key,
+            &app2,
+            0,
+            &applicants
+        )
+        .unwrap_err(),
         trust_escrow_sdk::error::ErrorCode::ApplicationNotPending
     );
     // job incorrecto
     let wrong_job = Pubkey::new_unique();
     assert_eq!(
-        validate_accept(&client, JobStatus::Funded, false, &client, &wrong_job, &app, 0, &applicants).unwrap_err(),
+        validate_accept(
+            &client,
+            JobStatus::Funded,
+            false,
+            &client,
+            &wrong_job,
+            &app,
+            0,
+            &applicants
+        )
+        .unwrap_err(),
         trust_escrow_sdk::error::ErrorCode::InvalidApplicationAccount
     );
     // indice incorrecto
     assert_eq!(
-        validate_accept(&client, JobStatus::Funded, false, &client, &job_key, &app, 1, &applicants).unwrap_err(),
+        validate_accept(
+            &client,
+            JobStatus::Funded,
+            false,
+            &client,
+            &job_key,
+            &app,
+            1,
+            &applicants
+        )
+        .unwrap_err(),
         trust_escrow_sdk::error::ErrorCode::InvalidApplicationIndex
     );
     // aplicante no corresponde a Vec
     let applicants_wrong = vec![other];
     assert_eq!(
-        validate_accept(&client, JobStatus::Funded, false, &client, &job_key, &app, 0, &applicants_wrong).unwrap_err(),
+        validate_accept(
+            &client,
+            JobStatus::Funded,
+            false,
+            &client,
+            &job_key,
+            &app,
+            0,
+            &applicants_wrong
+        )
+        .unwrap_err(),
         trust_escrow_sdk::error::ErrorCode::InvalidApplicationAccount
     );
     // estado no Funded
     assert_eq!(
-        validate_accept(&client, JobStatus::InProgress, false, &client, &job_key, &app, 0, &applicants).unwrap_err(),
+        validate_accept(
+            &client,
+            JobStatus::InProgress,
+            false,
+            &client,
+            &job_key,
+            &app,
+            0,
+            &applicants
+        )
+        .unwrap_err(),
         trust_escrow_sdk::error::ErrorCode::InvalidJobStatus
     );
     // pausado
     assert_eq!(
-        validate_accept(&client, JobStatus::Funded, true, &client, &job_key, &app, 0, &applicants).unwrap_err(),
+        validate_accept(
+            &client,
+            JobStatus::Funded,
+            true,
+            &client,
+            &job_key,
+            &app,
+            0,
+            &applicants
+        )
+        .unwrap_err(),
         trust_escrow_sdk::error::ErrorCode::JobPaused
     );
 }

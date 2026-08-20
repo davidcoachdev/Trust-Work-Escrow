@@ -251,7 +251,9 @@ async fn apply_to_job(
     validation::validate_apply(&req)?;
     let existing = state.repo.list_applications_by_job(&pda).await?;
     if existing.len() >= 50 {
-        return Err(ApiError::BadRequest("maximum 50 applications reached".into()));
+        return Err(ApiError::BadRequest(
+            "maximum 50 applications reached".into(),
+        ));
     }
     // En API sin signer real, usamos placeholder; detectamos duplicado si el hash ya existe (defensa)
     // En on-chain real esto es `AlreadyApplied` por applicant pubkey

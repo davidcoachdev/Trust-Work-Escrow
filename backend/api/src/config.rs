@@ -96,7 +96,11 @@ pub fn validate_rpc_url(raw: &str) -> Result<String, ConfigError> {
     }
     // Basic shape: must contain "://" and host part
     let after_scheme = trimmed.split_once("://").map(|x| x.1).unwrap_or("");
-    if after_scheme.is_empty() || !after_scheme.contains('.') && !after_scheme.contains("localhost") && !after_scheme.contains("127.0.0.1") {
+    if after_scheme.is_empty()
+        || !after_scheme.contains('.')
+            && !after_scheme.contains("localhost")
+            && !after_scheme.contains("127.0.0.1")
+    {
         // Allow localhost/127.0.0.1 without dot, otherwise require dot or colon (host:port)
         if !after_scheme.starts_with("127.0.0.1") && !after_scheme.starts_with("localhost") {
             return Err(ConfigError::InvalidRpcUrl {
@@ -209,10 +213,12 @@ pub fn validate_cors_origins(raw: &str) -> Result<Vec<String>, ConfigError> {
 
 pub fn validate_rate_limit_requests(raw: &str) -> Result<usize, ConfigError> {
     let trimmed = raw.trim();
-    let v: usize = trimmed.parse().map_err(|_| ConfigError::InvalidRateLimitRequests {
-        value: raw.to_string(),
-        reason: "must be a positive integer".to_string(),
-    })?;
+    let v: usize = trimmed
+        .parse()
+        .map_err(|_| ConfigError::InvalidRateLimitRequests {
+            value: raw.to_string(),
+            reason: "must be a positive integer".to_string(),
+        })?;
     if v == 0 {
         return Err(ConfigError::InvalidRateLimitRequests {
             value: raw.to_string(),
@@ -230,10 +236,12 @@ pub fn validate_rate_limit_requests(raw: &str) -> Result<usize, ConfigError> {
 
 pub fn validate_rate_limit_window(raw: &str) -> Result<u64, ConfigError> {
     let trimmed = raw.trim();
-    let v: u64 = trimmed.parse().map_err(|_| ConfigError::InvalidRateLimitWindow {
-        value: raw.to_string(),
-        reason: "must be a positive integer (seconds)".to_string(),
-    })?;
+    let v: u64 = trimmed
+        .parse()
+        .map_err(|_| ConfigError::InvalidRateLimitWindow {
+            value: raw.to_string(),
+            reason: "must be a positive integer (seconds)".to_string(),
+        })?;
     if v == 0 {
         return Err(ConfigError::InvalidRateLimitWindow {
             value: raw.to_string(),

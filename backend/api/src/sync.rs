@@ -349,8 +349,10 @@ impl SyncEngine {
             let batch = self.config.batch_size;
             let timeout = self.config.rpc_timeout;
             async move {
-                with_timeout(timeout, async { fetcher.fetch_signatures(before.clone(), batch).await })
-                    .await
+                with_timeout(timeout, async {
+                    fetcher.fetch_signatures(before.clone(), batch).await
+                })
+                .await
             }
         })
         .await?;
@@ -391,15 +393,16 @@ impl SyncEngine {
 
         for sig in &pending {
             // Por firma: fetch_events con timeout+retry.
-            let events = with_retry(self.config.max_retries, || {
-                let fetcher = self.event_fetcher.clone();
-                let sig = sig.clone();
-                let timeout = self.config.rpc_timeout;
-                async move {
-                    with_timeout(timeout, async { fetcher.fetch_events(&sig).await }).await
-                }
-            })
-            .await?;
+            let events =
+                with_retry(self.config.max_retries, || {
+                    let fetcher = self.event_fetcher.clone();
+                    let sig = sig.clone();
+                    let timeout = self.config.rpc_timeout;
+                    async move {
+                        with_timeout(timeout, async { fetcher.fetch_events(&sig).await }).await
+                    }
+                })
+                .await?;
 
             stats.decoded += events.len();
 
@@ -410,7 +413,10 @@ impl SyncEngine {
                 }
             }
 
-            self.cursor.write().await.mark_processed(sig.signature.clone());
+            self.cursor
+                .write()
+                .await
+                .mark_processed(sig.signature.clone());
             stats.processed += 1;
         }
 
@@ -493,16 +499,27 @@ impl SyncEngine {
                         .to_string();
                     (pda, title, desc)
                 } else {
-                    (ev.signature.clone(), "Job from on-chain event".into(), String::new())
+                    (
+                        ev.signature.clone(),
+                        "Job from on-chain event".into(),
+                        String::new(),
+                    )
                 }
             } else {
-                (ev.signature.clone(), "Job from on-chain event".into(), String::new())
+                (
+                    ev.signature.clone(),
+                    "Job from on-chain event".into(),
+                    String::new(),
+                )
             };
             // Evitar doble validación de PDA en tests con signature corta: si pda
             // es signature corta no-base58, generar PDA sintética válida (44 chars base58-like).
             let pda = if pda.len() < 32 {
                 // Determinística: padding base58-friendly.
-                format!("7a2YhCd7iivXfyySkp1pf5jj{:0>20}{:02}", ev.slot as u8, ev.slot as u8)
+                format!(
+                    "7a2YhCd7iivXfyySkp1pf5jj{:0>20}{:02}",
+                    ev.slot as u8, ev.slot as u8
+                )
             } else {
                 pda
             };
@@ -544,8 +561,8 @@ impl SyncEngine {
                     if let (Some(dpda), Some(index), Some(content)) = (dispute_pda, idx, content) {
                         // Author sintético determinístico.
                         let author = format!("AuthorFor{:0>32}", ev.slot);
-                        let ev_meta = EvidenceMetadata::new(dpda, index, author, content)
-                            .map_err(|e| {
+                        let ev_meta =
+                            EvidenceMetadata::new(dpda, index, author, content).map_err(|e| {
                                 SyncError::InvalidParameter(format!("evidence validation: {}", e))
                             })?;
                         match self.repo.create_evidence(ev_meta).await {
@@ -755,7 +772,7 @@ mod tests {
         ];
         let pending = c.pending_ordered(batch);
         assert_eq!(pending[0].signature, "a"); // earliest block_time
-        // b y c comparten slot+time, orden lexicográfico
+                                               // b y c comparten slot+time, orden lexicográfico
         assert_eq!(pending[1].signature, "b");
         assert_eq!(pending[2].signature, "c");
     }
@@ -797,8 +814,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_once_idempotency_second_call_skips() {
-        let repo: Arc<dyn MetadataRepository> =
-            Arc::new(InMemoryMetadataRepository::new());
+        let repo: Arc<dyn MetadataRepository> = Arc::new(InMemoryMetadataRepository::new());
         let sigs = vec![sig("sigA", 1), sig("sigB", 2)];
         let sig_fetcher = Arc::new(MockSignatureFetcher::new(vec![sigs.clone(), sigs.clone()]));
         let mut map = std::collections::HashMap::new();
@@ -836,8 +852,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_once_ordering_calls_in_slot_order() {
-        let repo: Arc<dyn MetadataRepository> =
-            Arc::new(InMemoryMetadataRepository::new());
+        let repo: Arc<dyn MetadataRepository> = Arc::new(InMemoryMetadataRepository::new());
         // getSignatures retorna newest-first; pending debe reordenar.
         let sigs = vec![sig("sig3", 30), sig("sig1", 10), sig("sig2", 20)];
         let sig_fetcher = Arc::new(MockSignatureFetcher::single_batch(sigs));
@@ -862,8 +877,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_once_retry_on_signature_timeout() {
-        let repo: Arc<dyn MetadataRepository> =
-            Arc::new(InMemoryMetadataRepository::new());
+        let repo: Arc<dyn MetadataRepository> = Arc::new(InMemoryMetadataRepository::new());
         let sigs = vec![sig("sigX", 1)];
         let sig_fetcher = Arc::new(FlakySignatureFetcher::new(vec![sigs], 1));
         let mut map = std::collections::HashMap::new();
@@ -888,8 +902,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_once_retry_on_event_timeout() {
-        let repo: Arc<dyn MetadataRepository> =
-            Arc::new(InMemoryMetadataRepository::new());
+        let repo: Arc<dyn MetadataRepository> = Arc::new(InMemoryMetadataRepository::new());
         let sig_fetcher = Arc::new(MockSignatureFetcher::single_batch(vec![sig("sigY", 1)]));
         let mut map = std::collections::HashMap::new();
         map.insert("sigY".into(), vec![job_event("sigY", 1)]);
@@ -913,8 +926,7 @@ mod tests {
 
     #[tokio::test]
     async fn sync_once_timeout_exhausted_returns_error() {
-        let repo: Arc<dyn MetadataRepository> =
-            Arc::new(InMemoryMetadataRepository::new());
+        let repo: Arc<dyn MetadataRepository> = Arc::new(InMemoryMetadataRepository::new());
         let sig_fetcher = Arc::new(FlakySignatureFetcher::new(vec![vec![sig("s", 1)]], 10));
         let event_fetcher = Arc::new(MockEventFetcher::new(std::collections::HashMap::new()));
 
@@ -964,17 +976,12 @@ mod tests {
 
     #[tokio::test]
     async fn repo_already_exists_is_idempotent_not_error() {
-        let repo: Arc<dyn MetadataRepository> =
-            Arc::new(InMemoryMetadataRepository::new());
+        let repo: Arc<dyn MetadataRepository> = Arc::new(InMemoryMetadataRepository::new());
         // Pre-insertar job con misma pda que el evento va a intentar crear.
         // Usar PDA válida (32..128 chars) y payload explícito con esa misma PDA.
         let valid_pda = format!("7a2YhCd7iivXfyySkp1pf5jj{:0>20}{:02}", 1u8, 1u8);
-        let existing = JobMetadata::new(
-            valid_pda.clone(),
-            "T sigDup".into(),
-            "D sigDup".into(),
-        )
-        .unwrap();
+        let existing =
+            JobMetadata::new(valid_pda.clone(), "T sigDup".into(), "D sigDup".into()).unwrap();
         repo.create_job(existing).await.unwrap();
 
         let sig_fetcher = Arc::new(MockSignatureFetcher::single_batch(vec![sig("sigDup", 1)]));
@@ -1007,8 +1014,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_batch_returns_zero_stats() {
-        let repo: Arc<dyn MetadataRepository> =
-            Arc::new(InMemoryMetadataRepository::new());
+        let repo: Arc<dyn MetadataRepository> = Arc::new(InMemoryMetadataRepository::new());
         let sig_fetcher = Arc::new(MockSignatureFetcher::single_batch(vec![]));
         let event_fetcher = Arc::new(MockEventFetcher::new(std::collections::HashMap::new()));
         let engine = SyncEngine::new(
@@ -1025,8 +1031,7 @@ mod tests {
 
     #[tokio::test]
     async fn evidence_event_upserts_idempotently() {
-        let repo: Arc<dyn MetadataRepository> =
-            Arc::new(InMemoryMetadataRepository::new());
+        let repo: Arc<dyn MetadataRepository> = Arc::new(InMemoryMetadataRepository::new());
         let pda = format!("7a2YhCd7iivXfyySkp1pf5jj{:0>20}{:02}", 9u8, 9u8);
         let ev = SyncedEvent {
             signature: "sigEv".into(),

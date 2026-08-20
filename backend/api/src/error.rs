@@ -203,16 +203,40 @@ mod tests {
 
     #[test]
     fn status_mapping() {
-        assert_eq!(ApiError::BadRequest("x".into()).status_code(), StatusCode::BAD_REQUEST);
-        assert_eq!(ApiError::Unauthorized("x".into()).status_code(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            ApiError::BadRequest("x".into()).status_code(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            ApiError::Unauthorized("x".into()).status_code(),
+            StatusCode::UNAUTHORIZED
+        );
         assert_eq!(ApiError::Forbidden.status_code(), StatusCode::FORBIDDEN);
-        assert_eq!(ApiError::NotFound("x".into()).status_code(), StatusCode::NOT_FOUND);
-        assert_eq!(ApiError::Conflict("x".into()).status_code(), StatusCode::CONFLICT);
-        assert_eq!(ApiError::Unprocessable("x".into()).status_code(), StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(ApiError::TooManyRequests.status_code(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(
+            ApiError::NotFound("x".into()).status_code(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            ApiError::Conflict("x".into()).status_code(),
+            StatusCode::CONFLICT
+        );
+        assert_eq!(
+            ApiError::Unprocessable("x".into()).status_code(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        assert_eq!(
+            ApiError::TooManyRequests.status_code(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
         assert_eq!(ApiError::Timeout.status_code(), StatusCode::GATEWAY_TIMEOUT);
-        assert_eq!(ApiError::ServiceUnavailable("x".into()).status_code(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(ApiError::Internal("x".into()).status_code(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            ApiError::ServiceUnavailable("x".into()).status_code(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            ApiError::Internal("x".into()).status_code(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[test]

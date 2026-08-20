@@ -108,7 +108,11 @@ pub fn verify_ed25519(
 }
 
 /// High-level helper: decode inputs and verify.
-pub fn verify_signature(pubkey_b58: &str, message: &[u8], signature_str: &str) -> Result<(), ApiError> {
+pub fn verify_signature(
+    pubkey_b58: &str,
+    message: &[u8],
+    signature_str: &str,
+) -> Result<(), ApiError> {
     let pk = decode_pubkey(pubkey_b58)?;
     let sig = decode_signature(signature_str)?;
     verify_ed25519(&pk, message, &sig)
@@ -172,7 +176,11 @@ where
 impl IntoResponse for AuthenticatedUser {
     fn into_response(self) -> Response {
         // Not used as a response; only as extractor. Provide a trivial impl.
-        (StatusCode::OK, axum::Json(serde_json::json!({"pubkey": self.pubkey}))).into_response()
+        (
+            StatusCode::OK,
+            axum::Json(serde_json::json!({"pubkey": self.pubkey})),
+        )
+            .into_response()
     }
 }
 
@@ -183,7 +191,9 @@ impl IntoResponse for AuthenticatedUser {
 
 /// Try to authenticate; if headers are absent, return `None` (caller decides
 /// whether to require auth).
-pub fn try_authenticate(headers: &axum::http::HeaderMap) -> Result<Option<AuthenticatedUser>, ApiError> {
+pub fn try_authenticate(
+    headers: &axum::http::HeaderMap,
+) -> Result<Option<AuthenticatedUser>, ApiError> {
     let has_any = headers.contains_key("x-pubkey")
         || headers.contains_key("x-signature")
         || headers.contains_key("x-message");
@@ -300,8 +310,8 @@ mod tests {
 
     #[tokio::test]
     async fn extractor_missing_headers_returns_401() {
-        use axum::http::{Method, Request};
         use axum::body::Body;
+        use axum::http::{Method, Request};
         let req = Request::builder()
             .method(Method::GET)
             .uri("/")
@@ -315,8 +325,8 @@ mod tests {
 
     #[tokio::test]
     async fn extractor_valid_headers_ok() {
-        use axum::http::{Method, Request};
         use axum::body::Body;
+        use axum::http::{Method, Request};
         let sk = test_keypair();
         let pk = pubkey_b58(&sk);
         let msg = "authenticated request";
@@ -330,7 +340,9 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         let (mut parts, _) = req.into_parts();
-        let user = AuthenticatedUser::from_request_parts(&mut parts, &()).await.unwrap();
+        let user = AuthenticatedUser::from_request_parts(&mut parts, &())
+            .await
+            .unwrap();
         assert_eq!(user.pubkey, pk);
     }
 

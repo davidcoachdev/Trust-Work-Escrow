@@ -121,7 +121,10 @@ pub fn validate_evidence_content_len(content: &str) -> Result<(), ValidationErro
     }
     let len = trimmed.chars().count();
     if len > MAX_EVIDENCE_CONTENT_LEN {
-        return Err(ValidationError::ContentTooLong(len, MAX_EVIDENCE_CONTENT_LEN));
+        return Err(ValidationError::ContentTooLong(
+            len,
+            MAX_EVIDENCE_CONTENT_LEN,
+        ));
     }
     Ok(())
 }
@@ -161,13 +164,17 @@ pub fn decode_cursor(cursor: Option<&str>) -> Result<usize, RepositoryError> {
         .decode(c)
         .map_err(|e| RepositoryError::Storage(format!("invalid cursor: {e}")))?;
     if bytes.len() != 8 {
-        return Err(RepositoryError::Storage("invalid cursor length".to_string()));
+        return Err(RepositoryError::Storage(
+            "invalid cursor length".to_string(),
+        ));
     }
     let mut arr = [0u8; 8];
     arr.copy_from_slice(&bytes);
     let v = u64::from_be_bytes(arr);
     if v > (usize::MAX as u64) {
-        return Err(RepositoryError::Storage("cursor offset overflow".to_string()));
+        return Err(RepositoryError::Storage(
+            "cursor offset overflow".to_string(),
+        ));
     }
     Ok(v as usize)
 }
@@ -319,8 +326,14 @@ mod tests {
 
     #[test]
     fn hash_bytes_vs_evidence_metadata() {
-        let content = "evidence large content " .repeat(10);
-        let ev = EvidenceMetadata::new(pda(50), 0, "author1111111111111111111111111111".into(), content.clone()).unwrap();
+        let content = "evidence large content ".repeat(10);
+        let ev = EvidenceMetadata::new(
+            pda(50),
+            0,
+            "author1111111111111111111111111111".into(),
+            content.clone(),
+        )
+        .unwrap();
         let bytes = hash_content_bytes(content.trim());
         // EvidenceMetadata stores hex of trimmed content
         let expected_hex = hash_content_hex(content.trim());
@@ -526,7 +539,10 @@ mod tests {
         .unwrap();
         assert_eq!(e.content.chars().count(), MAX_EVIDENCE_CONTENT_LEN);
         assert!(e.verify_hash());
-        assert!(verify_hash_bytes32(&large_ok, &hex_to_bytes32(&e.content_hash).unwrap()));
+        assert!(verify_hash_bytes32(
+            &large_ok,
+            &hex_to_bytes32(&e.content_hash).unwrap()
+        ));
         // too large should fail via validation
         let too_large = "a".repeat(MAX_EVIDENCE_CONTENT_LEN + 1);
         let err = create_evidence_linked(

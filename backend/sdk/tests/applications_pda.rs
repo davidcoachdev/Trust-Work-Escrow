@@ -21,11 +21,7 @@
 use anchor_lang::AnchorSerialize;
 use solana_sdk::{hash::hash, pubkey::Pubkey};
 use trust_escrow_sdk::{
-    client::deserialize_account,
-    error::ErrorCode,
-    pda,
-    types::*,
-    PROGRAM_ID_STR,
+    client::deserialize_account, error::ErrorCode, pda, types::*, PROGRAM_ID_STR,
 };
 
 // ---------------------------------------------------------------------------
@@ -114,10 +110,19 @@ fn application_pda_single_byte_index_encoding() {
     for idx in [0u8, 1, 49] {
         let (ok, _) = pda::derive_application_pda(&job, idx, &applicant).unwrap();
         let (wrong_le, _) = Pubkey::find_program_address(
-            &[b"application", job.as_ref(), &(idx as u32).to_le_bytes(), applicant.as_ref()],
+            &[
+                b"application",
+                job.as_ref(),
+                &(idx as u32).to_le_bytes(),
+                applicant.as_ref(),
+            ],
             &pid,
         );
-        assert_ne!(ok, wrong_le, "must be single byte, not u32 LE for idx {}", idx);
+        assert_ne!(
+            ok, wrong_le,
+            "must be single byte, not u32 LE for idx {}",
+            idx
+        );
     }
 }
 
@@ -152,7 +157,11 @@ fn application_pda_is_off_curve() {
 #[test]
 fn application_index_valid_range_0_to_49() {
     for idx in 0u8..50 {
-        assert!((idx as usize) < MAX_APPLICATIONS, "idx {} should be valid", idx);
+        assert!(
+            (idx as usize) < MAX_APPLICATIONS,
+            "idx {} should be valid",
+            idx
+        );
     }
     assert_eq!(49u8 as usize, MAX_APPLICATIONS - 1);
     // 50 es el primer inválido (len == 50 ya lleno)
@@ -477,7 +486,12 @@ async fn applications_pda_integration_inner() {
 
     // --- duplicate applicant even with next index must fail AlreadyApplied ---
     let dup = alice_client
-        .apply_to_job(&client_kp.pubkey(), job_id, 1, hash(b"alice again").to_bytes())
+        .apply_to_job(
+            &client_kp.pubkey(),
+            job_id,
+            1,
+            hash(b"alice again").to_bytes(),
+        )
         .await;
     assert!(dup.is_err(), "duplicate applicant must fail");
     let msg = format!("{:?}", dup.unwrap_err()).to_lowercase();
@@ -492,7 +506,12 @@ async fn applications_pda_integration_inner() {
     airdrop(&bob.pubkey());
     let bob_client = TrustEscrowClient::new(Cluster::Localnet, bob.insecure_clone()).unwrap();
     let bad_idx = bob_client
-        .apply_to_job(&client_kp.pubkey(), job_id, 2, hash(b"bob bad idx").to_bytes())
+        .apply_to_job(
+            &client_kp.pubkey(),
+            job_id,
+            2,
+            hash(b"bob bad idx").to_bytes(),
+        )
         .await;
     assert!(bad_idx.is_err(), "index 2 while len=1 must fail");
     let msg2 = format!("{:?}", bad_idx.unwrap_err()).to_lowercase();

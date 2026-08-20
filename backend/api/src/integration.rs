@@ -120,10 +120,7 @@ pub async fn create_job_integration(
 /// otherwise `NotFound`. The `amount`/`fee`/`status` are currently the
 /// placeholder defaults from `routes::get_job` (on-chain truth will be merged
 /// once the SDK read-through is wired in `#[cfg(feature = "solana")]`).
-pub async fn get_job_enriched(
-    state: &AppState,
-    job_id: u64,
-) -> Result<JobResponse, ApiError> {
+pub async fn get_job_enriched(state: &AppState, job_id: u64) -> Result<JobResponse, ApiError> {
     let pda = derive_job_pda_string(job_id);
     let job = state
         .repo
@@ -216,8 +213,8 @@ pub async fn create_job_full_flow(
     let meta = JobMetadata::new(pda.clone(), req.title.clone(), req.description.clone())?;
     // `AlreadyExists` is idempotent for retries against a reused validator.
     match state.repo.create_job(meta).await {
-        Ok(_) => {},
-        Err(crate::repository::RepositoryError::AlreadyExists(_)) => {},
+        Ok(_) => {}
+        Err(crate::repository::RepositoryError::AlreadyExists(_)) => {}
         Err(e) => return Err(e.into()),
     }
 
@@ -383,7 +380,9 @@ mod tests {
             amount: 1000,
             deadline: future_deadline(),
         };
-        let err = create_job_integration(&state, bad).await.expect_err("must fail");
+        let err = create_job_integration(&state, bad)
+            .await
+            .expect_err("must fail");
         assert_eq!(err.status_code(), StatusCode::BAD_REQUEST);
         assert!(state.repo.list_jobs().await.unwrap().is_empty());
 
@@ -394,7 +393,9 @@ mod tests {
             amount: 0,
             deadline: future_deadline(),
         };
-        let err = create_job_integration(&state, bad2).await.expect_err("must fail");
+        let err = create_job_integration(&state, bad2)
+            .await
+            .expect_err("must fail");
         assert_eq!(err.status_code(), StatusCode::BAD_REQUEST);
         assert!(state.repo.list_jobs().await.unwrap().is_empty());
 
@@ -405,7 +406,9 @@ mod tests {
             amount: 1000,
             deadline: chrono::Utc::now().timestamp() - 10,
         };
-        let err = create_job_integration(&state, bad3).await.expect_err("must fail");
+        let err = create_job_integration(&state, bad3)
+            .await
+            .expect_err("must fail");
         assert_eq!(err.status_code(), StatusCode::BAD_REQUEST);
         assert!(state.repo.list_jobs().await.unwrap().is_empty());
     }
@@ -505,7 +508,9 @@ mod tests {
         use super::*;
         use anchor_client::Cluster;
         use solana_client::rpc_client::RpcClient;
-        use solana_sdk::{commitment_config::CommitmentConfig, signature::read_keypair_file, signer::Signer};
+        use solana_sdk::{
+            commitment_config::CommitmentConfig, signature::read_keypair_file, signer::Signer,
+        };
         use std::time::{SystemTime, UNIX_EPOCH};
         use trust_escrow_sdk::client::TrustEscrowClient;
 
@@ -549,7 +554,12 @@ mod tests {
                     }
                 };
                 let state = AppState::default();
-                let job_id = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() % 1_000_000 + 200_000;
+                let job_id = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    % 1_000_000
+                    + 200_000;
 
                 let req = CreateJobRequest {
                     title: "Solana enriched job".into(),
@@ -558,26 +568,40 @@ mod tests {
                     deadline: chrono::Utc::now().timestamp() + 3600,
                 };
 
-                let (sig, resp) = create_job_full_flow(&client, &state, job_id, req).await.expect("full flow");
+                let (sig, resp) = create_job_full_flow(&client, &state, job_id, req)
+                    .await
+                    .expect("full flow");
                 assert!(!sig.to_string().is_empty());
                 assert_eq!(resp.title, "Solana enriched job");
                 assert_eq!(resp.job_id, job_id);
 
                 let payer = read_keypair_file(expand(KEYPAIR_PATH)).unwrap();
-                let job = client.get_job(&payer.pubkey(), job_id).expect("get_job rpc").expect("job exists on-chain");
+                let job = client
+                    .get_job(&payer.pubkey(), job_id)
+                    .expect("get_job rpc")
+                    .expect("job exists on-chain");
                 assert_eq!(job.amount, 500_000);
 
                 let _pda = derive_job_pda_string(job_id % 1000);
                 let list = list_jobs_enriched(&state).await.unwrap();
                 assert!(list.iter().any(|j| j.title == "Solana enriched job"));
 
-                let page = client.list_jobs_by_client(&payer.pubkey(), None, None).await.expect("list_jobs_by_client");
-                assert!(page.jobs.iter().any(|(_, j)| j.amount == 500_000), "on-chain list must contain the new job");
+                let page = client
+                    .list_jobs_by_client(&payer.pubkey(), None, None)
+                    .await
+                    .expect("list_jobs_by_client");
+                assert!(
+                    page.jobs.iter().any(|(_, j)| j.amount == 500_000),
+                    "on-chain list must contain the new job"
+                );
 
-                let enriched = list_jobs_full_flow(&client, &state, Some(payer.pubkey())).await.unwrap();
+                let enriched = list_jobs_full_flow(&client, &state, Some(payer.pubkey()))
+                    .await
+                    .unwrap();
                 assert!(!enriched.is_empty());
 
-                let (real_pda, _bump) = derive_job_pda_via_sdk(&payer.pubkey(), job_id).expect("derive real pda");
+                let (real_pda, _bump) =
+                    derive_job_pda_via_sdk(&payer.pubkey(), job_id).expect("derive real pda");
                 assert!(real_pda.len() >= 32);
 
                 tokio::task::block_in_place(|| drop(client));
@@ -609,7 +633,11 @@ mod tests {
                 let state = AppState::default();
                 let before = {
                     let payer = read_keypair_file(expand(KEYPAIR_PATH)).unwrap();
-                    client.list_jobs_by_client(&payer.pubkey(), None, None).await.map(|p| p.jobs.len()).unwrap_or(0)
+                    client
+                        .list_jobs_by_client(&payer.pubkey(), None, None)
+                        .await
+                        .map(|p| p.jobs.len())
+                        .unwrap_or(0)
                 };
                 let bad = CreateJobRequest {
                     title: "".into(),
@@ -617,11 +645,17 @@ mod tests {
                     amount: 500_000,
                     deadline: chrono::Utc::now().timestamp() + 3600,
                 };
-                let err = create_job_full_flow(&client, &state, 999_999, bad).await.expect_err("must fail");
+                let err = create_job_full_flow(&client, &state, 999_999, bad)
+                    .await
+                    .expect_err("must fail");
                 assert_eq!(err.status_code(), StatusCode::BAD_REQUEST);
                 let after = {
                     let payer = read_keypair_file(expand(KEYPAIR_PATH)).unwrap();
-                    client.list_jobs_by_client(&payer.pubkey(), None, None).await.map(|p| p.jobs.len()).unwrap_or(0)
+                    client
+                        .list_jobs_by_client(&payer.pubkey(), None, None)
+                        .await
+                        .map(|p| p.jobs.len())
+                        .unwrap_or(0)
                 };
                 assert_eq!(before, after);
                 tokio::task::block_in_place(|| drop(client));

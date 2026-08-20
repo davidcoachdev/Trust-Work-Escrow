@@ -5,7 +5,9 @@ use axum::http::{Method, Request, StatusCode};
 use tower::ServiceExt;
 use trust_escrow_api::{
     app_with_state,
-    integration::{create_job_integration, derive_job_pda_string, get_job_enriched, list_jobs_enriched},
+    integration::{
+        create_job_integration, derive_job_pda_string, get_job_enriched, list_jobs_enriched,
+    },
     models::CreateJobRequest,
     state::AppState,
 };
@@ -93,7 +95,9 @@ async fn validation_blocks_and_no_repo_side_effect() {
         amount: 1000,
         deadline: future_deadline(),
     };
-    let err = create_job_integration(&state, bad).await.expect_err("must fail");
+    let err = create_job_integration(&state, bad)
+        .await
+        .expect_err("must fail");
     assert_eq!(err.status_code(), StatusCode::BAD_REQUEST);
     assert!(list_jobs_enriched(&state).await.unwrap().is_empty());
 
@@ -117,7 +121,8 @@ async fn validation_blocks_and_no_repo_side_effect() {
 #[tokio::test]
 async fn derive_pda_string_matches_routes_and_is_validation_valid() {
     let pda = derive_job_pda_string(42);
-    let m = trust_escrow_api::metadata::JobMetadata::new(pda.clone(), "t".into(), "d".into()).unwrap();
+    let m =
+        trust_escrow_api::metadata::JobMetadata::new(pda.clone(), "t".into(), "d".into()).unwrap();
     assert_eq!(m.pda_address, pda);
     assert!(pda.starts_with("7a2Y"));
 }
@@ -132,7 +137,9 @@ mod solana_integration {
     use super::*;
     use anchor_client::Cluster;
     use solana_client::rpc_client::RpcClient;
-    use solana_sdk::{commitment_config::CommitmentConfig, signature::read_keypair_file, signer::Signer};
+    use solana_sdk::{
+        commitment_config::CommitmentConfig, signature::read_keypair_file, signer::Signer,
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
     use trust_escrow_api::{
         integration::{create_job_full_flow, list_jobs_full_flow},
@@ -181,14 +188,21 @@ mod solana_integration {
                 }
             };
             let state = AppState::default();
-            let job_id = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() % 1_000_000 + 300_000;
+            let job_id = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                % 1_000_000
+                + 300_000;
             let req = CreateJobRequest {
                 title: "Validator job".into(),
                 description: "created via SDK + stored off-chain".into(),
                 amount: 500_000,
                 deadline: chrono::Utc::now().timestamp() + 3600,
             };
-            let (sig, resp) = create_job_full_flow(&client, &state, job_id, req).await.expect("full flow");
+            let (sig, resp) = create_job_full_flow(&client, &state, job_id, req)
+                .await
+                .expect("full flow");
             assert!(!sig.to_string().is_empty());
             assert_eq!(resp.title, "Validator job");
 
@@ -196,10 +210,15 @@ mod solana_integration {
             assert!(list.iter().any(|j| j.title == "Validator job"));
 
             let payer = read_keypair_file(expand(KEYPAIR_PATH)).unwrap();
-            let job = client.get_job(&payer.pubkey(), job_id).unwrap().expect("job on-chain");
+            let job = client
+                .get_job(&payer.pubkey(), job_id)
+                .unwrap()
+                .expect("job on-chain");
             assert_eq!(job.amount, 500_000);
 
-            let enriched = list_jobs_full_flow(&client, &state, Some(payer.pubkey())).await.unwrap();
+            let enriched = list_jobs_full_flow(&client, &state, Some(payer.pubkey()))
+                .await
+                .unwrap();
             assert!(!enriched.is_empty());
 
             tokio::task::block_in_place(|| drop(client));
@@ -236,7 +255,9 @@ mod solana_integration {
                 amount: 500_000,
                 deadline: chrono::Utc::now().timestamp() + 3600,
             };
-            let err = create_job_full_flow(&client, &state, 999_998, bad).await.expect_err("must fail");
+            let err = create_job_full_flow(&client, &state, 999_998, bad)
+                .await
+                .expect_err("must fail");
             assert_eq!(err.status_code(), StatusCode::BAD_REQUEST);
             tokio::task::block_in_place(|| drop(client));
         }

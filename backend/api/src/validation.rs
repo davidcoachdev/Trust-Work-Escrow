@@ -340,7 +340,7 @@ mod tests {
         assert!(validate_pubkey(&valid_pubkey()).is_ok());
         // 44-char valid
         assert!(validate_pubkey("7a2YhCd7iivXfyySkp1pf5jjJob000000000001").is_err()); // not 32 bytes
-        // invalid base58 char '0' should still decode? bs58 excludes 0/O/I/l — test invalid char
+                                                                                      // invalid base58 char '0' should still decode? bs58 excludes 0/O/I/l — test invalid char
         assert!(validate_pubkey("0OIl11111111111111111111111111111111").is_err());
     }
 

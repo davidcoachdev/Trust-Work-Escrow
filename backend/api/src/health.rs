@@ -187,7 +187,12 @@ async fn check_rpc(rpc_url: &str) -> String {
     };
 
     // TCP connect with short timeout — validator 7a2Y on 127.0.0.1:8899 should respond.
-    match tokio::time::timeout(Duration::from_millis(400), tokio::net::TcpStream::connect(&addr)).await {
+    match tokio::time::timeout(
+        Duration::from_millis(400),
+        tokio::net::TcpStream::connect(&addr),
+    )
+    .await
+    {
         Ok(Ok(_)) => "ok".to_string(),
         Ok(Err(_)) => "unavailable".to_string(),
         Err(_) => "unavailable".to_string(),
@@ -241,16 +246,25 @@ mod tests {
     async fn health_response_has_expected_fields() {
         use axum::body::Body;
         use axum::http::Request;
-        use tower::ServiceExt;
         use axum::{routing::get, Router};
+        use tower::ServiceExt;
 
         let state = state_with_rpc("");
-        let app = Router::new().route("/health", get(health)).with_state(state);
+        let app = Router::new()
+            .route("/health", get(health))
+            .with_state(state);
         let resp = app
-            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::builder()
+                    .uri("/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         // Even with rpc unconfigured, repo is ok so status is degraded → still 200, not 503.
-        assert!(resp.status() == StatusCode::OK || resp.status() == StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 }

@@ -1,5 +1,3 @@
-#![allow(unexpected_cfgs)]
-
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer, ID as SYSTEM_PROGRAM_ID};
 
@@ -29,14 +27,6 @@ pub enum ErrorCode {
     ProgramPaused,
     #[msg("Amount too small")]
     AmountTooSmall,
-    #[msg("Title cannot be empty")]
-    EmptyTitle,
-    #[msg("Title exceeds maximum length")]
-    TitleTooLong,
-    #[msg("Description exceeds maximum length")]
-    DescriptionTooLong,
-    #[msg("Proposal exceeds maximum length")]
-    ProposalTooLong,
     #[msg("Invalid fee basis points (must be 0-10000)")]
     InvalidFeeBps,
     #[msg("Not authorized")]
@@ -69,10 +59,6 @@ pub enum ErrorCode {
     CannotDisputeAtStage,
     #[msg("Dispute reason cannot be empty")]
     EmptyDisputeReason,
-    #[msg("Evidence exceeds maximum length")]
-    EvidenceTooLong,
-    #[msg("Evidence cannot be empty")]
-    EmptyEvidence,
     #[msg("Dispute already has the maximum number of evidence items")]
     EvidenceLimitReached,
     #[msg("Evidence index must equal the next dispute evidence index")]
@@ -502,6 +488,7 @@ pub fn compute_shortfall(required: u64, posted: u64) -> u64 {
 }
 
 #[cfg(test)]
+#[allow(unexpected_cfgs)]
 mod tests {
     use super::{compute_shortfall, Application, Job, AUTO_APPROVAL_DELAY, MAX_APPLICATIONS};
     use anchor_lang::prelude::Pubkey;
@@ -666,6 +653,7 @@ pub fn check_not_paused(job: &Job) -> Result<()> {
     Ok(())
 }
 
+#[allow(unexpected_cfgs)]
 #[program]
 pub mod escrow {
     use super::*;
@@ -713,10 +701,6 @@ pub mod escrow {
 
     pub fn pause(ctx: Context<Pause>) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        require!(
-            config.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
         config.paused = true;
         msg!("Program paused");
         Ok(())
@@ -724,10 +708,6 @@ pub mod escrow {
 
     pub fn unpause(ctx: Context<Unpause>) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        require!(
-            config.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
         config.paused = false;
         msg!("Program unpaused");
         Ok(())
@@ -735,10 +715,6 @@ pub mod escrow {
 
     pub fn update_treasury(ctx: Context<UpdateTreasury>, new_treasury: Pubkey) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        require!(
-            config.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
         require!(
             ctx.accounts.new_treasury.key() == new_treasury,
             ErrorCode::InvalidTreasury
@@ -757,10 +733,6 @@ pub mod escrow {
         new_arbitration_treasury: Pubkey,
     ) -> Result<()> {
         let config = &mut ctx.accounts.config;
-        require!(
-            config.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
         require!(
             ctx.accounts.new_arbitration_treasury.key() == new_arbitration_treasury,
             ErrorCode::InvalidTreasury
@@ -823,10 +795,8 @@ pub mod escrow {
         let config = &ctx.accounts.config;
         require!(!config.paused, ErrorCode::ProgramPaused);
         require!(amount >= MIN_JOB_AMOUNT, ErrorCode::AmountTooSmall);
-        require!(
-            deadline > Clock::get()?.unix_timestamp,
-            ErrorCode::DeadlineMustBeFuture
-        );
+        let clock = Clock::get()?;
+        require!(deadline > clock.unix_timestamp, ErrorCode::DeadlineMustBeFuture);
 
         let fee_amount = compute_fee(amount, config.fee_bps)?;
 
@@ -1093,8 +1063,9 @@ pub mod escrow {
             ErrorCode::InvalidJobStatus
         );
 
+        let clock = Clock::get()?;
         job.status = JobStatus::Submitted;
-        job.submitted_at = Some(Clock::get()?.unix_timestamp);
+        job.submitted_at = Some(clock.unix_timestamp);
 
         msg!("Work submitted for job: {}", job.key());
         Ok(())
@@ -1110,10 +1081,8 @@ pub mod escrow {
         let deadline = submitted_at
             .checked_add(AUTO_APPROVAL_DELAY)
             .ok_or(ErrorCode::MathOverflow)?;
-        require!(
-            Clock::get()?.unix_timestamp >= deadline,
-            ErrorCode::AutoApprovalNotReady
-        );
+        let clock = Clock::get()?;
+        require!(clock.unix_timestamp >= deadline, ErrorCode::AutoApprovalNotReady);
         require!(
             ctx.accounts.dispute.is_none(),
             ErrorCode::AutoApprovalBlocked
@@ -1148,17 +1117,7 @@ pub mod escrow {
             &ctx.accounts.treasury.to_account_info(),
             fee_amount,
         )?;
-        let remaining = job.to_account_info().get_lamports();
-        let client_balance = ctx
-            .accounts
-            .client
-            .get_lamports()
-            .checked_add(remaining)
-            .ok_or(ErrorCode::MathOverflow)?;
-        **ctx.accounts.client.try_borrow_mut_lamports()? = client_balance;
-        **job.to_account_info().try_borrow_mut_lamports()? = 0;
-        job.to_account_info().assign(&SYSTEM_PROGRAM_ID);
-        job.to_account_info().resize(0)?;
+        // remaining rent refund via `close = client` on job account
         Ok(())
     }
 
@@ -1320,10 +1279,6 @@ pub mod escrow {
     }
 
     pub fn create_arbiter_pool(ctx: Context<CreateArbiterPool>) -> Result<()> {
-        require!(
-            ctx.accounts.config.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
         let pool = &mut ctx.accounts.pool;
         pool.authority = ctx.accounts.authority.key();
         pool.arbiters = Vec::new();
@@ -1333,14 +1288,6 @@ pub mod escrow {
 
     pub fn add_arbiter(ctx: Context<AddArbiter>, new_arbiter: Pubkey) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
-        require!(
-            ctx.accounts.config.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
-        require!(
-            pool.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
         require!(
             !pool.arbiters.contains(&new_arbiter),
             ErrorCode::NotValidArbiter
@@ -1355,14 +1302,6 @@ pub mod escrow {
 
     pub fn remove_arbiter(ctx: Context<RemoveArbiter>, arbiter: Pubkey) -> Result<()> {
         let pool = &mut ctx.accounts.pool;
-        require!(
-            ctx.accounts.config.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
-        require!(
-            pool.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
         let idx = pool
             .arbiters
             .iter()
@@ -1444,8 +1383,9 @@ pub mod escrow {
             dispute.status == DisputeStatus::Open,
             ErrorCode::DisputeAlreadyResolved
         );
+        let clock = Clock::get()?;
         require!(
-            Clock::get()?.unix_timestamp <= dispute.deadline,
+            clock.unix_timestamp <= dispute.deadline,
             ErrorCode::DisputeDeadlinePassed
         );
 
@@ -1535,10 +1475,6 @@ pub mod escrow {
     }
 
     pub fn assign_arbiter(ctx: Context<AssignArbiter>, _job_id: u64) -> Result<()> {
-        require!(
-            ctx.accounts.config.authority == ctx.accounts.authority.key(),
-            ErrorCode::NotAuthorized
-        );
         let pool = &ctx.accounts.pool;
         require!(
             pool.authority == ctx.accounts.config.authority,
@@ -1645,8 +1581,9 @@ pub mod escrow {
             dispute.status == DisputeStatus::Open,
             ErrorCode::DisputeAlreadyResolved
         );
+        let clock = Clock::get()?;
         require!(
-            Clock::get()?.unix_timestamp <= dispute.deadline,
+            clock.unix_timestamp <= dispute.deadline,
             ErrorCode::DisputeDeadlinePassed
         );
         let requester = ctx.accounts.requester.key();
@@ -2034,21 +1971,36 @@ pub struct InitializeConfig<'info> {
 #[derive(Accounts)]
 pub struct Pause<'info> {
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
     pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
 pub struct Unpause<'info> {
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
     pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
 pub struct UpdateTreasury<'info> {
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
     pub config: Account<'info, Config>,
     /// CHECK: Validated in the instruction as a non-default System account distinct from arbitration_treasury.
     pub new_treasury: UncheckedAccount<'info>,
@@ -2057,7 +2009,12 @@ pub struct UpdateTreasury<'info> {
 #[derive(Accounts)]
 pub struct UpdateArbitrationTreasury<'info> {
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"config"], bump = config.bump)]
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
     pub config: Account<'info, Config>,
     /// CHECK: Validated in the instruction as a non-default System account distinct from treasury.
     pub new_arbitration_treasury: UncheckedAccount<'info>,
@@ -2151,7 +2108,8 @@ pub struct AutoApproveWork<'info> {
     #[account(
         mut,
         seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()],
-        bump = job.bump
+        bump = job.bump,
+        close = client
     )]
     pub job: Account<'info, Job>,
     #[account(mut, constraint = job.freelancer == Some(freelancer.key()) @ ErrorCode::NotJobFreelancer)]
@@ -2366,7 +2324,11 @@ pub struct CreateArbiterPool<'info> {
     pub authority: Signer<'info>,
     #[account(init, payer = authority, space = ArbiterPool::INIT_SPACE + 8, seeds = [b"arbiter_pool"], bump)]
     pub pool: Account<'info, ArbiterPool>,
-    #[account(seeds = [b"config"], bump = config.bump)]
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
     pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
@@ -2374,7 +2336,13 @@ pub struct CreateArbiterPool<'info> {
 #[derive(Accounts)]
 pub struct AddArbiter<'info> {
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"arbiter_pool"], bump = pool.bump)]
+    #[account(
+        mut,
+        seeds = [b"arbiter_pool"],
+        bump = pool.bump,
+        constraint = pool.authority == authority.key() @ ErrorCode::NotAuthorized,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
     pub pool: Account<'info, ArbiterPool>,
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
@@ -2383,7 +2351,13 @@ pub struct AddArbiter<'info> {
 #[derive(Accounts)]
 pub struct RemoveArbiter<'info> {
     pub authority: Signer<'info>,
-    #[account(mut, seeds = [b"arbiter_pool"], bump = pool.bump)]
+    #[account(
+        mut,
+        seeds = [b"arbiter_pool"],
+        bump = pool.bump,
+        constraint = pool.authority == authority.key() @ ErrorCode::NotAuthorized,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
     pub pool: Account<'info, ArbiterPool>,
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
@@ -2459,7 +2433,11 @@ pub struct AssignArbiter<'info> {
     pub pool: Account<'info, ArbiterPool>,
     /// CHECK: Arbitro a asignar (validado contra el pool).
     pub arbiter: UncheckedAccount<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
+    #[account(
+        seeds = [b"config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
     pub config: Account<'info, Config>,
 }
 

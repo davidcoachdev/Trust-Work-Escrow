@@ -13,11 +13,12 @@ pub mod metrics;
 pub mod middleware;
 pub mod models;
 pub mod repository;
-pub mod sync;
-pub mod validation;
 pub mod routes;
 pub mod state;
+pub mod sync;
+pub mod validation;
 
+use axum::extract::State;
 use axum::{
     http::{Request, StatusCode},
     middleware::{self as axum_middleware, Next},
@@ -25,7 +26,6 @@ use axum::{
     routing::get,
     Router,
 };
-use axum::extract::State;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -123,7 +123,11 @@ pub async fn not_found() -> impl IntoResponse {
     )
 }
 
-pub async fn track_metrics(State(state): State<AppState>, req: Request<axum::body::Body>, next: Next) -> Response {
+pub async fn track_metrics(
+    State(state): State<AppState>,
+    req: Request<axum::body::Body>,
+    next: Next,
+) -> Response {
     state.inc_requests();
     let res = next.run(req).await;
     if res.status().is_client_error() || res.status().is_server_error() {
@@ -149,10 +153,21 @@ pub fn app_with_state(state: AppState) -> Router {
         .fallback(not_found)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .layer(axum_middleware::from_fn(middleware::security_headers_middleware))
+        .layer(axum_middleware::from_fn(
+            middleware::security_headers_middleware,
+        ))
         .layer(axum_middleware::from_fn(middleware::request_size_guard))
-        .layer(axum_middleware::from_fn_with_state(state.clone(), middleware::rate_limit_middleware))
-        .layer(axum_middleware::from_fn_with_state(state.clone(), middleware::https_enforcement_middleware))
-        .layer(axum_middleware::from_fn_with_state(state.clone(), track_metrics))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::rate_limit_middleware,
+        ))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::https_enforcement_middleware,
+        ))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            track_metrics,
+        ))
         .with_state(state)
 }
