@@ -155,7 +155,9 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     assert_eq!(job.status, JobStatus::Created);
     assert_eq!(job.amount, AMOUNT);
     assert_eq!(job.client, client_pk);
-    assert_eq!(job.fee_amount, compute_fee(AMOUNT, FEE_BPS));
+    // cfg puede venir reusada del validator (v3 ya inicializó), usar su fee real
+    let cfg_fee = client.get_config().unwrap().unwrap().fee_bps;
+    assert_eq!(job.fee_amount, compute_fee(AMOUNT, cfg_fee));
 
     client.deposit_funds(j).await.expect("deposit_funds");
     let job = client.get_job(&client_pk, j).unwrap().unwrap();
@@ -211,7 +213,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     let job = client.get_job(&client_pk, j).unwrap().unwrap();
     assert_eq!(job.status, JobStatus::InProgress);
     assert_eq!(job.freelancer, Some(fl_a_pk));
-    assert_eq!(job.applicants_len, 2);
+    assert_eq!(job.applicants.len(), 2);
     let app_a = client
         .get_application(&job_pk, 0, &fl_a_pk)
         .unwrap()

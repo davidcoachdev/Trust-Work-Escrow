@@ -8,6 +8,8 @@ import {
   SystemProgram,
 } from "@solana/web3.js";
 import { assert } from "chai";
+import * as crypto from "crypto";
+const hashProposal = (s: string) => Array.from(crypto.createHash("sha256").update(s).digest() as unknown as number[]);
 
 const endpoint = process.env.ANCHOR_PROVIDER_URL || "http://127.0.0.1:8899";
 const parsedEndpoint = new URL(endpoint);
@@ -15,7 +17,7 @@ if (parsedEndpoint.protocol !== "http:" || parsedEndpoint.hostname !== "127.0.0.
   throw new Error(`Tests require a loopback localnet endpoint; refusing ${endpoint}`);
 }
 
-const pid = new PublicKey("J1c4QsjbV9bFEPrFQZZGe8GrGWFxNhtAhhrxJFK2xc1h");
+const pid = new PublicKey("7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh");
 
 const pda = (seeds: Buffer[]) =>
   PublicKey.findProgramAddressSync(seeds, pid)[0];
@@ -126,7 +128,7 @@ describe("trust-escrow-v3", () => {
     const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
 
     await program.methods
-      .createJob(jobId, "Job A", "desc", amount, deadline)
+      .createJob(jobId, amount, deadline)
       .accountsPartial({ client: client.publicKey, job, config: configPda })
       .rpc();
     await program.methods
@@ -140,12 +142,12 @@ describe("trust-escrow-v3", () => {
     await airdrop(app2, 1);
 
     await program.methods
-      .applyToJob(jobId, 0, "quiero hacerlo")
+      .applyToJob(jobId, 0, hashProposal("quiero hacerlo"))
       .accountsPartial({ applicant: freelancer.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, freelancer.publicKey), systemProgram: SystemProgram.programId })
       .signers([freelancer])
       .rpc();
     await program.methods
-      .applyToJob(jobId, 1, "yo tambien")
+      .applyToJob(jobId, 1, hashProposal("yo tambien"))
       .accountsPartial({ applicant: app2.publicKey, client: client.publicKey, job, application: applicationPda(job, 1, app2.publicKey), systemProgram: SystemProgram.programId })
       .signers([app2])
       .rpc();
@@ -201,7 +203,7 @@ describe("trust-escrow-v3", () => {
 
     const m0 = 1_000_000;
     await program.methods
-      .createMilestone(jobId, 0, "M0", "d", new BN(m0), deadline)
+      .createMilestone(jobId, 0, new BN(m0))
       .accountsPartial({ client: client.publicKey, job, milestone: milestonePda(job, 0) })
       .rpc();
     await program.methods
@@ -263,14 +265,14 @@ describe("trust-escrow-v3", () => {
 
     const amount = new BN(2_000_000);
     const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
-    await program.methods.createJob(jobId, "Job B", "desc", amount, deadline)
+    await program.methods.createJob(jobId, amount, deadline)
       .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
     await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
-    await program.methods.applyToJob(jobId, 0, "x").accountsPartial({ applicant: freelancer.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, freelancer.publicKey), systemProgram: SystemProgram.programId }).signers([freelancer]).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("x")).accountsPartial({ applicant: freelancer.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, freelancer.publicKey), systemProgram: SystemProgram.programId }).signers([freelancer]).rpc();
     await program.methods.acceptApplication(jobId, 0).accountsPartial({ client: client.publicKey, job, applicant: freelancer.publicKey, application: applicationPda(job, 0, freelancer.publicKey) }).rpc();
     await program.methods.submitWork(jobId).accountsPartial({ freelancer: freelancer.publicKey, client: client.publicKey, job }).signers([freelancer]).rpc();
 
-    await program.methods.raiseDispute(jobId, "no me pagan").accountsPartial({ raiser: client.publicKey, client: client.publicKey, job, ticket: null, dispute: disputePda(job), escrow: arbFeePda(job) }).rpc();
+    await program.methods.raiseDispute(jobId).accountsPartial({ raiser: client.publicKey, client: client.publicKey, job, ticket: null, dispute: disputePda(job), escrow: arbFeePda(job) }).rpc();
     const bond = amount.muln(250).divn(10_000);
     const freelancerBeforeBond = await provider.connection.getBalance(freelancer.publicKey);
       await program.methods.acceptDispute(jobId).accountsPartial({ accepter: freelancer.publicKey, client: client.publicKey, job, dispute: disputePda(job), escrow: arbFeePda(job) }).signers([freelancer]).rpc();
@@ -307,28 +309,16 @@ describe("trust-escrow-v3", () => {
     const disputeState = await program.account.dispute.fetch(dispute);
     assert.equal(disputeState.evidenceCount, 0, "Dispute inicia con contador de evidencia en cero");
 
+    // Off-chain content ahora es hash 32 bytes — el check de 2.048 bytes es off-chain.
+    // Antes se rechazaba Buffer.alloc(2049) on-chain; ahora siempre son 32 bytes, no hay rechazo.
     let sizeRejected = false;
-    try {
-      await program.methods
-        .submitEvidence(jobId, 0, Buffer.alloc(2_049))
-        .accountsPartial({
-          submitter: client.publicKey,
-          client: client.publicKey,
-          job,
-          dispute,
-          evidence: evidencePda(dispute, 0),
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
-    } catch (error) {
-      sizeRejected = true;
-      assert.match(String(error), /EvidenceTooLong|encoding overruns Buffer/);
-    }
-    assert.isTrue(sizeRejected, "evidencia mayor a 2.048 bytes debe rechazarse");
+    const largeHash = hashProposal("x".repeat(2049));
+    assert.equal(largeHash.length, 32, "hash siempre 32 bytes");
+    assert.isFalse(sizeRejected, "hash 32 bytes siempre pasa on-chain (size check es off-chain)");
 
     for (let index = 0; index < 10; index++) {
       await program.methods
-        .submitEvidence(jobId, index, Buffer.from(`evidence-${index}`))
+        .submitEvidence(jobId, index, hashProposal(`evidence-${index}`))
         .accountsPartial({
           submitter: index % 2 === 0 ? client.publicKey : freelancer.publicKey,
           client: client.publicKey,
@@ -344,12 +334,12 @@ describe("trust-escrow-v3", () => {
     assert.equal(firstEvidence.dispute.toBase58(), dispute.toBase58());
     assert.equal(firstEvidence.index, 0);
     assert.equal(firstEvidence.author.toBase58(), client.publicKey.toBase58());
-    assert.equal(Buffer.from(firstEvidence.content).toString(), "evidence-0");
+    assert.deepEqual(firstEvidence.contentHash, hashProposal("evidence-0"));
 
     let limitRejected = false;
     try {
       await program.methods
-        .submitEvidence(jobId, 10, Buffer.from("evidence-10"))
+        .submitEvidence(jobId, 10, hashProposal("evidence-10"))
         .accountsPartial({
           submitter: client.publicKey,
           client: client.publicKey,
@@ -449,14 +439,14 @@ describe("trust-escrow-v3", () => {
 
     const amount = new BN(2_000_000);
     const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
-    await program.methods.createJob(jobId, "Job C", "desc", amount, deadline)
+    await program.methods.createJob(jobId, amount, deadline)
       .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
     await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
-    await program.methods.applyToJob(jobId, 0, "x").accountsPartial({ applicant: freelancer.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, freelancer.publicKey), systemProgram: SystemProgram.programId }).signers([freelancer]).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("x")).accountsPartial({ applicant: freelancer.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, freelancer.publicKey), systemProgram: SystemProgram.programId }).signers([freelancer]).rpc();
     await program.methods.acceptApplication(jobId, 0).accountsPartial({ client: client.publicKey, job, applicant: freelancer.publicKey, application: applicationPda(job, 0, freelancer.publicKey) }).rpc();
 
     const milestoneAmount = new BN(1_000_000);
-    await program.methods.createMilestone(jobId, 0, "M0", "d", milestoneAmount, deadline)
+    await program.methods.createMilestone(jobId, 0, milestoneAmount)
       .accountsPartial({ client: client.publicKey, job, milestone: milestonePda(job, 0) }).rpc();
     await program.methods.submitMilestone(jobId, 0)
       .accountsPartial({ freelancer: freelancer.publicKey, client: client.publicKey, job, milestone: milestonePda(job, 0) })
@@ -465,11 +455,11 @@ describe("trust-escrow-v3", () => {
       .accountsPartial({ client: client.publicKey, job, freelancer: freelancer.publicKey, milestone: milestonePda(job, 0) }).rpc();
 
     // abre ticket (sin bono) y el asesor resuelve -> cancela y reembolsa
-    await program.methods.openSupportTicket(jobId, "el freelancer no entrego")
+    await program.methods.openSupportTicket(jobId)
       .accountsPartial({ opener: client.publicKey, client: client.publicKey, job, dispute: null, ticket: supportPda(job) })
       .rpc();
     const before = await provider.connection.getBalance(client.publicKey);
-    await program.methods.resolveSupportTicket(jobId, "cancelado por incumplimiento")
+    await program.methods.resolveSupportTicket(jobId)
       .accountsPartial({ advisor: advisor.publicKey, client: client.publicKey, job, ticket: supportPda(job), opener: client.publicKey, config: configPda })
       .remainingAccounts([
         { pubkey: applicationPda(job, 0, freelancer.publicKey), isWritable: true, isSigner: false },
@@ -491,7 +481,7 @@ describe("trust-escrow-v3", () => {
     const job = jobPda(client.publicKey, jobId);
     const amount = new BN(2_000_000);
     const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
-    await program.methods.createJob(jobId, "Job D", "desc", amount, deadline)
+    await program.methods.createJob(jobId, amount, deadline)
       .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
     await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
     const before = await provider.connection.getBalance(client.publicKey);
@@ -508,10 +498,10 @@ describe("trust-escrow-v3", () => {
     const amount = new BN(2_000_000);
     const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
 
-    await program.methods.createJob(jobId, "Job E", "desc", amount, deadline)
+    await program.methods.createJob(jobId, amount, deadline)
       .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
     await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
-    await program.methods.applyToJob(jobId, 0, "x")
+    await program.methods.applyToJob(jobId, 0, hashProposal("x"))
       .accountsPartial({ applicant: freelancer.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, freelancer.publicKey), systemProgram: SystemProgram.programId })
       .signers([freelancer]).rpc();
     await program.methods.acceptApplication(jobId, 0)
@@ -547,10 +537,10 @@ describe("trust-escrow-v3", () => {
     const freelancer = Keypair.generate();
     await airdrop(freelancer, 1);
     const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
-    await program.methods.createJob(jobId, "Job F", "desc", new BN(2_000_000), deadline)
+    await program.methods.createJob(jobId, new BN(2_000_000), deadline)
       .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
     await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
-    await program.methods.applyToJob(jobId, 0, "x")
+    await program.methods.applyToJob(jobId, 0, hashProposal("x"))
       .accountsPartial({ applicant: freelancer.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, freelancer.publicKey), systemProgram: SystemProgram.programId })
       .signers([freelancer]).rpc();
     await program.methods.acceptApplication(jobId, 0)
@@ -657,7 +647,7 @@ describe("trust-escrow-v3", () => {
     const job = jobPda(client.publicKey, jobId);
     const amount = new BN(2_000_000);
     const deadline = new BN(Math.floor(Date.now() / 1000) + 3600);
-    await program.methods.createJob(jobId, "Job applications", "desc", amount, deadline)
+    await program.methods.createJob(jobId, amount, deadline)
       .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
     await program.methods.depositFunds(jobId)
       .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
@@ -667,7 +657,7 @@ describe("trust-escrow-v3", () => {
     for (let offset = 0; offset < applicants.length; offset += 10) {
       await Promise.all(applicants.slice(offset, offset + 10).map((applicant) => airdrop(applicant, 0.1)));
     }
-    await program.methods.applyToJob(jobId, 0, "proposal-0")
+    await program.methods.applyToJob(jobId, 0, hashProposal("proposal-0"))
       .accountsPartial({
         applicant: applicants[0].publicKey,
         client: client.publicKey,
@@ -680,7 +670,7 @@ describe("trust-escrow-v3", () => {
 
     let duplicateRejected = false;
     try {
-      await program.methods.applyToJob(jobId, 1, "duplicate-before-limit")
+      await program.methods.applyToJob(jobId, 1, hashProposal("duplicate-before-limit"))
         .accountsPartial({
           applicant: applicants[0].publicKey,
           client: client.publicKey,
@@ -698,7 +688,7 @@ describe("trust-escrow-v3", () => {
 
     for (const [offset, applicant] of applicants.slice(1).entries()) {
       const index = offset + 1;
-      await program.methods.applyToJob(jobId, index, `proposal-${index}`)
+      await program.methods.applyToJob(jobId, index, hashProposal(`proposal-${index}`))
         .accountsPartial({
           applicant: applicant.publicKey,
           client: client.publicKey,
@@ -716,7 +706,7 @@ describe("trust-escrow-v3", () => {
     const extra = Keypair.generate();
     await airdrop(extra, 0.1);
     try {
-      await program.methods.applyToJob(jobId, applicationCount, `proposal-${applicationCount}`)
+      await program.methods.applyToJob(jobId, applicationCount, hashProposal(`proposal-${applicationCount}`))
         .accountsPartial({
           applicant: extra.publicKey,
           client: client.publicKey,

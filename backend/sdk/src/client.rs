@@ -21,11 +21,12 @@ mod inner {
             pubkey::Pubkey,
             signature::{read_keypair_file, Keypair, Signature},
             signer::Signer,
-            system_program,
             transaction::{Transaction, TransactionError},
         },
         Client, Cluster, Program,
     };
+    #[allow(deprecated)]
+    use anchor_client::solana_sdk::system_program;
     use anchor_lang::AccountDeserialize;
     use borsh::ser::BorshSerialize;
 
@@ -1016,7 +1017,7 @@ mod inner {
         job: &Job,
         start_index: u8,
     ) -> Result<Vec<AccountMeta>> {
-        let filled = job.applicants_len as usize;
+        let filled = job.applicants.len();
         let start = start_index as usize;
         let mut metas = Vec::with_capacity(filled.saturating_sub(start) * 2);
         for i in start..filled {

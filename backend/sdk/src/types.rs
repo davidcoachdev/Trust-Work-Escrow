@@ -88,8 +88,7 @@ mod inner {
         pub milestones_total: u8,
         pub milestones_approved: u8,
         pub milestones_amount_total: u64,
-        pub applicants: [Pubkey; MAX_APPLICATIONS],
-        pub applicants_len: u8,
+        pub applicants: Vec<Pubkey>,
         pub bump: u8,
     }
 

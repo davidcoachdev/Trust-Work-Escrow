@@ -3,7 +3,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer, ID as SYSTEM_PROGRAM_ID};
 
-declare_id!("J1c4QsjbV9bFEPrFQZZGe8GrGWFxNhtAhhrxJFK2xc1h");
+declare_id!("7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh");
 
 const BASIS_POINTS: u16 = 10_000;
 
@@ -18,7 +18,7 @@ const MAX_PAUSE_DURATION: i64 = 30 * 24 * 60 * 60;
 const MIN_JOB_AMOUNT: u64 = 100_000;
 const MAX_EVIDENCE_COUNT: u8 = 10;
 const MAX_MILESTONES: usize = 20;
-const MAX_APPLICATIONS: usize = 10;
+const MAX_APPLICATIONS: usize = 50;
 const MAX_ARBITERS: usize = 50;
 
 #[error_code]
@@ -214,7 +214,7 @@ fn cleanup_job_applications(
     allow_closed: bool,
 ) -> Result<()> {
     require!(
-        remaining_accounts.len() % 2 == 0,
+        remaining_accounts.len().is_multiple_of(2),
         ErrorCode::InvalidApplicationCleanupAccounts
     );
     let application_count = remaining_accounts.len() / 2;
@@ -498,7 +498,7 @@ pub fn compute_fee(amount: u64, fee_bps: u16) -> Result<u64> {
 }
 
 pub fn compute_shortfall(required: u64, posted: u64) -> u64 {
-    required.checked_sub(posted).unwrap_or_default()
+    required.saturating_sub(posted)
 }
 
 #[cfg(test)]
