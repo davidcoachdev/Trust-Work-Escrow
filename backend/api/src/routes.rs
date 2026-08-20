@@ -15,6 +15,7 @@ use crate::metadata::{
 };
 use crate::models::*;
 use crate::state::{AppState, ArbiterPoolState};
+use crate::validation;
 
 fn job_pda(job_id: u64) -> String {
     format!("7a2YhCd7iivXfyySkp1pf5jjJob{:0>12}", job_id)
@@ -33,9 +34,21 @@ fn placeholder_pubkey(label: &str) -> String {
 }
 fn fee_amount(amount: u64) -> u64 { amount * 250 / 10_000 }
 
+#[utoipa::path(post, path = "/auth/verify", tag = "Auth", responses((status = 200, description = "Signature verified", body = ApiStatus), (status = 401, description = "Invalid signature", body = crate::error::ErrorResponse)))]
+async fn verify_auth(auth: crate::auth::AuthenticatedUser) -> Result<impl IntoResponse, ApiError> {
+    Ok((
+        StatusCode::OK,
+        Json(ApiStatus {
+            status: "ok".into(),
+            message: format!("authenticated as {}", auth.pubkey),
+        }),
+    ))
+}
+
 pub fn api_router() -> Router<AppState> {
     Router::new()
         .route("/config", get(get_config))
+        .route("/auth/verify", post(verify_auth))
         .route("/jobs", get(list_jobs).post(create_job))
         .route("/jobs/:job_id", get(get_job))
         .route("/jobs/:job_id/deposit", post(deposit_funds))
@@ -82,8 +95,7 @@ async fn list_jobs(State(state): State<AppState>) -> Result<impl IntoResponse, A
 
 #[utoipa::path(post, path = "/jobs", tag = "Jobs", request_body = CreateJobRequest, responses((status = 201, description = "Job created", body = JobResponse)))]
 async fn create_job(State(state): State<AppState>, Json(req): Json<CreateJobRequest>) -> Result<impl IntoResponse, ApiError> {
-    if req.amount == 0 { return Err(ApiError::BadRequest("amount must be > 0".into())); }
-    if req.deadline <= 0 { return Err(ApiError::BadRequest("deadline must be a future unix timestamp".into())); }
+    validation::validate_create_job(&req)?;
     let existing = state.repo.list_jobs().await?;
     let job_id = existing.len() as u64;
     let pda = job_pda(job_id);
@@ -116,8 +128,8 @@ async fn apply_to_job(State(state): State<AppState>, Path(job_id): Path<u64>, Js
     let existing = state.repo.list_applications_by_job(&pda).await?;
     let index = existing.len() as u8;
     let applicant = placeholder_pubkey(&format!("Applicant{}", index));
+    validation::validate_apply(&req)?;
     let app_pda = application_pda(job_id, index, &applicant);
-    if req.proposal_hash.len() != 64 || !req.proposal_hash.chars().all(|c| c.is_ascii_hexdigit()) { return Err(ApiError::BadRequest("proposal_hash must be 64 hex chars (sha256)".into())); }
     let meta = ApplicationMetadata::new(app_pda.clone(), pda.clone(), applicant.clone(), req.proposal)?;
     state.repo.create_application(meta.clone()).await?;
     let resp = ApplicationResponse { index, applicant, proposal_hash: meta.proposal_hash, status: ApplicationStatusDto::Pending };
@@ -177,9 +189,9 @@ async fn unpause_job(State(state): State<AppState>, Path(job_id): Path<u64>) -> 
 
 #[utoipa::path(post, path = "/jobs/:job_id/milestones", tag = "Milestones", request_body = CreateMilestoneRequest, responses((status = 201, description = "Milestone created", body = MilestoneResponse)))]
 async fn create_milestone(State(state): State<AppState>, Path(job_id): Path<u64>, Json(req): Json<CreateMilestoneRequest>) -> Result<impl IntoResponse, ApiError> {
+    validation::validate_create_milestone(&req)?;
     let pda = job_pda(job_id);
     state.repo.get_job(&pda).await?.ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
-    if req.amount == 0 { return Err(ApiError::BadRequest("milestone amount must be > 0".into())); }
     let existing = state.repo.list_milestones_by_job(&pda).await?;
     let idx = existing.len() as u8;
     let meta = MilestoneMetadata::new(pda.clone(), idx, req.title.clone(), req.description.clone())?;
@@ -233,9 +245,9 @@ async fn accept_dispute(State(state): State<AppState>, Path(job_id): Path<u64>) 
 
 #[utoipa::path(post, path = "/jobs/:job_id/disputes/evidence", tag = "Disputes", request_body = EvidenceRequest, responses((status = 201, description = "Evidence submitted", body = EvidenceResponse)))]
 async fn submit_evidence(State(state): State<AppState>, Path(job_id): Path<u64>, Json(req): Json<EvidenceRequest>) -> Result<impl IntoResponse, ApiError> {
+    validation::validate_evidence(&req)?;
     let dpda = dispute_pda(job_id);
     state.repo.get_dispute(&dpda).await?.ok_or_else(|| ApiError::NotFound(format!("dispute for job {} not found", job_id)))?;
-    if req.content_hash.len() != 64 || !req.content_hash.chars().all(|c| c.is_ascii_hexdigit()) { return Err(ApiError::BadRequest("content_hash must be 64 hex chars".into())); }
     let existing = state.repo.list_evidence_by_dispute(&dpda).await?;
     let idx = existing.len() as u8;
     let author = placeholder_pubkey("EvidenceAuthor");
@@ -258,7 +270,7 @@ async fn assign_arbiter(State(state): State<AppState>, Path(job_id): Path<u64>) 
 
 #[utoipa::path(post, path = "/jobs/:job_id/disputes/resolve", tag = "Disputes", request_body = ResolveDisputeRequest, responses((status = 200, description = "Dispute resolved", body = DisputeResponse)))]
 async fn resolve_dispute(State(state): State<AppState>, Path(job_id): Path<u64>, Json(req): Json<ResolveDisputeRequest>) -> Result<impl IntoResponse, ApiError> {
-    if req.client_payout_percent > 100 { return Err(ApiError::BadRequest("client_payout_percent must be 0..100".into())); }
+    validation::validate_payout_percent(req.client_payout_percent)?;
     let dpda = dispute_pda(job_id);
     let mut d = state.repo.get_dispute(&dpda).await?.ok_or_else(|| ApiError::NotFound(format!("dispute for job {} not found", job_id)))?;
     d.resolve(format!("resolved {}% to client", req.client_payout_percent))?;
@@ -269,7 +281,7 @@ async fn resolve_dispute(State(state): State<AppState>, Path(job_id): Path<u64>,
 
 #[utoipa::path(post, path = "/jobs/:job_id/disputes/platform-resolve", tag = "Disputes", request_body = ResolveDisputeRequest, responses((status = 200, description = "Platform resolved dispute", body = DisputeResponse)))]
 async fn resolve_platform_case(State(state): State<AppState>, Path(job_id): Path<u64>, Json(req): Json<ResolveDisputeRequest>) -> Result<impl IntoResponse, ApiError> {
-    if req.client_payout_percent > 100 { return Err(ApiError::BadRequest("client_payout_percent must be 0..100".into())); }
+    validation::validate_payout_percent(req.client_payout_percent)?;
     let dpda = dispute_pda(job_id);
     let mut d = state.repo.get_dispute(&dpda).await?.ok_or_else(|| ApiError::NotFound(format!("dispute for job {} not found", job_id)))?;
     d.resolve(format!("platform resolved {}% to client", req.client_payout_percent))?;
@@ -334,7 +346,7 @@ async fn create_arbiter_pool(State(state): State<AppState>) -> Result<impl IntoR
 
 #[utoipa::path(post, path = "/arbiter-pool/arbiters", tag = "Arbiter Pool", request_body = AddArbiterRequest, responses((status = 200, description = "Arbiter added", body = ArbiterPoolResponse)))]
 async fn add_arbiter(State(state): State<AppState>, Json(req): Json<AddArbiterRequest>) -> Result<impl IntoResponse, ApiError> {
-    if req.arbiter.trim().len() < 32 || req.arbiter.trim().len() > 128 { return Err(ApiError::BadRequest("arbiter must be 32..128 chars".into())); }
+    validation::validate_pubkey(&req.arbiter)?;
     let mut pool = state.arbiter_pool.write().await;
     let p = pool.as_mut().ok_or_else(|| ApiError::NotFound("arbiter pool not initialized".into()))?;
     if p.arbiters.contains(&req.arbiter) { return Err(ApiError::Conflict("arbiter already in pool".into())); }
@@ -490,7 +502,8 @@ mod routes_tests {
         assert_eq!(r.status(), StatusCode::CONFLICT);
         let r = app.clone().oneshot(Request::builder().uri("/arbiter-pool").body(Body::empty()).unwrap()).await.unwrap();
         assert_eq!(r.status(), StatusCode::OK);
-        let arb = "7a2YhCd7iivXfyySkp1pf5jjArbiter00000000000000000001";
+        // Use a valid base58 32-byte pubkey (32 '1's = 32 zero bytes, valid)
+        let arb = "11111111111111111111111111111111";
         let payload = serde_json::json!({"arbiter": arb});
         let r = app.clone().oneshot(Request::builder().uri("/arbiter-pool/arbiters").method(Method::POST).header("content-type","application/json").body(Body::from(payload.to_string())).unwrap()).await.unwrap();
         assert_eq!(r.status(), StatusCode::OK);

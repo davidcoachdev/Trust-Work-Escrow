@@ -125,6 +125,9 @@ mod tests {
             mongo_url: None,
             version: "3.0.0".to_string(),
             environment: "test".to_string(),
+            cors_allowed_origins: Vec::new(),
+            rate_limit_requests: 100,
+            rate_limit_window_secs: 60,
         };
         let state = AppState::with_config_and_repository(cfg, Arc::new(InMemoryMetadataRepository::new()));
         let body = render_prometheus(0, 0, state.uptime_seconds(), &state.config.version, 0);

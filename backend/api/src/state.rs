@@ -10,11 +10,59 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tokio::sync::RwLock;
 
 use crate::repository::{InMemoryMetadataRepository, MetadataRepository};
+
+// ---------------------------------------------------------------------------
+// Rate limiter — kept here to avoid circular import with middleware.rs
+// ---------------------------------------------------------------------------
+
+/// Simple per-IP sliding window rate limiter.
+#[derive(Debug, Clone)]
+pub struct RateLimiter {
+    pub max_requests: usize,
+    pub window: Duration,
+    inner: Arc<std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, Vec<Instant>>>>,
+}
+
+impl Default for RateLimiter {
+    fn default() -> Self {
+        Self::new(100, Duration::from_secs(60))
+    }
+}
+
+impl RateLimiter {
+    pub fn new(max_requests: usize, window: Duration) -> Self {
+        Self {
+            max_requests,
+            window,
+            inner: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    pub fn check_and_record(&self, ip: std::net::IpAddr) -> bool {
+        let now = Instant::now();
+        let mut map = self.inner.lock().unwrap();
+        let entry = map.entry(ip).or_default();
+        entry.retain(|t| now.duration_since(*t) < self.window);
+        if entry.len() >= self.max_requests {
+            return false;
+        }
+        entry.push(now);
+        true
+    }
+
+    pub fn clear(&self) {
+        self.inner.lock().unwrap().clear();
+    }
+
+    pub fn tracked_ips(&self) -> usize {
+        self.inner.lock().unwrap().len()
+    }
+}
 
 /// Typed runtime configuration loaded from environment.
 ///
@@ -35,6 +83,12 @@ pub struct ApiConfig {
     pub version: String,
     /// Environment name (`ENV` or `RUST_ENV`, default `development`).
     pub environment: String,
+    /// Allowed CORS origins (env `CORS_ALLOWED_ORIGINS` comma-separated).
+    pub cors_allowed_origins: Vec<String>,
+    /// Rate limit max requests per window.
+    pub rate_limit_requests: usize,
+    /// Rate limit window in seconds.
+    pub rate_limit_window_secs: u64,
 }
 
 impl ApiConfig {
@@ -60,6 +114,25 @@ impl ApiConfig {
             .or_else(|_| std::env::var("RUST_ENV"))
             .unwrap_or_else(|_| "development".to_string());
 
+        let cors_allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .map(|o| o.trim().to_string())
+                    .filter(|o| !o.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let rate_limit_requests = std::env::var("RATE_LIMIT_REQUESTS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(100);
+        let rate_limit_window_secs = std::env::var("RATE_LIMIT_WINDOW_SECS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(60);
+
         Self {
             port,
             rpc_url,
@@ -67,6 +140,9 @@ impl ApiConfig {
             mongo_url,
             version,
             environment,
+            cors_allowed_origins,
+            rate_limit_requests,
+            rate_limit_window_secs,
         }
     }
 
@@ -87,6 +163,9 @@ impl Default for ApiConfig {
             mongo_url: None,
             version: env!("CARGO_PKG_VERSION").to_string(),
             environment: "development".to_string(),
+            cors_allowed_origins: Vec::new(),
+            rate_limit_requests: 100,
+            rate_limit_window_secs: 60,
         }
     }
 }
@@ -100,6 +179,8 @@ pub struct AppState {
     pub repo: Arc<dyn MetadataRepository>,
     /// In-memory arbiter pool (authoritative set: authority + arbiters).
     pub arbiter_pool: Arc<RwLock<Option<ArbiterPoolState>>>,
+    /// Rate limiter (per-IP sliding window).
+    pub rate_limiter: RateLimiter,
     /// Instant when the process started (for uptime).
     pub start_time: Instant,
     /// Total HTTP requests observed (incremented by middleware).
@@ -143,10 +224,15 @@ impl AppState {
 
     /// Create state with explicit config and repository (useful in tests).
     pub fn with_config_and_repository(config: ApiConfig, repo: Arc<dyn MetadataRepository>) -> Self {
+        let rate_limiter = RateLimiter::new(
+            config.rate_limit_requests,
+            Duration::from_secs(config.rate_limit_window_secs),
+        );
         Self {
             config: Arc::new(config),
             repo,
             arbiter_pool: Arc::new(RwLock::new(None)),
+            rate_limiter,
             start_time: Instant::now(),
             requests_total: Arc::new(AtomicU64::new(0)),
             errors_total: Arc::new(AtomicU64::new(0)),
@@ -188,6 +274,9 @@ mod tests {
             mongo_url: None,
             version: "3.0.0".to_string(),
             environment: "development".to_string(),
+            cors_allowed_origins: Vec::new(),
+            rate_limit_requests: 100,
+            rate_limit_window_secs: 60,
         };
         assert_eq!(cfg.port, 3000);
         assert!(!cfg.rpc_url.is_empty());

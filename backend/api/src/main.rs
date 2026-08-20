@@ -9,26 +9,29 @@
 
 use axum::{
     http::StatusCode,
-    middleware::{self, Next},
+    middleware::{self as axum_middleware, Next},
     response::{IntoResponse, Response},
     routing::get,
     Router,
 };
 use axum::http::Request;
 use axum::extract::State;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+pub mod auth;
 pub mod error;
 pub mod evidence;
 pub mod health;
 pub mod metadata;
 pub mod metrics;
+pub mod middleware;
 pub mod models;
 pub mod repository;
 pub mod sync;
+pub mod validation;
 mod routes;
 mod state;
 
@@ -52,6 +55,7 @@ use crate::state::{ApiConfig, AppState};
         health::ready,
         metrics::metrics,
         metrics::metrics_json,
+        routes::verify_auth,
         routes::get_config,
         routes::list_jobs,
         routes::create_job,
@@ -143,6 +147,7 @@ pub fn app() -> Router {
 
 /// Build the axum router with explicit state.
 pub fn app_with_state(state: AppState) -> Router {
+    let cors = middleware::cors_layer(&state);
     Router::new()
         .route("/health", get(health::health))
         .route("/live", get(health::live))
@@ -152,9 +157,19 @@ pub fn app_with_state(state: AppState) -> Router {
         .merge(routes::api_router())
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .fallback(not_found)
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(TraceLayer::new_for_http())
-        .layer(middleware::from_fn_with_state(state.clone(), track_metrics))
+        .layer(axum_middleware::from_fn(middleware::security_headers_middleware))
+        .layer(axum_middleware::from_fn(middleware::request_size_guard))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::rate_limit_middleware,
+        ))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::https_enforcement_middleware,
+        ))
+        .layer(axum_middleware::from_fn_with_state(state.clone(), track_metrics))
         .with_state(state)
 }
 
@@ -301,5 +316,89 @@ mod tests {
         assert!(text.contains("trust_escrow_uptime_seconds"));
         // Must not leak secrets
         assert!(!text.to_lowercase().contains("private"));
+    }
+
+    #[tokio::test]
+    async fn security_headers_present_on_health() {
+        let resp = app()
+            .oneshot(Request::builder().uri("/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let h = resp.headers();
+        assert_eq!(h.get("x-content-type-options").unwrap(), "nosniff");
+        assert_eq!(h.get("x-frame-options").unwrap(), "DENY");
+        assert!(h.contains_key("strict-transport-security"));
+        assert!(h.contains_key("content-security-policy"));
+    }
+
+    #[tokio::test]
+    async fn auth_verify_requires_signature() {
+        use axum::http::Method;
+        // without headers -> 401
+        let resp = app()
+            .oneshot(
+                Request::builder()
+                    .uri("/auth/verify")
+                    .method(Method::POST)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // with valid signature -> 200
+        use ed25519_dalek::{Signer, SigningKey};
+        use base64::Engine as _;
+        let seed = [7u8; 32];
+        let sk = SigningKey::from_bytes(&seed);
+        let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
+        let msg = "test-auth-message";
+        let sig = base64::engine::general_purpose::STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
+        let resp = app()
+            .oneshot(
+                Request::builder()
+                    .uri("/auth/verify")
+                    .method(Method::POST)
+                    .header("x-pubkey", pk)
+                    .header("x-signature", sig)
+                    .header("x-message", msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn validation_blocks_invalid_job_and_does_not_create() {
+        use axum::http::Method;
+        let state = AppState::default();
+        let app = app_with_state(state);
+        let payload = serde_json::json!({"title":"","description":"desc","amount":0,"deadline":0});
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs")
+                    .method(Method::POST)
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        // Ensure no job was created (list should be empty)
+        let resp = app
+            .clone()
+            .oneshot(Request::builder().uri("/jobs").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
+        let list: Vec<serde_json::Value> = serde_json::from_slice(&body).unwrap();
+        assert!(list.is_empty());
     }
 }
