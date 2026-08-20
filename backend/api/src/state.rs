@@ -12,6 +12,8 @@ use std::sync::{
 };
 use std::time::Instant;
 
+use tokio::sync::RwLock;
+
 use crate::repository::{InMemoryMetadataRepository, MetadataRepository};
 
 /// Typed runtime configuration loaded from environment.
@@ -96,12 +98,21 @@ pub struct AppState {
     pub config: Arc<ApiConfig>,
     /// Off-chain metadata repository.
     pub repo: Arc<dyn MetadataRepository>,
+    /// In-memory arbiter pool (authoritative set: authority + arbiters).
+    pub arbiter_pool: Arc<RwLock<Option<ArbiterPoolState>>>,
     /// Instant when the process started (for uptime).
     pub start_time: Instant,
     /// Total HTTP requests observed (incremented by middleware).
     pub requests_total: Arc<AtomicU64>,
     /// Total error responses (4xx/5xx).
     pub errors_total: Arc<AtomicU64>,
+}
+
+/// In-memory representation of the on-chain `ArbiterPool`.
+#[derive(Debug, Clone)]
+pub struct ArbiterPoolState {
+    pub authority: String,
+    pub arbiters: Vec<String>,
 }
 
 impl std::fmt::Debug for AppState {
@@ -135,6 +146,7 @@ impl AppState {
         Self {
             config: Arc::new(config),
             repo,
+            arbiter_pool: Arc::new(RwLock::new(None)),
             start_time: Instant::now(),
             requests_total: Arc::new(AtomicU64::new(0)),
             errors_total: Arc::new(AtomicU64::new(0)),
