@@ -31,6 +31,12 @@ pub mod __client_accounts_add_arbiter { pub use crate::instructions::config::__c
 pub mod __cpi_client_accounts_add_arbiter { pub use crate::instructions::config::__cpi_client_accounts_add_arbiter::*; }
 pub mod __client_accounts_remove_arbiter { pub use crate::instructions::config::__client_accounts_remove_arbiter::*; }
 pub mod __cpi_client_accounts_remove_arbiter { pub use crate::instructions::config::__cpi_client_accounts_remove_arbiter::*; }
+pub mod __client_accounts_propose_authority { pub use crate::instructions::config::__client_accounts_propose_authority::*; }
+pub mod __cpi_client_accounts_propose_authority { pub use crate::instructions::config::__cpi_client_accounts_propose_authority::*; }
+pub mod __client_accounts_update_authority { pub use crate::instructions::config::__client_accounts_update_authority::*; }
+pub mod __cpi_client_accounts_update_authority { pub use crate::instructions::config::__cpi_client_accounts_update_authority::*; }
+pub mod __client_accounts_cancel_authority_proposal { pub use crate::instructions::config::__client_accounts_cancel_authority_proposal::*; }
+pub mod __cpi_client_accounts_cancel_authority_proposal { pub use crate::instructions::config::__cpi_client_accounts_cancel_authority_proposal::*; }
 pub mod __client_accounts_create_job { pub use crate::instructions::job::__client_accounts_create_job::*; }
 pub mod __cpi_client_accounts_create_job { pub use crate::instructions::job::__cpi_client_accounts_create_job::*; }
 pub mod __client_accounts_deposit_funds { pub use crate::instructions::job::__client_accounts_deposit_funds::*; }
@@ -95,7 +101,7 @@ pub mod __cpi_client_accounts_reject_milestone { pub use crate::instructions::mi
 
 pub use errors::ErrorCode;
 pub use state::{Application, ApplicationStatus, ArbiterPool, ArbitrationEscrow, Config, Dispute, DisputeStatus, Evidence, Job, JobStatus, Milestone, MilestoneStatus, SupportTicket, SupportTicketStatus};
-pub use instructions::config::{InitializeConfig, Pause, Unpause, UpdateTreasury, UpdateArbitrationTreasury, WithdrawTreasury, WithdrawArbitration, CreateArbiterPool, AddArbiter, RemoveArbiter};
+pub use instructions::config::{CancelAuthorityProposal, InitializeConfig, Pause, ProposeAuthority, Unpause, UpdateAuthority, UpdateTreasury, UpdateArbitrationTreasury, WithdrawTreasury, WithdrawArbitration, CreateArbiterPool, AddArbiter, RemoveArbiter};
 pub use instructions::job::{CreateJob, DepositFunds, ApplyToJob, AcceptApplication, RejectApplication, WithdrawApplication, CleanupApplications, SubmitWork, AutoApproveWork, ApproveWork, RejectWork, CancelJob, PauseJob, UnpauseJob, ExpirePausedJob};
 pub use instructions::dispute::{RaiseDispute, AcceptDispute, SubmitEvidence, AssignArbiter, ResolveDispute, ResolvePlatformCase, RequestPlatformIntervention, OpenSupportTicket, ResolveSupportTicket, FinalizeDisputePayouts, CleanupDisputeEvidence};
 pub use instructions::milestone::{CreateMilestone, SubmitMilestone, ApproveMilestone, RejectMilestone};
@@ -107,6 +113,11 @@ pub const ARBITER_FEE_BPS_PER_PARTY: u16 = 250;
 pub const DISPUTE_ACCEPT_GRACE: i64 = 7 * 24 * 60 * 60;
 pub const AUTO_APPROVAL_DELAY: i64 = 7 * 24 * 60 * 60;
 pub const INITIAL_AUTHORITY: Pubkey = pubkey!("3whY1ohdAV3uRXSpyzsKtwLg84X9fTZ1pSdCS8Vvqt7c");
+
+/// Timelock for authority rotation (2 days in seconds). Enforced between
+/// propose_authority and update_authority. Mitigates instant takeover by
+/// compromised authority key.
+pub const AUTHORITY_TIMELOCK: i64 = 2 * 24 * 60 * 60;
 
 pub const MAX_PAUSE_DURATION: i64 = 30 * 24 * 60 * 60;
 
@@ -624,6 +635,18 @@ pub mod escrow {
 
     pub fn remove_arbiter(ctx: Context<RemoveArbiter>, arbiter: Pubkey) -> Result<()> {
         instructions::config::remove_arbiter(ctx, arbiter)
+    }
+
+    pub fn propose_authority(ctx: Context<ProposeAuthority>, new_authority: Pubkey) -> Result<()> {
+        instructions::config::propose_authority(ctx, new_authority)
+    }
+
+    pub fn update_authority(ctx: Context<UpdateAuthority>) -> Result<()> {
+        instructions::config::update_authority(ctx)
+    }
+
+    pub fn cancel_authority_proposal(ctx: Context<CancelAuthorityProposal>) -> Result<()> {
+        instructions::config::cancel_authority_proposal(ctx)
     }
 
     pub fn raise_dispute(ctx: Context<RaiseDispute>, _job_id: u64) -> Result<()> {

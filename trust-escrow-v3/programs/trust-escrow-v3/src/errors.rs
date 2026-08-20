@@ -92,4 +92,10 @@ pub enum ErrorCode {
     EmptyProposal,
     #[msg("Application cleanup accounts do not match the deterministic job range")]
     InvalidApplicationCleanupAccounts,
+    #[msg("No pending authority proposal")]
+    NoPendingAuthority,
+    #[msg("Authority timelock has not expired (2 days required)")]
+    AuthorityTimelockNotExpired,
+    #[msg("Invalid new authority")]
+    InvalidNewAuthority,
 }

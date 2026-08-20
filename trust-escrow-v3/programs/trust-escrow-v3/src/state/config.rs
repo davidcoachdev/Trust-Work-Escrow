@@ -11,6 +11,8 @@ pub struct Config {
     pub fee_bps: u16,
     pub paused: bool,
     pub bump: u8,
+    pub pending_authority: Option<Pubkey>,
+    pub pending_authority_at: i64,
 }
 
 #[account]
@@ -30,4 +32,3 @@ pub struct ArbitrationEscrow {
     pub freelancer_bond: u64,
     pub bump: u8,
 }
-

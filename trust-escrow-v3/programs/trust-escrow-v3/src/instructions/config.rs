@@ -3,7 +3,7 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer, ID as SYSTEM_PROGRAM_ID};
 use crate::errors::ErrorCode;
 use crate::state::*;
-use crate::{ARBITER_FEE_BPS_PER_PARTY, AUTO_APPROVAL_DELAY, BASIS_POINTS, DISPUTE_ACCEPT_GRACE, INITIAL_AUTHORITY, MAX_APPLICATIONS, MAX_ARBITERS, MAX_EVIDENCE_COUNT, MAX_MILESTONES, MAX_PAUSE_DURATION, MIN_JOB_AMOUNT};
+use crate::{ARBITER_FEE_BPS_PER_PARTY, AUTHORITY_TIMELOCK, AUTO_APPROVAL_DELAY, BASIS_POINTS, DISPUTE_ACCEPT_GRACE, INITIAL_AUTHORITY, MAX_APPLICATIONS, MAX_ARBITERS, MAX_EVIDENCE_COUNT, MAX_MILESTONES, MAX_PAUSE_DURATION, MIN_JOB_AMOUNT};
 use crate::{check_not_paused, cleanup_job_applications, close_evidence_account, compute_fee, compute_shortfall, transfer_job_lamports, validate_treasury_destination};
 
 #[derive(Accounts)]
@@ -188,6 +188,8 @@ pub fn initialize_config(
     config.fee_bps = fee_bps;
     config.paused = false;
     config.bump = ctx.bumps.config;
+    config.pending_authority = None;
+    config.pending_authority_at = 0;
 
     msg!("Config initialized by: {}", config.authority);
     Ok(())
@@ -310,6 +312,108 @@ pub fn remove_arbiter(ctx: Context<RemoveArbiter>, arbiter: Pubkey) -> Result<()
         .position(|&a| a == arbiter)
         .ok_or(ErrorCode::NotValidArbiter)?;
     pool.arbiters.remove(idx);
+    Ok(())
+}
+
+#[derive(Accounts)]
+pub struct ProposeAuthority<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
+    pub config: Account<'info, Config>,
+}
+
+#[derive(Accounts)]
+pub struct UpdateAuthority<'info> {
+    /// CHECK: pending authority must sign to accept ownership after timelock.
+    pub pending_authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump = config.bump,
+    )]
+    pub config: Account<'info, Config>,
+}
+
+#[derive(Accounts)]
+pub struct CancelAuthorityProposal<'info> {
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"config"],
+        bump = config.bump,
+        constraint = config.authority == authority.key() @ ErrorCode::NotAuthorized
+    )]
+    pub config: Account<'info, Config>,
+}
+
+/// Step 1 (propose): current authority proposes a new authority.
+/// Timelock 2 days starts now. Compatible with Squads multisig: the
+/// Config.authority should be a Squads vault PDA; the Squads proposal
+/// executes this instruction, starting the timelock. The second step
+/// (update_authority) can only succeed after AUTHORITY_TIMELOCK.
+pub fn propose_authority(ctx: Context<ProposeAuthority>, new_authority: Pubkey) -> Result<()> {
+    require!(new_authority != Pubkey::default(), ErrorCode::InvalidNewAuthority);
+    require!(
+        new_authority != ctx.accounts.config.authority,
+        ErrorCode::InvalidNewAuthority
+    );
+    let clock = Clock::get()?;
+    ctx.accounts.config.pending_authority = Some(new_authority);
+    ctx.accounts.config.pending_authority_at = clock.unix_timestamp;
+    msg!(
+        "Authority rotation proposed: {} -> {} at {}",
+        ctx.accounts.config.authority,
+        new_authority,
+        ctx.accounts.config.pending_authority_at
+    );
+    Ok(())
+}
+
+/// Step 2 (approve/execute): pending authority accepts after timelock.
+/// Must be signed by the pending_authority itself (proves key control) and
+/// after AUTHORITY_TIMELOCK (2 days). This is the second signature in the
+/// 2-step flow; when combined with Squads multisig as current authority,
+/// it yields multisig + timelock + new-key acceptance.
+pub fn update_authority(ctx: Context<UpdateAuthority>) -> Result<()> {
+    let pending = ctx
+        .accounts
+        .config
+        .pending_authority
+        .ok_or(ErrorCode::NoPendingAuthority)?;
+    require!(
+        ctx.accounts.pending_authority.key() == pending,
+        ErrorCode::NotAuthorized
+    );
+    let clock = Clock::get()?;
+    let elapsed = clock
+        .unix_timestamp
+        .checked_sub(ctx.accounts.config.pending_authority_at)
+        .ok_or(ErrorCode::AuthorityTimelockNotExpired)?;
+    require!(
+        elapsed >= AUTHORITY_TIMELOCK,
+        ErrorCode::AuthorityTimelockNotExpired
+    );
+    let old = ctx.accounts.config.authority;
+    ctx.accounts.config.authority = pending;
+    ctx.accounts.config.pending_authority = None;
+    ctx.accounts.config.pending_authority_at = 0;
+    msg!("Authority rotated: {} -> {}", old, pending);
+    Ok(())
+}
+
+pub fn cancel_authority_proposal(ctx: Context<CancelAuthorityProposal>) -> Result<()> {
+    require!(
+        ctx.accounts.config.pending_authority.is_some(),
+        ErrorCode::NoPendingAuthority
+    );
+    ctx.accounts.config.pending_authority = None;
+    ctx.accounts.config.pending_authority_at = 0;
+    msg!("Authority proposal cancelled by {}", ctx.accounts.authority.key());
     Ok(())
 }
 
