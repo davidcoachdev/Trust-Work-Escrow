@@ -1,5 +1,7 @@
 # Arquitectura - Trust Work Escrow
 
+> **v3 vigente:** `trust-escrow-v3` `7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh` — modelo Applications PDA individual (`Vec<Pubkey>` 50 compacto + `Application` PDA individual, no inline). Ver § Estructura de Datos v3 y `docs/SMARTCONTRACT.md` § v3, `backend/README.md` § Applications PDA. IDL validada vs código en `backend/sdk/tests/t26_idl_docs.rs`.
+
 ## 📐 Visión General
 
 ```
@@ -195,11 +197,35 @@ escrow-core/
 
 ## 📦 Estructura de Datos
 
-### Job Account
+### v3 vigente — Job compacto + Application PDA individual (no inline)
+
+```rust
+// Job — cuenta compacta Vec 50, no inline Application[50]
+#[account] pub struct Job {
+    pub client: Pubkey, pub freelancer: Option<Pubkey>,
+    pub amount: u64, pub fee_amount: u64,
+    pub status: JobStatus, pub paused: bool, pub paused_at: i64,
+    pub deadline: i64, pub submitted_at: Option<i64>,
+    pub milestones_total: u8, pub milestones_approved: u8, pub milestones_amount_total: u64,
+    #[max_len(50)] pub applicants: Vec<Pubkey>, // 50 compacto, delta 50*32, INIT_SPACE <10KiB (no 28KiB inline)
+    pub bump: u8, // seeds [b"job", client, job_id.le]
+}
+#[account] pub struct Application {
+    pub job: Pubkey, pub index: u8, // 0..49, == len al crear
+    pub applicant: Pubkey, pub proposal_hash: [u8;32], // SHA256 1..512 chars, != [0;32]
+    pub status: ApplicationStatus, pub bump: u8, // seeds [b"application", job, &[index], applicant]
+}
+```
+
+Seeds/ownership/bump, MAX 50, límites 1..512, unicidad `AlreadyApplied`, cleanup `close=applicant` + `InvalidApplicationCleanupAccounts` — IDL `escrow.json` validada vs código en `t26_idl_docs.rs`. Sin modelo inline vigente.
+
+<details><summary>v1 histórico — Job con strings (referencia)</summary>
+
+### Job Account (v1 histórico)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                            Job Account                                    │
+│                            Job Account (v1)                               │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  Offset  │  Size  │  Field              │  Description                   │
 ├──────────┼────────┼────────────────────┼────────────────────────────────┤
@@ -222,6 +248,7 @@ escrow-core/
 │  957     │  1     │  bump              │  Bump para PDA                 │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+</details>
 
 ## 🔌 Integración
 

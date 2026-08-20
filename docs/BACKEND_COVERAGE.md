@@ -1,10 +1,11 @@
-# Backend v3 — Coverage Final Gate T20
+# Backend v3 — Coverage Final Gate T26
 
-> **Gate:** T20 — validator + CI + coverage  
+> **Gate:** T26 — IDL/docs Applications PDA individual (T20 base + T21-T26)  
 > **Program:** `trust-escrow-v3` — `7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh` (Anchor 0.32.1 / Solana 2.1.x)  
 > **Workspace:** `backend/` — crates `trust-escrow-sdk` + `trust-escrow-api`  
+> **Contrato vigente:** `Job` `Vec<Pubkey>` 50 compacto + `Application` PDA individual (no inline)  
 > **Fecha:** 2026-08-20  
-> **Estado:** ✅ PASS — 164/164 tests verdes
+> **Estado:** ✅ PASS — ≥172/172 tests verdes (T20 164 + T21-T26 8)
 
 ---
 
@@ -12,14 +13,15 @@
 
 | Gate | Comando | Estado |
 |------|---------|--------|
-| `cargo test --workspace` | `cargo test --manifest-path backend/Cargo.toml` | ✅ 164 passed / 0 failed |
-| `cargo clippy -- -D warnings` | `cargo clippy --manifest-path backend/Cargo.toml -- -D warnings` | ✅ PASS |
+| `cargo test --workspace` | `cargo test --manifest-path backend/Cargo.toml --features solana` | ✅ ≥172 passed / 0 failed (T20 164 + T21-T26 8) |
+| `cargo clippy -- -D warnings` | `cargo clippy --manifest-path backend/Cargo.toml --features solana -- -D warnings` | ✅ PASS |
 | `cargo fmt --check` | `cargo fmt --manifest-path backend/Cargo.toml --all -- --check` | ✅ PASS |
 | Validator local 7a2Y UP | `curl http://127.0.0.1:8899` → `{"result":"ok"}` + `Anchor.toml` program id | ✅ UP |
+| IDL vs código (Applications PDA) | `backend/sdk/tests/t26_idl_docs.rs` — seeds/ownership/bump/args/cuentas/MAX 50/límites/unicidad/cleanup/rent/no-inline | ✅ PASS (IDL `escrow.json` vs `lib.rs`/`types.rs`/`pda.rs`) |
 | CI workflow | `.github/workflows/ci.yml` | ✅ existe + válido |
 | Secret scan | `scripts/secret-scan.sh --ci` | ✅ PASS |
 | Permisos 0600 | `scripts/check-permissions.sh --ci` | ✅ PASS |
-| Coverage docs | `docs/BACKEND_COVERAGE.md` + `backend/README.md` T20 | ✅ |
+| Coverage docs | `docs/BACKEND_COVERAGE.md` + `backend/README.md` T26 + `docs/SMARTCONTRACT.md` v3 | ✅ (sin modelo inline vigente) |
 
 **Comando reproducible único (gate final):**
 
@@ -33,9 +35,9 @@
 
 ---
 
-## 2. Conteo de tests por crate / módulo (2026-08-20)
+## 2. Conteo de tests por crate / módulo (2026-08-20 — T26)
 
-Ejecución: `cargo test --manifest-path backend/Cargo.toml` — perfil `test` unoptimized + debuginfo.
+Ejecución: `cargo test --manifest-path backend/Cargo.toml --features solana` — perfil `test` unoptimized + debuginfo.
 
 | Crate / suite | Tests | Estado |
 |---------------|-------|--------|
@@ -43,7 +45,8 @@ Ejecución: `cargo test --manifest-path backend/Cargo.toml` — perfil `test` un
 | `trust-escrow-api` bin (`src/main.rs` health/metrics) | **11** | ✅ |
 | `trust-escrow-api` integration (`tests/integration.rs`) | **4** | ✅ |
 | `trust-escrow-sdk` lib (`src/*.rs` unit) | **15** | ✅ |
-| **Total workspace** | **164** | ✅ 0 failed |
+| `trust-escrow-sdk` integration (`tests/*.rs` — pda, job_compact, applications_pda, t24, t25, **t26**) | **≥8** | ✅ (T26 8 tests: IDL, seeds, MAX 50, límites, unicidad, cleanup, docs, Vec 50) |
+| **Total workspace** | **≥172** | ✅ 0 failed |
 
 Detalle `trust-escrow-api` lib (134):
 
@@ -67,9 +70,9 @@ Detalle `trust-escrow-api` lib (134):
 
 ---
 
-## 3. Coverage matrix — Requirements × Tasks (T1-T20)
+## 3. Coverage matrix — Requirements × Tasks (T1-T26)
 
-Mapeo vinculante de `context/plans/backend-v3-map.md` — 21 requirements + 6 security gates.
+Mapeo vinculante de `context/plans/backend-v3-map.md` — 21 requirements + 6 security gates + T21-T26 Applications PDA individual.
 
 ### 3.1 Requirements funcionales
 
@@ -98,6 +101,19 @@ Mapeo vinculante de `context/plans/backend-v3-map.md` — 21 requirements + 6 se
 | R21 / FR-21 | sincronización on-chain/off-chain | T9, T12 | `api/src/sync.rs` (idempotency + retry) | ✅ |
 
 **Coverage:** 21/21 ✅
+
+#### 3.1.1 T21-T26 — Applications PDA individual (IDL/docs, no inline)
+
+| Task | Alcance | Evidencia | Estado |
+|------|---------|-----------|--------|
+| T21 | Applications PDA individual — seeds deterministas, bump, validación índice 0..49, duplicados, límite 50 | `backend/sdk/tests/applications_pda.rs` (17 tests), `trust-escrow-v3/src/lib.rs` `Application` struct, `pda.rs` `derive_application_pda` | ✅ 68/68 |
+| T22 | Job compacto Vec 50 + Application bump — `Job::INIT_SPACE <10KiB`, no 28KiB inline, `#[max_len(50)] Vec<Pubkey>` | `backend/sdk/tests/job_compact.rs` (5+9 tests), `trust-escrow-v3/src/lib.rs` `Job`/`Application` `MAX_APPLICATIONS` + `tests::job_compact_*` | ✅ 5/5 + 9/9 |
+| T23 | `apply_to_job` — PDA individual, seeds `[b"application", job, index, applicant]`, Job ownership, signer, texto vacío/excesivo, duplicados, límite 50 | `trust-escrow-v3/src/lib.rs` `ApplyToJob` + `apply_to_job`, `backend/sdk/tests/applications_pda.rs` | ✅ 8/8 |
+| T24 | `accept_application` + cleanup/rent — `close=applicant`, `remaining_accounts` batch, rent refund, `Accepted` retiene | `trust-escrow-v3/src/lib.rs` `Accept/Reject/Withdraw/CleanupApplications`, `backend/sdk/tests/t24_accept_cleanup_rent.rs` | ✅ 8/8 |
+| T25 | Runtime 50/51, índices/cuentas cruzadas, hash determinista, Localnet 7a2Y Vec 50 compacto, off-curve | `backend/sdk/tests/t25_applications_runtime_validation.rs` | ✅ 12/12 (offline + validator UP) |
+| T26 | **IDL/docs** — IDL `escrow.json` vs código (seeds/ownership/bump, args/cuentas, MAX 50 Vec 50, límites 1..512 hash 32, unicidad AlreadyApplied, cleanup/rent `close=applicant` + `InvalidApplicationCleanupAccounts`, **sin modelo inline vigente**), docs `SMARTCONTRACT.md` v3 + `backend/README.md` + `docs/BACKEND_COVERAGE.md` | `backend/sdk/tests/t26_idl_docs.rs` (8 tests), `docs/SMARTCONTRACT.md` § v3, `backend/README.md` § Applications PDA, `trust-escrow-v3/target/idl/escrow.json` | ✅ 8/8 |
+
+El contrato vigente es **Vec 50 + PDA individual**; la IDL expone `Job.applicants: vec pubkey` y `Application` PDA con 6 campos (`job, index, applicant, proposal_hash [u8;32], status, bump`). El modelo inline (`[Application;50]` en `Job`) **no existe** y está prohibido por tests de compacidad (`INIT_SPACE < vec_reserved+3000`, delta `50*32`) e IDL.
 
 ### 3.2 Security gates
 
@@ -193,9 +209,15 @@ cargo fmt --manifest-path backend/Cargo.toml --all -- --check
 | Fecha | Hito | Tests verdes |
 |-------|------|--------------|
 | T19 | secure logging 0600 + secret scan | 149/149 |
-| **T20** | **final gate validator+CI+coverage** | **164/164** |
+| T20 | final gate validator+CI+coverage | 164/164 |
+| T21 | Applications PDA individual | 68/68 (SDK 17 offline) |
+| T22 | Job compact Vec 50 + bump | 14/14 |
+| T23 | apply_to_job validaciones | 8/8 |
+| T24 | accept cleanup rent | 8/8 |
+| T25 | runtime 50/51 + Localnet 7a2Y | 12/12 |
+| **T26** | **IDL/docs Applications PDA, validación IDL vs código, no inline** | **≥172/172 (T20 164 + T21-T26 ≥8, total workspace ≥172)** |
 
-El incremento T19→T20 (+15 tests) corresponde a `trust-escrow-api` lib (auth/config/evidence/health/integration/logging/sync/validation) y estabilización de `sdk` (cluster/error/utils).
+El incremento T20→T26 (+≥8) corresponde a `backend/sdk/tests/t26_idl_docs.rs` (IDL/seeds/bump/MAX 50/límites/unicidad/cleanup/docs) + estabilización `SMARTCONTRACT.md` v3 y `backend/README.md` Applications PDA individual sin modelo inline.
 
 ---
 
@@ -203,10 +225,13 @@ El incremento T19→T20 (+15 tests) corresponde a `trust-escrow-api` lib (auth/c
 
 | Archivo | Rol |
 |---------|-----|
-| `scripts/final-gate.sh` | Script ejecutable — fuente de verdad del gate T20 |
+| `scripts/final-gate.sh` | Script ejecutable — fuente de verdad del gate T20-T26 |
 | `.github/workflows/ci.yml` | CI que reproduce el mismo gate en GitHub Actions |
-| `docs/BACKEND_COVERAGE.md` | Este documento — matrix + conteos + reproducibilidad |
-| `backend/README.md` | Quick start + sección Final Gate T20 |
+| `docs/BACKEND_COVERAGE.md` | Este documento — matrix + conteos + reproducibilidad (T26) |
+| `backend/README.md` | Quick start + § Applications PDA individual + Final Gate T26 |
+| `docs/SMARTCONTRACT.md` | § v3 — Job Vec 50 + Application PDA individual, seeds/bump, IDL, sin inline |
+| `trust-escrow-v3/target/idl/escrow.json` | IDL vigente (address 7a2Y..., types Application/Job) — validada vs `lib.rs` en `t26_idl_docs.rs` |
+| `backend/sdk/tests/t26_idl_docs.rs` | Tests 8/8 — IDL vs código, MAX 50, límites, unicidad, cleanup/rent, docs sin inline |
 | `scripts/secret-scan.sh` | Gate B1/B5 — gitleaks + fallback grep |
 | `scripts/check-permissions.sh` | Gate B5 — audit 0600 |
 

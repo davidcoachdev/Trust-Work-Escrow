@@ -97,6 +97,35 @@ let client = TrustEscrowClient::from_keypair_path(Cluster::Localnet, "path/to/id
 let job = client.get_job(&client.pubkey(), 1)?;
 ```
 
+## Applications PDA individual — v3 vigente (T21-T26)
+
+**Contrato:** `trust-escrow-v3` `7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh` (Anchor 0.32.1) — `Job` compacto `Vec<Pubkey>` 50, no inline. `MAX_APPLICATIONS = 50` en `lib.rs` y `sdk/src/types.rs`.
+
+| Cuenta | Seeds | Bump | Owner | Campos clave |
+|---|---|---|---|---|
+| `Job` | `[b"job", client, job_id.le_bytes()]` | `job.bump` (u8) | `7a2Y...` | `applicants: Vec<Pubkey>` `#[max_len(50)]`, `bump`, estados `Created→Funded→InProgress…` |
+| `Application` | `[b"application", job, &[index], applicant]` | `application.bump` (u8) | `7a2Y...` | `job, index: u8 (0..49), applicant, proposal_hash: [u8;32], status: Pending/Accepted/Rejected/Withdrawn, bump` — **PDA individual por (job, index, applicant)**, off-curve |
+
+**IDL:** `trust-escrow-v3/target/idl/escrow.json` (`address 7a2Y...`, `types.Application`/`Job`, `ApplicationStatus`). Validado vs código en `sdk/tests/t26_idl_docs.rs` (seeds, bump, ownership, args/cuentas, MAX 50, no inline, límites, unicidad, cleanup).
+
+**Instrucciones Applications:**
+
+| Ix | Args | Cuentas | Validaciones clave |
+|---|---|---|---|
+| `apply_to_job` | `_job_id: u64, application_index: u8, proposal_hash: [u8;32]` | `applicant (Signer, payer)`, `job (mut PDA job)`, `application (init, PDA application)`, `client (Unchecked, PDA job)`, `system_program` | `status==Funded`, `applicant != client`, `!AlreadyApplied`, `len<50`, `index==len`, `hash != [0;32]` (`EmptyProposal`) |
+| `accept_application` | `_job_id, application_index` | `client (Signer)`, `job (mut)`, `applicant (SystemAccount)`, `application (mut PDA)` | `Pending`, `index` y `job.applicants[index]==applicant`, `freelancer None`, asigna `job.freelancer`, `status Accepted→InProgress` |
+| `reject_application` | `_job_id, application_index` | idem + `application close=applicant` | `Pending`, rent refund al postulante |
+| `withdraw_application` | `_job_id, application_index` | `applicant (Signer)`, `job`, `application close=applicant` | `Pending`, solo postulante, rent refund |
+| `cleanup_applications` | `_job_id, start_index: u8` | `client (Signer)`, `job (mut)`, `remaining_accounts: [application, applicant]*N` | `InProgress/Submitted/Disputed` + `freelancer Some`, batch `start_index..`, valida PDA y `job.applicants[index]==applicant`, cierra `Pending/Rejected/Withdrawn` con rent al `applicant`, retiene `Accepted`/`closed(allow_closed)` |
+
+**Límites texto:** off-chain `proposal 1..512 chars` (`validation.rs`/`metadata.rs` `ProposalTooLong`/`EmptyProposal`), on-chain `proposal_hash [u8;32]` SHA256, rechazo `EmptyProposal` si `hash==[0;32]`. Hash determinista 32 bytes.
+
+**Unicidad:** `AlreadyApplied` (aunque cambie índice), `CannotWorkOnOwnJob`, `ApplicationIndexMismatch`/`InvalidApplicationIndex` (`0..49`, `index==len`).
+
+**Cleanup/rent:** `close = applicant` en `Reject/Withdraw`; `cleanup_applications` batch vía `remaining_accounts` con validación `InvalidApplicationCleanupAccounts`, rent de cada `Application` no-accepted transferido al `applicant` (`assign SYSTEM_PROGRAM_ID, resize 0`).
+
+**Sin modelo inline:** `Job` no contiene `Vec<Application>` ni `[Application;50]`; solo `Vec<Pubkey>` compacto (`Job::INIT_SPACE <10 KiB`, delta `50*32`). IDL `Job.applicants: vec pubkey` lo prueba. Tests `job_compact` + `t26_idl_docs` blindan.
+
 ## API endpoints (implemented as stubs)
 
 | Resource | Endpoint | Status |
@@ -105,7 +134,7 @@ let job = client.get_job(&client.pubkey(), 1)?;
 | Config | `GET /config` | stub |
 | Jobs | `GET /jobs`, `POST /jobs`, `GET /jobs/{id}` | stub |
 | Funding | `POST /jobs/{id}/deposit` | stub |
-| Applications | `POST /jobs/{id}/apply`, `POST /jobs/{id}/applications/{index}/accept` | stub |
+| Applications | `POST /jobs/{id}/apply`, `POST /jobs/{id}/applications/{index}/accept`, `/reject`, `/withdraw`, `/cleanup` (T21-T26) | stub (SDK wrappers + PDA helpers + validation T21-T25 verdes) |
 | Work | `POST /jobs/{id}/submit-work`, `/approve-work`, `/reject-work` | stub |
 | Job lifecycle | `POST /jobs/{id}/cancel`, `/pause`, `/unpause` | stub |
 | Milestones | `POST /jobs/{id}/milestones`, `/submit`, `/approve`, `/reject` | stub |
@@ -113,9 +142,9 @@ let job = client.get_job(&client.pubkey(), 1)?;
 | Support | `POST /jobs/{id}/support`, `/resolve` | stub |
 | Arbiter pool | `GET/POST /arbiter-pool`, `/arbiters` | stub |
 
-## Final Gate T20 — validator + CI + coverage
+## Final Gate T20-T26 — validator + CI + coverage + IDL/docs Applications
 
-Gate final reproducible que valida el workspace completo contra el plan `context/plans/backend-v3-map.md` (21 requirements + 6 security gates).
+Gate final reproducible que valida el workspace completo contra el plan `context/plans/backend-v3-map.md` (21 requirements + 6 security gates) y el modelo Applications PDA individual T21-T26 (IDL, seeds, MAX 50, límites, unicidad, cleanup/rent, no inline).
 
 ```bash
 # Gate local estricto — requiere validator 7a2Y UP en http://127.0.0.1:8899

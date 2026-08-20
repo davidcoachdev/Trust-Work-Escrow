@@ -1,8 +1,86 @@
 # Smart Contract - Trust Work Escrow
 
-## 📋 Descripción
+## 📋 Descripción — v3 vigente (`trust-escrow-v3` `7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh`, Anchor 0.32.1)
 
-El smart contract de Trust Work Escrow es un programa en Solana desarrollado con Anchor que maneja el flujo de pagos escrow entre clientes y freelancers.
+El smart contract vigente es `trust-escrow-v3` (program id `7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh`).
+El contrato histórico v1/v2 se conserva abajo como referencia. **El modelo vigente para Applications es PDA individual, no colección inline.**
+
+### Modelo Applications PDA individual (T21-T26) — IDL vigente
+
+**Job** es compacto: `Vec<Pubkey>` con capacidad reservada `MAX_APPLICATIONS = 50`, no `[Application; 50]` inline.
+`Job::INIT_SPACE < 10 KiB` (< `28 KiB` de 50 Applications inline), `delta 50*32 bytes`. Ver `trust-escrow-v3/programs/trust-escrow-v3/src/lib.rs` y `backend/sdk/src/types.rs`.
+
+```rust
+#[account]
+#[derive(InitSpace)]
+pub struct Job {
+    pub client: Pubkey,
+    pub freelancer: Option<Pubkey>,
+    pub amount: u64,
+    pub fee_amount: u64,
+    pub status: JobStatus,
+    pub paused: bool,
+    pub paused_at: i64,
+    pub deadline: i64,
+    pub submitted_at: Option<i64>,
+    pub milestones_total: u8,
+    pub milestones_approved: u8,
+    pub milestones_amount_total: u64,
+    #[max_len(MAX_APPLICATIONS)] // 50 — Vec<Pubkey> compacto, sin inline
+    pub applicants: Vec<Pubkey>,
+    pub bump: u8, // seeds [b"job", client, job_id.le_bytes()]
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct Application {
+    pub job: Pubkey,              // Job PDA padre
+    pub index: u8,                // 0..49, debe ser == job.applicants.len() al crear
+    pub applicant: Pubkey,        // wallet del postulante — parte de la seed
+    pub proposal_hash: [u8; 32],  // SHA256 off-chain del texto (1..512 chars), nunca [0;32]
+    pub status: ApplicationStatus, // Pending/Accepted/Rejected/Withdrawn
+    pub bump: u8,                 // seeds [b"application", job, &[index], applicant]
+}
+pub enum ApplicationStatus { Pending, Accepted, Rejected, Withdrawn }
+const MAX_APPLICATIONS: usize = 50; // límite duro, Vec 50, IDL types Job.applicants: Vec<Pubkey>
+```
+
+**Seeds / ownership / bump (IDL y código alineados, validados en `backend/sdk/tests/t26_idl_docs.rs`):**
+
+- `Job`: `seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()]`, `bump = job.bump`, owner `crate::ID` (7a2Y...), PDA off-curve.
+- `Application` (cuenta individual por postulante): `seeds = [b"application", job.key().as_ref(), &[application_index], applicant.key().as_ref()]`, `bump = application.bump`, owner `crate::ID`, PDA off-curve y determinista por `(job, index, applicant)`.
+- SDK `pda::derive_application_pda` y `derive_job_pda` usan `Pubkey::find_program_address` con las mismas seeds; validado IDL vs código (address `7a2Y...`, types `Application`/`Job`, args y cuentas).
+
+**Args / cuentas (IDL `trust-escrow-v3/target/idl/escrow.json` vs `lib.rs`):**
+
+- `apply_to_job(ctx: Context<ApplyToJob>, _job_id: u64, application_index: u8, proposal_hash: [u8; 32])` — cuentas: `applicant (Signer, mut, payer)`, `client (UncheckedAccount, validado por PDA job)`, `job (mut, PDA job)`, `application (init, payer applicant, space Application::INIT_SPACE+8, seeds application)`, `system_program`. `application_index` debe ser `u8` y `== job.applicants.len()`.
+- `accept_application(ctx: Context<AcceptApplication>, _job_id: u64, application_index: u8)` — `client (Signer, mut)`, `job (mut, PDA job)`, `applicant (SystemAccount)`, `application (mut, PDA application)`. Valida `application.index == index`, `status == Pending`, `job.applicants[index] == applicant`, asigna `job.freelancer = Some(applicant)`, `status = InProgress`, `application.status = Accepted`.
+- `reject_application` / `withdraw_application` — mismos seeds; `application` con `close = applicant` (rent refund al postulante). Solo `Pending`.
+- `cleanup_applications(ctx: Context<CleanupApplications>, _job_id: u64, start_index: u8)` — `client (Signer)`, `job (mut, PDA job, constraint client == job.client)`, `remaining_accounts: [application, applicant] * N` con `start_index`, batch hasta 50, rent refund de cada `Application` no-accepted al `applicant` (cerrada `assign SYSTEM_PROGRAM_ID, resize 0`).
+
+**Límites texto:**
+
+- On-chain: `proposal_hash != [0u8; 32]` (`EmptyProposal`), el texto off-chain se hashea con SHA256; el contrato solo ve el hash y rechaza hash nulo (propuesta vacía). Hash siempre 32 bytes.
+- Off-chain / SDK / API: `1..=512` chars (`ProposalTooLong` / `EmptyProposal` en `backend/sdk`, `validation.rs`, `metadata.rs`). Hasheo determinista `hash(proposal.as_bytes())`.
+
+**Unicidad:**
+
+- `AlreadyApplied` si `job.applicants` ya contiene `applicant`, aunque cambie `index`.
+- `CannotWorkOnOwnJob` si `applicant == job.client`.
+- `ApplicationIndexMismatch` si `index != job.applicants.len()`, `InvalidApplicationIndex` si `len >= 50` o `index >= 50`. Índice válido `0..49`.
+
+**Cleanup / rent:**
+
+- `Reject` y `Withdraw` cierran `Application` con `close = applicant` — rent vuelve al postulante, cuenta cerrada queda `owner = SYSTEM_PROGRAM_ID, data_len 0`.
+- `cleanup_applications` itera `remaining_accounts` pares `(application, applicant)` desde `start_index`, valida PDA determinista y `stored.index/applicant/job`, y para cada `Pending/Rejected/Withdrawn` (no `Accepted` ni ya cerrada con `allow_closed=false`) hace `transfer rent → applicant` + `close`. `Accepted` se retiene. Batch con `allow_closed=true` tolera cuentas ya cerradas. Errores: `InvalidApplicationCleanupAccounts`.
+
+**Sin modelo inline:** El contrato vigente no almacena `Vec<Application>` ni `[Application; 50]` dentro de `Job`; Job solo guarda `Vec<Pubkey>` de 50. La IDL (`types.Job.applicants: vec pubkey`) y `Job::INIT_SPACE` lo prueban (no `28 KiB` inline). Tests `job_compact_init_space_under_10kib_and_vec_50_compact` y `t26_*` lo blindan. Docs no deben referenciar modelo inline como vigente.
+
+**Validación IDL vs código:** `backend/sdk/tests/t26_idl_docs.rs` valida en cada `cargo test --features solana` que program id, seeds, bump, ownership, args/cuentas, límites, unicidad, cleanup/rent y no-inline coinciden entre `lib.rs`, `types.rs`, `pda.rs` y `target/idl/escrow.json`. La IDL se regenera con `anchor build` y se compara en CI (`scripts/final-gate.sh`).
+
+---
+
+## 📋 Descripción (v1 histórico)
 
 ## 🏗️ Estructura del Programa
 
