@@ -3,11 +3,14 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { create_job, SdkError, MAX_TITLE_LEN, MAX_DESC_LEN } from "@/lib/sdk";
+import { useJobStore } from "@/stores/useJobStore";
+import { ApiError } from "@/api/client";
+import { MAX_TITLE_LEN, MAX_DESC_LEN } from "@/api/types";
 
 export default function CreatePage() {
   const router = useRouter();
   const { publicKey } = useWallet();
+  const { createJob, loading: storeLoading } = useJobStore();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [amountSol, setAmountSol] = useState("0.5");
@@ -29,7 +32,6 @@ export default function CreatePage() {
 
   const feeLamports = useMemo(() => Math.floor(amountLamports * 250 / 10000), [amountLamports]);
 
-  // Inline validation
   const errors = useMemo(() => {
     const e: Record<string, string> = {};
     if (touched.title || title) {
@@ -67,13 +69,13 @@ export default function CreatePage() {
     setMsg(null);
     try {
       const deadline = Math.floor(Date.now() / 1000) + parseInt(deadlineDays, 10) * 86400;
-      const jobId = Math.floor(Date.now() / 1000) % 100000;
-      const res = await create_job({ jobId, amount: amountLamports, deadline, title: title.trim(), description: description.trim() });
+      // Zustand store → api/jobs/create.ts → POST /jobs (backend usa SDK + on-chain Vec + off-chain metadata)
+      const job = await createJob({ title: title.trim(), description: description.trim(), amount: amountLamports, deadline });
       setMsgType("success");
-      setMsg(`Job creado #${res.job.jobId} · sig: ${res.signature.slice(0, 28)}…`);
-      setTimeout(() => router.push(`/jobs/${res.job.jobId}`), 1100);
+      setMsg(`Job creado #${job.jobId} · ${job.title}`);
+      setTimeout(() => router.push(`/jobs/${job.jobId}`), 900);
     } catch (err: unknown) {
-      const message = err instanceof SdkError ? `${err.message}${err.code ? ` (${err.code})` : ""}` : err instanceof Error ? err.message : String(err);
+      const message = err instanceof ApiError ? `${err.message}${err.code ? ` (${err.code})` : ""}` : err instanceof Error ? err.message : String(err);
       setMsgType("error");
       setMsg(message);
     } finally {
@@ -81,16 +83,17 @@ export default function CreatePage() {
     }
   }
 
+  const busy = sending || storeLoading;
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Crear job</h1>
         <p className="text-sm text-zinc-600">
-          Publica un trabajo con escrow on-chain. Llama a <span className="font-mono">sdk.create_job</span> → <span className="font-mono text-xs">POST /jobs</span> en el backend. Requiere wallet conectada.
+          Publica un trabajo con escrow on-chain. Zustand <span className="font-mono">useJobStore.createJob</span> → <span className="font-mono text-xs">api/jobs/create → POST /jobs</span> (backend SDK + on-chain Vec + off-chain title/description). Requiere wallet.
         </p>
       </div>
 
-      {/* Preview fee */}
       <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 text-xs">
         <div className="flex flex-wrap gap-4">
           <span><span className="font-semibold">Monto:</span> {Number.isFinite(amountNum) ? `${amountNum} SOL` : "—"} <span className="text-zinc-500">({amountLamports.toLocaleString()} lamports)</span></span>
@@ -168,8 +171,8 @@ export default function CreatePage() {
           </div>
         </div>
 
-        <button type="submit" disabled={sending || !isValid} className="btn w-full" aria-label="Crear job">
-          {sending ? "Creando…" : publicKey ? "Crear job" : "Conecta wallet para crear"}
+        <button type="submit" disabled={busy || !isValid} className="btn w-full" aria-label="Crear job">
+          {busy ? "Creando…" : publicKey ? "Crear job" : "Conecta wallet para crear"}
         </button>
 
         {!publicKey && <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-700">Conecta wallet arriba para crear. En test/dev puedes crear sin signer real (fallback mock).</p>}
@@ -185,8 +188,7 @@ export default function CreatePage() {
       </form>
 
       <p className="text-xs text-zinc-400">
-        Programa: <span className="font-mono">7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh</span> · Cluster: {process.env.NEXT_PUBLIC_CLUSTER ?? "localnet"} · API:{" "}
-        <span className="font-mono">{process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000"}</span>
+        Programa: <span className="font-mono">7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh</span> · Zustand store + api/jobs/create · off-chain metadata (title/description) + on-chain Vec
       </p>
     </div>
   );

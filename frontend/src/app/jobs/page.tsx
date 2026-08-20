@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { JobCard } from "@/components/JobCard";
-import { list_jobs, SdkError, type Job } from "@/lib/sdk";
+import { useJobStore } from "@/stores/useJobStore";
+import type { Job } from "@/api/types";
 
 function Skeleton() {
   return (
@@ -21,33 +22,22 @@ function Skeleton() {
 }
 
 export default function JobsPage() {
-  const [jobs, setJobs] = useState<Job[]>([]);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { jobs, hasMore, nextCursor, loading, error, fetchJobs, clearError } = useJobStore();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Job["status"]>("all");
 
-  async function load(c: string | null = null, append = false) {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await list_jobs(c, 20);
-      setJobs((prev) => (append ? [...prev, ...res.jobs] : res.jobs));
-      setCursor(res.nextCursor);
-      setHasMore(res.hasMore);
-    } catch (e: unknown) {
-      const msg = e instanceof SdkError ? e.message : e instanceof Error ? e.message : String(e);
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }
-
   useEffect(() => {
-    load(null, false);
-  }, []);
+    // Zustand como fuente de la verdad — consume api/jobs/list.ts (que a su vez habla con backend/SDK on-chain)
+    fetchJobs({ cursor: null }).catch(() => {});
+  }, [fetchJobs]);
+
+  async function load(c: string | null = null, append = false) {
+    // nextCursor manejado en store; append usa cursor existente
+    try {
+      if (append && nextCursor) await fetchJobs({ cursor: nextCursor });
+      else await fetchJobs({ cursor: c });
+    } catch {}
+  }
 
   const filtered = useMemo(() => {
     let out = jobs;
@@ -61,12 +51,11 @@ export default function JobsPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Jobs</h1>
           <p className="text-sm text-zinc-600">
-            Explora trabajos con escrow on-chain · <span className="font-mono text-xs">sdk.list_jobs</span> paginado · API + fallback mock
+            Explora trabajos con escrow on-chain · <span className="font-mono text-xs">useJobStore → api/jobs/list</span> · Zustand como fuente de la verdad
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -79,7 +68,6 @@ export default function JobsPage() {
         </div>
       </div>
 
-      {/* Controls */}
       <div className="card flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex flex-1 items-center gap-2">
           <input
@@ -116,19 +104,17 @@ export default function JobsPage() {
         </div>
       </div>
 
-      {/* Error */}
       {error && (
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">
           <div className="flex items-start justify-between gap-3">
             <span>Error al cargar jobs: {error}</span>
-            <button onClick={() => load(null, false)} className="btn btn-secondary shrink-0">
+            <button onClick={() => { clearError(); load(null, false); }} className="btn btn-secondary shrink-0">
               Reintentar
             </button>
           </div>
         </div>
       )}
 
-      {/* Content */}
       {loading && jobs.length === 0 ? (
         <Skeleton />
       ) : filtered.length === 0 ? (
@@ -156,17 +142,16 @@ export default function JobsPage() {
         </div>
       )}
 
-      {/* Pagination */}
       {hasMore && filtered.length > 0 && (
         <div className="flex justify-center">
-          <button onClick={() => load(cursor, true)} disabled={loading} className="btn" aria-label="Cargar más jobs">
+          <button onClick={() => load(nextCursor, true)} disabled={loading} className="btn" aria-label="Cargar más jobs">
             {loading ? "Cargando…" : "Cargar más"}
           </button>
         </div>
       )}
 
       <p className="text-center text-xs text-zinc-400">
-        Backend: <span className="font-mono">{process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000"}</span> · Programa{" "}
+        Backend: <span className="font-mono">{process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:3000"}</span> · Zustand store + api/jobs · on-chain Vec + off-chain metadata · Programa{" "}
         <span className="font-mono">7a2Yh…5Vh</span>
       </p>
     </div>

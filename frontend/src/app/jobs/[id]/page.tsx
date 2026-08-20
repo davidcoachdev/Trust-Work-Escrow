@@ -4,34 +4,47 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { get_job, apply, proposalHashFromText, SdkError, MAX_PROPOSAL_LEN, type Job } from "@/lib/sdk";
+import { useJobStore } from "@/stores/useJobStore";
+import { useApplicationStore } from "@/stores/useApplicationStore";
+import { ApiError } from "@/api/client";
+import { MAX_PROPOSAL_LEN } from "@/api/types";
+
+function hashProposalText(text: string): string {
+  if (!text.trim()) return "0".repeat(64);
+  let h = 0;
+  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) >>> 0;
+  return h.toString(16).padStart(64, "0").slice(0, 64);
+}
 
 export default function JobDetailPage() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { publicKey } = useWallet();
-  const [job, setJob] = useState<Job | null>(null);
+  const { currentJob, fetchJob, loading: jobLoading } = useJobStore();
+  const { apply, loading: applyLoading } = useApplicationStore();
   const [proposal, setProposal] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [msgType, setMsgType] = useState<"success" | "error">("error");
-  const [loading, setLoading] = useState(true);
   const [loadingError, setLoadingError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  const job = currentJob && currentJob.jobId === id ? currentJob : null;
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const j = await get_job(id);
-        if (!cancelled) setJob(j);
+        setInitialLoading(true);
+        const j = await fetchJob(id);
+        if (!cancelled && !j) setLoadingError(`Job #${id} no encontrado`);
       } catch (e: unknown) {
         if (!cancelled) setLoadingError(e instanceof Error ? e.message : String(e));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setInitialLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [id]);
+  }, [id, fetchJob]);
 
   async function onApply() {
     if (!publicKey) {
@@ -50,34 +63,27 @@ export default function JobDetailPage() {
       return;
     }
     if (!job) return;
-    setSending(true);
     setMsg(null);
     try {
-      const hash = proposalHashFromText(proposal);
-      const res = await apply({
-        client: job.client,
-        jobId: Number(id),
-        applicationIndex: 0,
-        proposalHash: hash,
-        proposalText: proposal,
-      });
+      const hash = hashProposalText(proposal);
+      // Zustand → api/applications/apply.ts → POST /jobs/:id/apply (backend SDK: proposal_hash on-chain + proposal off-chain)
+      await apply({ jobId: Number(id), proposal, proposalHash: hash });
       setMsgType("success");
-      setMsg(`Aplicación enviada · sig: ${res.signature.slice(0, 28)}… · POST /jobs/${id}/apply OK`);
+      setMsg(`Aplicación enviada · hash ${hash.slice(0, 16)}… · POST /jobs/${id}/apply OK`);
     } catch (e: unknown) {
       setMsgType("error");
-      const m = e instanceof SdkError ? `${e.message}${e.code ? ` (${e.code})` : ""}` : e instanceof Error ? e.message : String(e);
+      const m = e instanceof ApiError ? `${e.message}${e.code ? ` (${e.code})` : ""}` : e instanceof Error ? e.message : String(e);
       setMsg(m);
-    } finally {
-      setSending(false);
     }
   }
 
-  if (loading) return <div className="card animate-pulse text-sm text-zinc-500">Cargando job #{id}…</div>;
+  if (initialLoading || jobLoading) return <div className="card animate-pulse text-sm text-zinc-500">Cargando job #{id}… (store → api/jobs/get)</div>;
   if (loadingError) return <div className="card border-red-200 bg-red-50 text-sm text-red-700">Error: {loadingError} · <Link href="/jobs" className="underline">Volver a jobs</Link></div>;
   if (!job) return <div className="card text-center text-sm text-zinc-500">Job #{id} no encontrado. <Link href="/jobs" className="underline">Volver</Link></div>;
 
   const isOpen = job.status === "Open";
   const charsLeft = MAX_PROPOSAL_LEN - proposal.length;
+  const busy = applyLoading;
 
   return (
     <div className="space-y-6">
@@ -121,7 +127,7 @@ export default function JobDetailPage() {
           {!isOpen && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs text-amber-700">Solo jobs Open aceptan aplicaciones</span>}
         </div>
         <p className="text-xs text-zinc-500">
-          Llama a <span className="font-mono">sdk.apply</span> → <span className="font-mono text-xs">POST /jobs/:id/apply</span>. Hash no puede ser cero (EmptyProposal). Requiere wallet.
+          Zustand <span className="font-mono">useApplicationStore.apply</span> → <span className="font-mono text-xs">api/applications/apply → POST /jobs/:id/apply</span> (SDK: proposal_hash on-chain + proposal off-chain).
         </p>
         <div>
           <label className="label flex justify-between">
@@ -137,8 +143,8 @@ export default function JobDetailPage() {
             disabled={!isOpen}
           />
         </div>
-        <button onClick={onApply} disabled={sending || !isOpen} className="btn" aria-label="Aplicar a job">
-          {sending ? "Enviando…" : "Aplicar"}
+        <button onClick={onApply} disabled={busy || !isOpen} className="btn" aria-label="Aplicar a job">
+          {busy ? "Enviando…" : "Aplicar"}
         </button>
         {!publicKey && <p className="text-xs text-amber-600">Conecta wallet arriba para aplicar.</p>}
         {!isOpen && <p className="text-xs text-zinc-500">Este job no está abierto.</p>}

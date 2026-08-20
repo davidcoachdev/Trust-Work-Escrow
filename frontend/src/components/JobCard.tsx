@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { Job } from "@/lib/sdk";
+import type { Job } from "@/api/types";
 
 const statusStyles: Record<string, string> = {
   Open: "bg-emerald-50 text-emerald-700 border-emerald-200",
