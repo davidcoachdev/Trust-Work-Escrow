@@ -159,6 +159,7 @@ pub struct SubmitWork<'info> {
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
 pub struct AutoApproveWork<'info> {
+    #[account(mut)]
     pub keeper: Signer<'info>,
     /// CHECK: Debe ser el cliente ligado al PDA del job y recibe la rent restante.
     #[account(mut, constraint = client.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::NotAuthorized)]
@@ -172,8 +173,12 @@ pub struct AutoApproveWork<'info> {
     pub job: Account<'info, Job>,
     #[account(mut, constraint = job.freelancer == Some(freelancer.key()) @ ErrorCode::NotJobFreelancer)]
     pub freelancer: SystemAccount<'info>,
-    /// CHECK: Validada contra Config.treasury.
-    #[account(mut, constraint = treasury.key() == config.treasury @ ErrorCode::InvalidTreasury)]
+    /// CHECK: Validada contra Config.treasury y que sea System-owned.
+    #[account(
+        mut,
+        constraint = treasury.key() == config.treasury @ ErrorCode::InvalidTreasury,
+        constraint = treasury.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::InvalidTreasury
+    )]
     pub treasury: UncheckedAccount<'info>,
     #[account(seeds = [b"dispute", job.key().as_ref()], bump)]
     pub dispute: Option<Account<'info, Dispute>>,
@@ -565,6 +570,12 @@ pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<
         job.status == JobStatus::Submitted,
         ErrorCode::InvalidJobStatus
     );
+    // Verificacion V3-SEC-009: keeper debe ser autorizado o permissionless con fee.
+    // El job.client debe coincidir con la cuenta client que recibe el close (rent).
+    require!(
+        ctx.accounts.client.key() == job.client,
+        ErrorCode::NotJobClient
+    );
     let submitted_at = job.submitted_at.ok_or(ErrorCode::InvalidJobStatus)?;
     let deadline = submitted_at
         .checked_add(AUTO_APPROVAL_DELAY)
@@ -595,16 +606,59 @@ pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<
         .checked_sub(job.milestones_amount_total)
         .ok_or(ErrorCode::MathOverflow)?;
     let fee_amount = job.fee_amount;
-    transfer_job_lamports(
-        &job.to_account_info(),
-        &ctx.accounts.freelancer.to_account_info(),
-        amount,
-    )?;
+
+    // V3-SEC-009 fix: keeper whitelist (client/freelancer/authority) sin fee,
+    // permissionless con fee 1% (100 bps) para incentivar y evitar griefing.
+    // close = client garantiza que la rent siempre vuelve al cliente, el keeper
+    // solo recibe su fee via transfer directa (no via close ni remaining_accounts).
+    let keeper_key = ctx.accounts.keeper.key();
+    let is_privileged = keeper_key == job.client
+        || Some(keeper_key) == job.freelancer
+        || keeper_key == ctx.accounts.config.authority;
+    let keeper_fee: u64 = if is_privileged {
+        0
+    } else {
+        compute_fee(amount, 100)?
+    };
+    let freelancer_payout = amount
+        .checked_sub(keeper_fee)
+        .ok_or(ErrorCode::MathOverflow)?;
+
+    // Evitar transfer a la misma cuenta si keeper == freelancer (ya es privileged, fee 0).
+    // Si keeper es permissionless y coincide con freelancer no debería pasar (privileged), pero por robustez:
+    if keeper_fee > 0 && keeper_key == ctx.accounts.freelancer.key() {
+        // freelancer ya es keeper, no cobrar fee
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.freelancer.to_account_info(),
+            amount,
+        )?;
+    } else {
+        transfer_job_lamports(
+            &job.to_account_info(),
+            &ctx.accounts.freelancer.to_account_info(),
+            freelancer_payout,
+        )?;
+        if keeper_fee > 0 {
+            transfer_job_lamports(
+                &job.to_account_info(),
+                &ctx.accounts.keeper.to_account_info(),
+                keeper_fee,
+            )?;
+        }
+    }
     transfer_job_lamports(
         &job.to_account_info(),
         &ctx.accounts.treasury.to_account_info(),
         fee_amount,
     )?;
+    job.status = JobStatus::Released;
+    msg!(
+        "Auto-approved: {} to freelancer, {} keeper fee, {} treasury fee",
+        freelancer_payout,
+        keeper_fee,
+        fee_amount
+    );
     // remaining rent refund via `close = client` on job account
     Ok(())
 }
