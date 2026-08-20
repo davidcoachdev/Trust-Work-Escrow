@@ -593,7 +593,8 @@ mod tests {
             &crate::ID,
         );
         assert_ne!(pda0, pda1, "distinto índice debe dar PDA distinta");
-        assert!(bump0 <= 255 && bump1 <= 255);
+        // bumps son u8 (0..255) canónicos
+        let _ = (bump0, bump1);
         // Job ownership: Job PDA = [b"job", client, job_id.le_bytes]
         let client = Pubkey::new_unique();
         let job_id = 42u64;
@@ -645,8 +646,8 @@ mod tests {
         assert_eq!(app.index, 0);
         assert_eq!(app.job, job);
         assert_eq!(app.applicant, applicant);
-        // bump es u8
-        assert!(app.bump <= u8::MAX);
+        // bump es u8 canónico
+        let _ = app.bump;
     }
 }
 
@@ -961,6 +962,11 @@ pub mod escrow {
             job.applicants.get(application_index as usize) == Some(&application.applicant),
             ErrorCode::InvalidApplicationAccount
         );
+        require!(
+            application.applicant == ctx.accounts.applicant.key(),
+            ErrorCode::InvalidApplicationAccount
+        );
+        require!(job.freelancer.is_none(), ErrorCode::InvalidJobStatus);
         let applicant = application.applicant;
         application.status = ApplicationStatus::Accepted;
 
@@ -968,6 +974,84 @@ pub mod escrow {
         job.status = JobStatus::InProgress;
 
         msg!("Application accepted: freelancer {}", applicant);
+        Ok(())
+    }
+
+    pub fn reject_application(
+        ctx: Context<RejectApplication>,
+        _job_id: u64,
+        application_index: u8,
+    ) -> Result<()> {
+        let job = &ctx.accounts.job;
+        require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
+        check_not_paused(job)?;
+        require!(
+            job.client == ctx.accounts.client.key(),
+            ErrorCode::NotJobClient
+        );
+        let application = &ctx.accounts.application;
+        require!(
+            application.job == job.key(),
+            ErrorCode::InvalidApplicationAccount
+        );
+        require!(
+            application.index == application_index,
+            ErrorCode::InvalidApplicationIndex
+        );
+        require!(
+            application.status == ApplicationStatus::Pending,
+            ErrorCode::ApplicationNotPending
+        );
+        require!(
+            job.applicants.get(application_index as usize) == Some(&application.applicant),
+            ErrorCode::InvalidApplicationAccount
+        );
+        require!(
+            application.applicant == ctx.accounts.applicant.key(),
+            ErrorCode::InvalidApplicationAccount
+        );
+        msg!(
+            "Application rejected: index {} applicant {}",
+            application_index,
+            application.applicant
+        );
+        Ok(())
+    }
+
+    pub fn withdraw_application(
+        ctx: Context<WithdrawApplication>,
+        _job_id: u64,
+        application_index: u8,
+    ) -> Result<()> {
+        let job = &ctx.accounts.job;
+        require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
+        check_not_paused(job)?;
+        let application = &ctx.accounts.application;
+        require!(
+            application.job == job.key(),
+            ErrorCode::InvalidApplicationAccount
+        );
+        require!(
+            application.index == application_index,
+            ErrorCode::InvalidApplicationIndex
+        );
+        require!(
+            application.status == ApplicationStatus::Pending,
+            ErrorCode::ApplicationNotPending
+        );
+        require!(
+            job.applicants.get(application_index as usize) == Some(&application.applicant),
+            ErrorCode::InvalidApplicationAccount
+        );
+        require!(
+            application.applicant == ctx.accounts.applicant.key(),
+            ErrorCode::InvalidApplicationAccount
+        );
+        msg!(
+            "Application withdrawn: index {} applicant {}",
+            application_index,
+            application.applicant
+        );
         Ok(())
     }
 
@@ -2215,6 +2299,50 @@ pub struct AcceptApplication<'info> {
         mut,
         seeds = [b"application", job.key().as_ref(), &[application_index], applicant.key().as_ref()],
         bump = application.bump
+    )]
+    pub application: Account<'info, Application>,
+}
+
+#[derive(Accounts)]
+#[instruction(job_id: u64, application_index: u8)]
+pub struct RejectApplication<'info> {
+    #[account(mut)]
+    pub client: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()],
+        bump = job.bump
+    )]
+    pub job: Account<'info, Job>,
+    #[account(mut)]
+    pub applicant: SystemAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"application", job.key().as_ref(), &[application_index], applicant.key().as_ref()],
+        bump = application.bump,
+        close = applicant
+    )]
+    pub application: Account<'info, Application>,
+}
+
+#[derive(Accounts)]
+#[instruction(job_id: u64, application_index: u8)]
+pub struct WithdrawApplication<'info> {
+    #[account(mut)]
+    pub applicant: Signer<'info>,
+    /// CHECK: client for PDA derivation
+    pub client: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        seeds = [b"job", client.key().as_ref(), &job_id.to_le_bytes()],
+        bump = job.bump
+    )]
+    pub job: Account<'info, Job>,
+    #[account(
+        mut,
+        seeds = [b"application", job.key().as_ref(), &[application_index], applicant.key().as_ref()],
+        bump = application.bump,
+        close = applicant
     )]
     pub application: Account<'info, Application>,
 }

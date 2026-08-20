@@ -7,7 +7,10 @@
 
 #[cfg(feature = "solana")]
 mod inner {
-    use crate::cluster::{check_keypair_permissions, load_keypair_secure, parse_cluster as cluster_parse, validate_cluster};
+    use crate::cluster::{
+        check_keypair_permissions, load_keypair_secure, parse_cluster as cluster_parse,
+        validate_cluster,
+    };
     use crate::error::{BackendError, ErrorCode, Result};
     use crate::pda;
     use crate::types::*;
@@ -473,6 +476,52 @@ mod inner {
             ];
             self.anchor_ix(
                 "accept_application",
+                accounts,
+                Self::ser(&(job_id, application_index))?,
+            )
+            .await
+        }
+
+        pub async fn reject_application(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+            application_index: u8,
+            applicant: &Pubkey,
+        ) -> Result<Signature> {
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (application, _) = pda::get_application_pda(&job, application_index, applicant)?;
+            let accounts = vec![
+                AccountMeta::new(self.payer.pubkey(), true),
+                AccountMeta::new(job, false),
+                AccountMeta::new(*applicant, false),
+                AccountMeta::new(application, false),
+            ];
+            self.anchor_ix(
+                "reject_application",
+                accounts,
+                Self::ser(&(job_id, application_index))?,
+            )
+            .await
+        }
+
+        pub async fn withdraw_application(
+            &self,
+            client: &Pubkey,
+            job_id: u64,
+            application_index: u8,
+        ) -> Result<Signature> {
+            let applicant = self.payer.pubkey();
+            let (job, _) = pda::get_job_pda(client, job_id)?;
+            let (application, _) = pda::get_application_pda(&job, application_index, &applicant)?;
+            let accounts = vec![
+                AccountMeta::new(applicant, true),
+                AccountMeta::new_readonly(*client, false),
+                AccountMeta::new(job, false),
+                AccountMeta::new(application, false),
+            ];
+            self.anchor_ix(
+                "withdraw_application",
                 accounts,
                 Self::ser(&(job_id, application_index))?,
             )
