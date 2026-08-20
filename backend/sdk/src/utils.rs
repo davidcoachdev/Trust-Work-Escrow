@@ -197,13 +197,13 @@ mod tests {
         let all: Vec<u32> = (0..30).collect();
         let p1 = Page::from_slice(all.clone(), 0, 20);
         assert_eq!(p1.items.len(), 20);
-        assert_eq!(p1.has_more, true);
+        assert!(p1.has_more);
         assert!(p1.next_cursor.is_some());
         let off = decode_cursor(p1.next_cursor.as_deref()).unwrap();
         assert_eq!(off, 20);
         let p2 = Page::from_slice(all.clone(), off, 20);
         assert_eq!(p2.items.len(), 10);
-        assert_eq!(p2.has_more, false);
+        assert!(!p2.has_more);
         assert!(p2.next_cursor.is_none());
         // no overlap
         let set1: std::collections::HashSet<_> = p1.items.iter().collect();

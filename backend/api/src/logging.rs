@@ -45,7 +45,9 @@ fn pem_regex() -> &'static Regex {
 
 fn jwt_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}").unwrap())
+    RE.get_or_init(|| {
+        Regex::new(r"eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]{10,}").unwrap()
+    })
 }
 
 fn bearer_regex() -> &'static Regex {
@@ -297,15 +299,18 @@ pub fn init_tracing() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     // ---- redact_secrets ---------------------------------------------------
 
     #[test]
     fn redact_private_key_pem_block() {
-        let input = "key: -----BEGIN PRIVATE KEY-----\nMIIEvQIBADAN\n-----END PRIVATE KEY----- done";
+        let input =
+            "key: -----BEGIN PRIVATE KEY-----\nMIIEvQIBADAN\n-----END PRIVATE KEY----- done";
         let out = redact_secrets(input);
-        assert!(!out.contains("BEGIN PRIVATE KEY"), "pem should be redacted: {out}");
+        assert!(
+            !out.contains("BEGIN PRIVATE KEY"),
+            "pem should be redacted: {out}"
+        );
         assert!(out.contains(REDACTED));
     }
 
@@ -367,7 +372,10 @@ mod tests {
     fn redact_mongo_srv_url_with_creds() {
         let input = "mongodb+srv://alice:superSecret@cluster.mongodb.net/trust_escrow";
         let out = redact_secrets(input);
-        assert!(!out.contains("superSecret"), "mongo+srv creds leaked: {out}");
+        assert!(
+            !out.contains("superSecret"),
+            "mongo+srv creds leaked: {out}"
+        );
         assert!(out.contains(REDACTED));
     }
 
@@ -383,7 +391,10 @@ mod tests {
     #[test]
     fn redact_keypair_array() {
         // Simulated Solana keypair JSON (64 bytes)
-        let arr = format!("[{}]", (0..64).map(|i| i.to_string()).collect::<Vec<_>>().join(","));
+        let arr = format!(
+            "[{}]",
+            (0..64).map(|i| i.to_string()).collect::<Vec<_>>().join(",")
+        );
         let out = redact_secrets(&arr);
         assert!(!out.contains("0, 1"), "keypair array leaked: {out}");
         assert!(out.contains(REDACTED));
@@ -428,7 +439,10 @@ mod tests {
         // Ensure behavior is consistent: redacts, which is conservative.
         let out = redact_secrets(input);
         // Should contain REDACTED (conservative)
-        assert!(out.contains(REDACTED) || out.contains("127.0.0.1"), "out: {out}");
+        assert!(
+            out.contains(REDACTED) || out.contains("127.0.0.1"),
+            "out: {out}"
+        );
     }
 
     // ---- file permissions --------------------------------------------------
@@ -464,7 +478,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             let dir = std::env::temp_dir();
-            let path = PathBuf::from(dir.join(format!("twe-logging-test-{}-0644.tmp", std::process::id())));
+            let path = dir.join(format!("twe-logging-test-{}-0644.tmp", std::process::id()));
             std::fs::write(&path, b"x").unwrap();
             let mut perms = std::fs::metadata(&path).unwrap().permissions();
             perms.set_mode(0o644);
