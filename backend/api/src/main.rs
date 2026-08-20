@@ -15,7 +15,9 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-mod models;
+pub mod metadata;
+pub mod models;
+pub mod repository;
 mod routes;
 mod state;
 

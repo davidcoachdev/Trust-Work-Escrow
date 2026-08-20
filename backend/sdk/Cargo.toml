@@ -28,6 +28,8 @@ solana-transaction-status = { version = "2.1", optional = true }
 # Error handling & utilities (lightweight, always available)
 thiserror = "1.0"
 anyhow = "1.0"
+base64 = "0.22"
+tokio = { version = "1.0", features = ["time", "rt", "rt-multi-thread", "macros"] }
 
 [dev-dependencies]
 tokio = { version = "1.53", features = ["macros", "rt-multi-thread"] }

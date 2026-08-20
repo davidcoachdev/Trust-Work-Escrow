@@ -171,10 +171,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     // ===== Grupo applications: apply + accept + cleanup =====
     let j = job_id;
     job_id += 1;
-    client
-        .create_job(j, AMOUNT, now_ts() + 3600)
-        .await
-        .unwrap();
+    client.create_job(j, AMOUNT, now_ts() + 3600).await.unwrap();
     client.deposit_funds(j).await.unwrap();
 
     let fl_a = Keypair::new();
@@ -236,10 +233,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
     let fl_pk = freelancer.pubkey();
     let fl_client = TrustEscrowClient::new(Cluster::Localnet, freelancer).unwrap();
 
-    client
-        .create_job(j, AMOUNT, now_ts() + 3600)
-        .await
-        .unwrap();
+    client.create_job(j, AMOUNT, now_ts() + 3600).await.unwrap();
     client.deposit_funds(j).await.unwrap();
     fl_client
         .apply_to_job(&client_pk, j, 0, proposal_hash("Happy to cover it"))
@@ -271,10 +265,7 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
 
     let j = job_id;
     job_id += 1;
-    client
-        .create_job(j, AMOUNT, now_ts() + 3600)
-        .await
-        .unwrap();
+    client.create_job(j, AMOUNT, now_ts() + 3600).await.unwrap();
     client.deposit_funds(j).await.unwrap();
     fl_client
         .apply_to_job(&client_pk, j, 0, proposal_hash("Accept me?"))
@@ -285,19 +276,13 @@ async fn group_config_jobs_applications_work_happy_paths_inner() {
         .await
         .unwrap();
     fl_client.submit_work(&client_pk, j).await.unwrap();
-    client
-        .reject_work(j)
-        .await
-        .expect("reject_work");
+    client.reject_work(j).await.expect("reject_work");
     let job = client.get_job(&client_pk, j).unwrap().unwrap();
     assert_eq!(job.status, JobStatus::InProgress);
 
     // ===== Grupo work: pause_job / unpause_job =====
     let j = job_id;
-    client
-        .create_job(j, AMOUNT, now_ts() + 3600)
-        .await
-        .unwrap();
+    client.create_job(j, AMOUNT, now_ts() + 3600).await.unwrap();
     client.pause_job(j).await.expect("pause_job");
     let job = client.get_job(&client_pk, j).unwrap().unwrap();
     assert!(job.paused);

@@ -12,7 +12,10 @@ mod inner {
     use crate::types::*;
 
     use std::sync::Arc;
+    use std::time::Duration;
 
+    #[allow(deprecated)]
+    use anchor_client::solana_sdk::system_program;
     use anchor_client::{
         solana_sdk::{
             commitment_config::CommitmentConfig,
@@ -25,8 +28,6 @@ mod inner {
         },
         Client, Cluster, Program,
     };
-    #[allow(deprecated)]
-    use anchor_client::solana_sdk::system_program;
     use anchor_lang::AccountDeserialize;
     use borsh::ser::BorshSerialize;
 
@@ -41,6 +42,22 @@ mod inner {
         program: Program<Arc<Keypair>>,
         /// Keypair that pays for and signs transactions.
         payer: Arc<Keypair>,
+    }
+
+    /// Paginated result for job listings (T7, read-through + cursor).
+    #[derive(Debug, Clone)]
+    pub struct PaginatedJobs {
+        pub jobs: Vec<(Pubkey, Job)>,
+        pub next_cursor: Option<String>,
+        pub has_more: bool,
+    }
+
+    /// Paginated result for application listings per job (T8, read-through + cursor).
+    #[derive(Debug, Clone)]
+    pub struct PaginatedApplications {
+        pub applications: Vec<(Pubkey, Application)>,
+        pub next_cursor: Option<String>,
+        pub has_more: bool,
     }
 
     impl TrustEscrowClient {
@@ -219,13 +236,9 @@ mod inner {
                 .get_signature_statuses(&[signature])
                 .map_err(|e| BackendError::from(Box::new(e)))?
                 .value;
-            let status = statuses
-                .into_iter()
-                .next()
-                .flatten()
-                .ok_or_else(|| {
-                    BackendError::sdk_error("missing status for confirmed transaction")
-                })?;
+            let status = statuses.into_iter().next().flatten().ok_or_else(|| {
+                BackendError::sdk_error("missing status for confirmed transaction")
+            })?;
             if let Some(err) = status.err {
                 return Err(Self::map_program_error(err));
             }
@@ -240,9 +253,7 @@ mod inner {
         /// error is surfaced via [`BackendError::Sdk`] so the failure is never
         /// silently swallowed.
         fn map_program_error(err: TransactionError) -> BackendError {
-            if let TransactionError::InstructionError(_, InstructionError::Custom(code)) =
-                &err
-            {
+            if let TransactionError::InstructionError(_, InstructionError::Custom(code)) = &err {
                 if let Some(code) = ErrorCode::from_code(*code) {
                     return BackendError::Contract(code);
                 }
@@ -1005,6 +1016,262 @@ mod inner {
                 Self::ser(&(job_id, milestone_index))?,
             )
             .await
+        }
+
+        // ===== LISTINGS READ-THROUGH + CURSOR + TIMEOUTS (T7) =====
+
+        /// Read-through: fetch all `Job` accounts from the program via RPC,
+        /// deserializing only those owned by the program. This is the on-chain
+        /// source of truth — no DB/cache is trusted.
+        ///
+        /// The call is bounded by a timeout; exceeding it yields
+        /// `BackendError::Timeout` (typed, not a generic Sdk error).
+        fn fetch_all_jobs_raw(&self) -> Result<Vec<(Pubkey, Job)>> {
+            let pid: Pubkey = crate::PROGRAM_ID_STR
+                .parse()
+                .map_err(BackendError::SolanaSdk)?;
+            let accounts = self
+                .program
+                .rpc()
+                .get_program_accounts(&pid)
+                .map_err(|e| BackendError::from(Box::new(e)))?;
+            let mut out = Vec::with_capacity(accounts.len());
+            for (pubkey, account) in accounts {
+                if account.owner != pid {
+                    continue;
+                }
+                if account.data.len() < 8 {
+                    continue;
+                }
+                if let Some(job) = deserialize_account::<Job>(&account.data) {
+                    out.push((pubkey, job));
+                }
+            }
+            // Stable ordering for cursor pagination: by PDA pubkey bytes.
+            out.sort_by_key(|a| a.0);
+            Ok(out)
+        }
+
+        /// Internal helper: fetch + filter + paginate with a bounded timeout.
+        async fn list_jobs_internal<F>(
+            &self,
+            timeout: Duration,
+            filter: F,
+            cursor: Option<String>,
+            limit: Option<usize>,
+        ) -> Result<PaginatedJobs>
+        where
+            F: Fn(&(Pubkey, Job)) -> bool,
+        {
+            let params = crate::utils::PageParams::from_cursor_limit(cursor.as_deref(), limit)?;
+            let all =
+                crate::utils::with_timeout(timeout, async { self.fetch_all_jobs_raw() }).await?;
+            let mut filtered: Vec<(Pubkey, Job)> = all.into_iter().filter(|j| filter(j)).collect();
+            // sort_for_cursor is already done in fetch_all, but filtering preserves order
+            // (Stable sort guarantees no reorder needed). Still, ensure sort by pubkey.
+            filtered.sort_by_key(|a| a.0);
+            let offset = params.offset;
+            let limit = params.limit;
+            let has_more = offset + limit < filtered.len();
+            let next_cursor = if has_more {
+                Some(crate::utils::encode_cursor(offset + limit))
+            } else {
+                None
+            };
+            let jobs = if offset >= filtered.len() {
+                Vec::new()
+            } else {
+                filtered.into_iter().skip(offset).take(limit).collect()
+            };
+            Ok(PaginatedJobs {
+                jobs,
+                next_cursor,
+                has_more,
+            })
+        }
+
+        /// List jobs where `job.client == client OR job.freelancer == Some(client)`.
+        ///
+        /// Cursor is an opaque base64 offset (see `crate::utils::{encode_cursor,decode_cursor}`).
+        /// `limit` defaults to `DEFAULT_PAGE_LIMIT` and is clamped to `MAX_PAGE_LIMIT`.
+        /// The RPC call is bounded by `DEFAULT_RPC_TIMEOUT`; use `*_with_timeout` for custom.
+        pub async fn list_jobs_by_client(
+            &self,
+            client: &Pubkey,
+            cursor: Option<String>,
+            limit: Option<usize>,
+        ) -> Result<PaginatedJobs> {
+            self.list_jobs_by_client_with_timeout(
+                client,
+                cursor,
+                limit,
+                crate::utils::DEFAULT_RPC_TIMEOUT,
+            )
+            .await
+        }
+
+        /// Same as `list_jobs_by_client` but with an explicit timeout.
+        pub async fn list_jobs_by_client_with_timeout(
+            &self,
+            client: &Pubkey,
+            cursor: Option<String>,
+            limit: Option<usize>,
+            timeout: Duration,
+        ) -> Result<PaginatedJobs> {
+            let c = *client;
+            self.list_jobs_internal(
+                timeout,
+                move |(_, job)| job.client == c || job.freelancer == Some(c),
+                cursor,
+                limit,
+            )
+            .await
+        }
+
+        /// List jobs filtered by a set of statuses.
+        ///
+        /// Empty `statuses` returns all jobs (filtered only by pagination).
+        pub async fn list_jobs_by_status(
+            &self,
+            statuses: Vec<JobStatus>,
+            cursor: Option<String>,
+            limit: Option<usize>,
+        ) -> Result<PaginatedJobs> {
+            self.list_jobs_by_status_with_timeout(
+                statuses,
+                cursor,
+                limit,
+                crate::utils::DEFAULT_RPC_TIMEOUT,
+            )
+            .await
+        }
+
+        /// Same as `list_jobs_by_status` but with an explicit timeout.
+        pub async fn list_jobs_by_status_with_timeout(
+            &self,
+            statuses: Vec<JobStatus>,
+            cursor: Option<String>,
+            limit: Option<usize>,
+            timeout: Duration,
+        ) -> Result<PaginatedJobs> {
+            let filter = statuses;
+            self.list_jobs_internal(
+                timeout,
+                move |(_, job)| {
+                    if filter.is_empty() {
+                        true
+                    } else {
+                        filter.contains(&job.status)
+                    }
+                },
+                cursor,
+                limit,
+            )
+            .await
+        }
+
+        /// Generic listing (no filter) with cursor + timeout. Useful for admin / explorer.
+        pub async fn list_jobs(
+            &self,
+            cursor: Option<String>,
+            limit: Option<usize>,
+        ) -> Result<PaginatedJobs> {
+            self.list_jobs_with_timeout(cursor, limit, crate::utils::DEFAULT_RPC_TIMEOUT)
+                .await
+        }
+
+        pub async fn list_jobs_with_timeout(
+            &self,
+            cursor: Option<String>,
+            limit: Option<usize>,
+            timeout: Duration,
+        ) -> Result<PaginatedJobs> {
+            self.list_jobs_internal(timeout, |_| true, cursor, limit)
+                .await
+        }
+
+        // ===== APPLICATIONS LISTING (T8) =====
+
+        /// Read-through: fetch all `Application` accounts from the program via RPC.
+        ///
+        /// Deserializes only those owned by the program. Sorts by `(index, pubkey)`
+        /// to give stable cursor pagination per job (index is the primary order).
+        fn fetch_all_applications_raw(&self) -> Result<Vec<(Pubkey, Application)>> {
+            let pid: Pubkey = crate::PROGRAM_ID_STR
+                .parse()
+                .map_err(BackendError::SolanaSdk)?;
+            let accounts = self
+                .program
+                .rpc()
+                .get_program_accounts(&pid)
+                .map_err(|e| BackendError::from(Box::new(e)))?;
+            let mut out = Vec::with_capacity(accounts.len());
+            for (pubkey, account) in accounts {
+                if account.owner != pid {
+                    continue;
+                }
+                if account.data.len() < 8 {
+                    continue;
+                }
+                if let Some(app) = deserialize_account::<Application>(&account.data) {
+                    out.push((pubkey, app));
+                }
+            }
+            // Stable ordering: primary by index, secondary by pubkey bytes.
+            out.sort_by(|a, b| a.1.index.cmp(&b.1.index).then_with(|| a.0.cmp(&b.0)));
+            Ok(out)
+        }
+
+        /// List `Application` PDAs for a single `job` with cursor pagination.
+        ///
+        /// Filtering is done on the deserialized `application.job == job` field,
+        /// not on `Job.applicants` (which is a candidate index, not the source
+        /// of truth for `proposal_hash`/`status`). Results are sorted by `index`
+        /// ascending, handling gaps and closed accounts without panic.
+        ///
+        /// Cursor is an opaque base64 offset (see `crate::utils::{encode_cursor,decode_cursor}`).
+        /// `limit` defaults to `DEFAULT_PAGE_LIMIT` and is clamped to `MAX_PAGE_LIMIT`.
+        /// The RPC call is bounded by `DEFAULT_RPC_TIMEOUT`; use `*_with_timeout` for custom.
+        pub async fn list_applications(
+            &self,
+            job: &Pubkey,
+            cursor: Option<String>,
+            limit: Option<usize>,
+        ) -> Result<PaginatedApplications> {
+            self.list_applications_with_timeout(
+                job,
+                cursor,
+                limit,
+                crate::utils::DEFAULT_RPC_TIMEOUT,
+            )
+            .await
+        }
+
+        /// Same as `list_applications` but with an explicit timeout.
+        pub async fn list_applications_with_timeout(
+            &self,
+            job: &Pubkey,
+            cursor: Option<String>,
+            limit: Option<usize>,
+            timeout: Duration,
+        ) -> Result<PaginatedApplications> {
+            let params = crate::utils::PageParams::from_cursor_limit(cursor.as_deref(), limit)?;
+            let job_filter = *job;
+            let all =
+                crate::utils::with_timeout(timeout, async { self.fetch_all_applications_raw() })
+                    .await?;
+            let mut filtered: Vec<(Pubkey, Application)> = all
+                .into_iter()
+                .filter(|(_, app)| app.job == job_filter)
+                .collect();
+            // Already sorted by fetch, but filter preserves order; re-sort to be explicit.
+            filtered.sort_by(|a, b| a.1.index.cmp(&b.1.index).then_with(|| a.0.cmp(&b.0)));
+            let page = crate::utils::Page::from_slice(filtered, params.offset, params.limit);
+            Ok(PaginatedApplications {
+                applications: page.items,
+                next_cursor: page.next_cursor,
+                has_more: page.has_more,
+            })
         }
     }
 

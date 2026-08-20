@@ -58,6 +58,10 @@ pub enum BackendError {
     /// Generic SDK error.
     #[error("sdk error: {msg}")]
     Sdk { msg: String },
+
+    /// RPC / operation timed out (typed so callers can distinguish retryable timeout).
+    #[error("timeout: {msg}")]
+    Timeout { msg: String },
 }
 
 impl BackendError {
@@ -99,6 +103,16 @@ impl BackendError {
     /// Create a [`BackendError::Sdk`].
     pub fn sdk_error(msg: impl Into<String>) -> Self {
         BackendError::Sdk { msg: msg.into() }
+    }
+
+    /// Create a [`BackendError::Timeout`].
+    pub fn timeout(msg: impl Into<String>) -> Self {
+        BackendError::Timeout { msg: msg.into() }
+    }
+
+    /// Returns true if this error is a timeout.
+    pub fn is_timeout(&self) -> bool {
+        matches!(self, BackendError::Timeout { .. })
     }
 }
 
