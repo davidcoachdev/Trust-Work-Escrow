@@ -445,6 +445,10 @@ mod inner {
             application_index: u8,
             proposal_hash: [u8; 32],
         ) -> Result<Signature> {
+            // T25: runtime validation texto — hash nulo indica propuesta vacía (off-chain length check ya hecho en metadata, aquí defendemos on-chain)
+            if proposal_hash == [0u8; 32] {
+                return Err(BackendError::contract(ErrorCode::EmptyProposal));
+            }
             let applicant = self.payer.pubkey();
             let (job, _) = pda::get_job_pda(client, job_id)?;
             let (application, _) = pda::get_application_pda(&job, application_index, &applicant)?;
