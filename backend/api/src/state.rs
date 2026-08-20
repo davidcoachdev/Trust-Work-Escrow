@@ -93,47 +93,39 @@ pub struct ApiConfig {
 
 impl ApiConfig {
     /// Load config from environment with safe defaults.
+    ///
+    /// Reads `.env` if present (via `crate::config::load_dotenv`), validates
+    /// each var, and falls back to documented defaults on missing/invalid
+    /// values so `cargo test` works without a `.env` file. Validation
+    /// failures are logged via `tracing::warn`.
     pub fn from_env() -> Self {
-        let port = std::env::var("PORT")
-            .ok()
-            .and_then(|p| p.parse::<u16>().ok())
-            .unwrap_or(3000);
+        crate::config::load_dotenv();
+        match Self::try_from_env() {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                tracing::warn!("config validation failed, using defaults: {e}");
+                Self::default()
+            }
+        }
+    }
 
-        // Prefer the canonical Anchor/Solana env names, fall back to generic.
-        let rpc_url = std::env::var("SOLANA_RPC_URL")
-            .or_else(|_| std::env::var("RPC_URL"))
-            .or_else(|_| std::env::var("ANCHOR_PROVIDER_URL"))
-            .unwrap_or_else(|_| "http://127.0.0.1:8899".to_string());
+    /// Strict loader — returns `Err` if any *set* env var is invalid.
+    ///
+    /// Missing vars use defaults. Use `from_env` for lenient startup.
+    pub fn try_from_env() -> Result<Self, crate::config::ConfigError> {
+        crate::config::load_dotenv();
 
-        let database_url = std::env::var("DATABASE_URL").ok();
-        let mongo_url = std::env::var("MONGO_URL")
-            .or_else(|_| std::env::var("MONGODB_URL"))
-            .ok();
+        let port = crate::config::parse_port()?.unwrap_or(3000);
+        let rpc_url = crate::config::parse_rpc_url()?.unwrap_or_else(|| "http://127.0.0.1:8899".to_string());
+        let database_url = crate::config::parse_database_url()?;
+        let mongo_url = crate::config::parse_mongo_url()?;
         let version = env!("CARGO_PKG_VERSION").to_string();
-        let environment = std::env::var("ENV")
-            .or_else(|_| std::env::var("RUST_ENV"))
-            .unwrap_or_else(|_| "development".to_string());
+        let environment = crate::config::parse_environment()?.unwrap_or_else(|| "development".to_string());
+        let cors_allowed_origins = crate::config::parse_cors_origins()?;
+        let rate_limit_requests = crate::config::parse_rate_limit_requests()?.unwrap_or(100);
+        let rate_limit_window_secs = crate::config::parse_rate_limit_window_secs()?.unwrap_or(60);
 
-        let cors_allowed_origins = std::env::var("CORS_ALLOWED_ORIGINS")
-            .ok()
-            .map(|s| {
-                s.split(',')
-                    .map(|o| o.trim().to_string())
-                    .filter(|o| !o.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        let rate_limit_requests = std::env::var("RATE_LIMIT_REQUESTS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(100);
-        let rate_limit_window_secs = std::env::var("RATE_LIMIT_WINDOW_SECS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(60);
-
-        Self {
+        Ok(Self {
             port,
             rpc_url,
             database_url,
@@ -143,7 +135,7 @@ impl ApiConfig {
             cors_allowed_origins,
             rate_limit_requests,
             rate_limit_window_secs,
-        }
+        })
     }
 
     /// Whether the process is running in production (enables stricter middleware).

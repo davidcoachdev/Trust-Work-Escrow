@@ -2,6 +2,7 @@
 //! `main.rs` so integration tests (`tests/*.rs`) can `use trust_escrow_api::*`.
 
 pub mod auth;
+pub mod config;
 pub mod error;
 pub mod evidence;
 pub mod health;
