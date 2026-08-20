@@ -103,7 +103,10 @@ impl ApiConfig {
         match Self::try_from_env() {
             Ok(cfg) => cfg,
             Err(e) => {
-                tracing::warn!("config validation failed, using defaults: {e}");
+                tracing::warn!(
+                    "config validation failed, using defaults: {}",
+                    crate::logging::redact_for_log(&e.to_string())
+                );
                 Self::default()
             }
         }

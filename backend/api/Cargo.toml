@@ -40,6 +40,7 @@ base64 = "0.22"
 bs58 = "0.5"
 ed25519-dalek = "2"
 rand = "0.8"
+regex = "1"
 
 # Solana toolchain — only compiled when `solana` feature is active.
 solana-sdk = { version = "2.1", optional = true }

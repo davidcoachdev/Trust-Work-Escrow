@@ -7,6 +7,7 @@ pub mod error;
 pub mod evidence;
 pub mod health;
 pub mod integration;
+pub mod logging;
 pub mod metadata;
 pub mod metrics;
 pub mod middleware;

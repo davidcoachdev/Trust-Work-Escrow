@@ -107,21 +107,30 @@ impl ApiError {
 
 /// Remove secrets from an error message before sending to the client.
 ///
-/// The SDK never returns raw key material; this is a defense-in-depth filter
-/// that strips substrings containing `keypair`, `private`, `secret`, or long
-/// base58-like blobs when logging the public error body.
-fn sanitize(mut msg: String) -> String {
-    // Never expose absolute keypair paths verbatim — keep only the file name.
-    // Also truncate overly long messages to avoid log injection.
-    if msg.len() > 500 {
-        msg.truncate(500);
+/// Delegates to `crate::logging::redact_secrets` for comprehensive redaction
+/// (PEM blocks, bearer/JWT, kv sensibles, URLs con credenciales, keypair arrays)
+/// y además aplica sanitización legacy (truncado y frases `private key`).
+pub(crate) fn sanitize(msg: String) -> String {
+    let mut out = crate::logging::redact_secrets(&msg);
+    if out.len() > 500 {
+        out.truncate(500);
     }
-    // Basic redaction for private key hints.
-    let lower = msg.to_lowercase();
+    let lower = out.to_lowercase();
     if lower.contains("private key") || lower.contains("secret key") {
-        return "internal error (redacted)".to_string();
+        // Si quedó alguna frase literal sin ser redactada por el motor genérico,
+        // colapsar a mensaje genérico (defense-in-depth).
+        if lower.contains("leaked") || lower.contains("private key") {
+            // Solo colapsar si la señal es claramente un leak, no falsos positivos
+            // de mensajes de validación que mencionen "private key" abstractamente.
+            // Para T19: si input contenía `private key` + valor, ya fue redactado arriba;
+            // este fallback cubre casos edge no matcheados por regex.
+            if out.contains(crate::logging::REDACTED) {
+                return out;
+            }
+            return "internal error (redacted)".to_string();
+        }
     }
-    msg
+    out
 }
 
 impl IntoResponse for ApiError {
