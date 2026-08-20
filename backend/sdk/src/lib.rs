@@ -11,6 +11,7 @@
 //! enable it (`--features solana`) to use PDA derivation, the client and types.
 
 pub mod client;
+pub mod cluster;
 pub mod error;
 pub mod events;
 pub mod pda;

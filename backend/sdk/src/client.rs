@@ -7,6 +7,7 @@
 
 #[cfg(feature = "solana")]
 mod inner {
+    use crate::cluster::{check_keypair_permissions, load_keypair_secure, parse_cluster as cluster_parse, validate_cluster};
     use crate::error::{BackendError, ErrorCode, Result};
     use crate::pda;
     use crate::types::*;
@@ -22,7 +23,7 @@ mod inner {
             hash::hash,
             instruction::{AccountMeta, Instruction, InstructionError},
             pubkey::Pubkey,
-            signature::{read_keypair_file, Keypair, Signature},
+            signature::{Keypair, Signature},
             signer::Signer,
             transaction::{Transaction, TransactionError},
         },
@@ -62,7 +63,14 @@ mod inner {
 
     impl TrustEscrowClient {
         /// Build a client from a cluster and an in-memory keypair.
+        ///
+        /// Blocks `Cluster::Mainnet` (and custom URLs containing `mainnet`) unless
+        /// an allowlist env var is set (`TRUST_ESCROW_ALLOW_MAINNET=1` or
+        /// `ALLOW_MAINNET=1`). This prevents accidental mainnet use in tests/CI.
         pub fn new(cluster: Cluster, keypair: Keypair) -> Result<Self> {
+            // T18: mainnet guard — same binary must switch clusters via env, but
+            // mainnet is blocked by default.
+            validate_cluster(&cluster)?;
             let payer = Arc::new(keypair);
             let program_id = crate::PROGRAM_ID_STR
                 .parse::<Pubkey>()
@@ -75,19 +83,28 @@ mod inner {
         }
 
         /// Build a client loading the keypair from a filesystem path.
+        ///
+        /// Validates file permissions (`0600` or stricter `0400`) before reading,
+        /// and never logs secret material — errors only mention the path.
         pub fn from_keypair_path(cluster: Cluster, path: &str) -> Result<Self> {
-            let keypair = read_keypair_file(path)
-                .map_err(|e| BackendError::keypair_error(format!("{}: {}", path, e)))?;
+            // T18: secure keypair — check perms first, then load without logging bytes.
+            check_keypair_permissions(path)?;
+            let keypair = load_keypair_secure(path)?;
             Self::new(cluster, keypair)
         }
 
         /// Build a client from the environment (`CLUSTER`/`RPC_CLUSTER` and
         /// `KEYPAIR_PATH`). Falls back to `Localnet` when no cluster is set.
+        ///
+        /// `CLUSTER` takes precedence over `RPC_CLUSTER`. Both are resolved via
+        /// [`crate::cluster::parse_cluster`] which blocks mainnet without allowlist.
         pub fn from_env() -> Result<Self> {
             let cluster = match std::env::var("CLUSTER").or_else(|_| std::env::var("RPC_CLUSTER")) {
-                Ok(c) => parse_cluster(&c)?,
+                Ok(c) => cluster_parse(&c)?,
                 Err(_) => Cluster::Localnet,
             };
+            // Also validate the resolved cluster (defense in depth).
+            validate_cluster(&cluster)?;
             let path = std::env::var("KEYPAIR_PATH")
                 .map_err(|_| BackendError::config_error("KEYPAIR_PATH not set"))?;
             Self::from_keypair_path(cluster, &path)
@@ -1315,14 +1332,14 @@ mod inner {
     }
 
     /// Parse a cluster identifier (env value) into an Anchor [`Cluster`].
+    ///
+    /// Delegates to [`crate::cluster::parse_cluster`] so all cluster resolution
+    /// (including `TrustEscrowClient::from_env`) shares the same mainnet guard.
+    /// Kept for backwards compatibility with direct `parse_cluster` callers inside
+    /// this module.
+    #[allow(dead_code)]
     fn parse_cluster(s: &str) -> Result<Cluster> {
-        match s.to_lowercase().as_str() {
-            "localnet" | "localhost" => Ok(Cluster::Localnet),
-            "devnet" => Ok(Cluster::Devnet),
-            "testnet" => Ok(Cluster::Testnet),
-            "mainnet" | "mainnet-beta" => Ok(Cluster::Mainnet),
-            other => Ok(Cluster::Custom(other.to_string(), other.to_string())),
-        }
+        cluster_parse(s)
     }
 }
 
