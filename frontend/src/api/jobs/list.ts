@@ -5,6 +5,7 @@ export interface ListJobsParams {
   cursor?: string | null;
   limit?: number;
   status?: string;
+  client?: string;
 }
 
 export async function listJobs(params: ListJobsParams = {}): Promise<PaginatedJobs> {
@@ -12,6 +13,7 @@ export async function listJobs(params: ListJobsParams = {}): Promise<PaginatedJo
   if (params.cursor) qs.set("cursor", params.cursor);
   if (params.limit) qs.set("limit", String(params.limit));
   if (params.status) qs.set("status", params.status);
+  if (params.client) qs.set("client", params.client);
   const suffix = qs.toString() ? `?${qs}` : "";
   try {
     const res = await apiFetch(`/jobs${suffix}`);

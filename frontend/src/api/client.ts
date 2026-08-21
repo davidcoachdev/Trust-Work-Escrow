@@ -24,6 +24,22 @@ export class ApiError extends Error {
   }
 }
 
+function getAuthHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const pubkey = localStorage.getItem("twe_pubkey") || sessionStorage.getItem("twe_pubkey") || "";
+    const sig = localStorage.getItem("twe_signature") || "";
+    const msg = localStorage.getItem("twe_message") || "";
+    const h: Record<string, string> = {};
+    if (pubkey) h["x-pubkey"] = pubkey;
+    if (sig) h["x-signature"] = sig;
+    if (msg) h["x-message"] = msg;
+    return h;
+  } catch {
+    return {};
+  }
+}
+
 /** Fetch wrapper con timeout y prefix automático de API_URL */
 export async function apiFetch(
   path: string,
@@ -34,11 +50,13 @@ export async function apiFetch(
   const t = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const url = path.startsWith("http") ? path : `${API_URL}${path.startsWith("/") ? path : `/${path}`}`;
+    const authHeaders = getAuthHeaders();
     const res = await fetch(url, {
       ...init,
       signal: controller.signal,
       headers: {
         "content-type": "application/json",
+        ...authHeaders,
         ...(init?.headers || {}),
       },
     });
