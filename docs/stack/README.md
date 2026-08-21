@@ -5,7 +5,7 @@ Guía para levantar **todo el stack** en local: validator Solana, DBs (Postgres 
 > **Programa:** `7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh` (deploy slot 26, 594KB, authority `3whY1ohd...`)  
 > **Validator:** Agave 4.1.1, `http://127.0.0.1:8899`  
 > **Backend:** `http://127.0.0.1:3000` (Swagger `/swagger-ui`)  
-> **Frontend dApp:** `http://localhost:3001` (Next 16, Turbopack)  
+> **Frontend dApp:** `http://localhost:3001` (Next 16, Turbopack, dashboard freelancer/publisher 34/34)  
 > **Landing:** Dioxus `landing/` (opcional)
 
 ---
@@ -136,35 +136,41 @@ bun install
 bun run dev --port 3001
 # o npm run dev -- --port 3001
 # → http://localhost:3001
-# rutas: / , /jobs , /create , /jobs/[id]
+# rutas: / , /jobs , /create , /jobs/[id] , /dashboard , /dashboard/freelancer , /dashboard/client
 ```
 
 Verificación:
 
 ```bash
-bun run --cwd frontend test    # 24 passed (api/client + stores)
-bun run --cwd frontend build   # 5 rutas static
+bun run --cwd frontend test    # 34 passed (api/client + stores + dashboard) — tras dashboard freelancer/publisher
+bun run --cwd frontend build   # 12 rutas (5 base + 7 dashboard) — tema dcdev crimson + GSAP + Motion
 ```
 
 Estructura `api/` (Zustand fuente de verdad):
 
 ```
 frontend/src/api/
-  client.ts          # root apiFetch + ApiError
-  types.ts           # Job (on Vec + off title/description) → JobResponse
-  jobs/{list,get,create,deposit,cancel,pause,...}
+  client.ts          # root apiFetch + ApiError (timeout, 404)
+  types.ts           # Job (on Vec + off title/description) → JobResponse, mapJobResponse
+  jobs/{list,get,create,deposit,cancel,pause,unpause,submitWork,approveWork,rejectWork}
   applications/{apply,accept}
   milestones/{create,submit,approve,reject}
-  disputes/{raise,accept,evidence,assignArbiter,resolve,...}
+  disputes/{raise,accept,evidence,assignArbiter,resolve,platformResolve,requestIntervention,finalize}
   support/{open,resolve}
   arbiterPool/{get,create,add,remove}
   config/get.ts, auth/verify.ts, health/check.ts
-  index.ts           # barrel
+  index.ts           # barrel re-exporta client + types + namespaces
 frontend/src/stores/
-  useJobStore.ts, useApplicationStore.ts, useMilestoneStore.ts, ...
+  useJobStore.ts, useApplicationStore.ts, useMilestoneStore.ts, useDisputeStore.ts, useSupportStore.ts, useConfigStore.ts, useDashboardStore.ts (búsqueda cursor opaco + polling 15s), useAuthStore.ts (x-pubkey)
+frontend/src/lib/
+  dashboardUtils.ts  # countdown, autoApprove 7d, metrics, CSV, borradores localStorage
+frontend/src/components/dashboard/
+  RoleGuard, NotificationBell, OverviewCards, Chart7d, DeadlineCountdown, ChatTab, EvidenceTab, MilestoneTab, DisputeTab, PaymentsTab, HistoryTable
+frontend/src/app/dashboard/
+  layout.tsx (nav roles + NotificationBell) , page.tsx (selector) , freelancer/page.tsx (overview + filtros) , freelancer/jobs/[id]/page.tsx (5 tabs Chat/Evidencias/Milestones/Disputa/Pagos) , freelancer/history , client/page.tsx (En ejecución) , client/create (borradores) , client/disputes (tab separado) , client/history (métricas + CSV)
 ```
 
-El back usa `trust-escrow-sdk` (7a2Y) → contrato `Vec<Pubkey>` 50 + `Application` PDA individual `[b"application", job, index, applicant]`.
+El back usa `trust-escrow-sdk` (7a2Y) → contrato `Vec<Pubkey>` 50 + `Application` PDA individual `[b"application", job, index, applicant]` + off-chain `metadata.rs` 6 structs.
 
 ---
 
