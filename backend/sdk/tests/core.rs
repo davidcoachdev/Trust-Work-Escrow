@@ -41,6 +41,8 @@ fn test_deserialize_mock_config() {
         fee_bps: 250,
         paused: false,
         bump: 255,
+        pending_authority: None,
+        pending_authority_at: 0,
     };
 
     let mut buf = account_discriminator("Config").to_vec();
@@ -94,6 +96,8 @@ fn test_deserialize_none_on_invalid_buffer() {
         fee_bps: 0,
         paused: false,
         bump: 0,
+        pending_authority: None,
+        pending_authority_at: 0,
     };
     cfg.serialize(&mut buf).unwrap();
     assert!(deserialize_account::<Dispute>(&buf).is_none());
