@@ -723,4 +723,542 @@ describe("trust-escrow-v3", () => {
     assert.isTrue(overLimitRejected);
 
   });
+
+  // ──────────────────────────────────────────────────────────────
+  // V3-TEST-015: 15 ITs adicionales para 40 ix — remaining_accounts malformado,
+  // evidence_cleanup_cursor overflow, MAX_PAUSE_DURATION 30d, withdraw_treasury,
+  // resolve_dispute, cleanup etc. (20% → >60% cobertura)
+  // ──────────────────────────────────────────────────────────────
+
+  it("V3-TEST-015-01 remaining_accounts vacío debe fallar (InvalidApplicationCleanupAccounts)", async () => {
+    const jobId = newJob(10);
+    const job = jobPda(client.publicKey, jobId);
+    const freelancer = Keypair.generate();
+    await airdrop(freelancer, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("ra-empty-0"))
+      .accountsPartial({ applicant: freelancer.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, freelancer.publicKey), systemProgram: SystemProgram.programId })
+      .signers([freelancer]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: freelancer.publicKey, application: applicationPda(job, 0, freelancer.publicKey) }).rpc();
+    let emptyRejected = false;
+    try {
+      await program.methods.cleanupApplications(jobId, 0)
+        .accountsPartial({ client: client.publicKey, job })
+        .remainingAccounts([])
+        .rpc();
+    } catch (error) {
+      emptyRejected = true;
+      assert.include(String(error), "InvalidApplicationCleanupAccounts");
+    }
+    assert.isTrue(emptyRejected, "remaining vacío debe fallar");
+  });
+
+  it("V3-TEST-015-02 remaining_accounts impar (no múltiplo de 2) debe fallar", async () => {
+    const jobId = newJob(11);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    await airdrop(f, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("ra-odd-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    let oddRejected = false;
+    try {
+      await program.methods.cleanupApplications(jobId, 0)
+        .accountsPartial({ client: client.publicKey, job })
+        .remainingAccounts([
+          { pubkey: applicationPda(job, 0, f.publicKey), isWritable: true, isSigner: false },
+          { pubkey: f.publicKey, isWritable: true, isSigner: false },
+          { pubkey: f.publicKey, isWritable: true, isSigner: false }, // tercer meta impar
+        ])
+        .rpc();
+    } catch (error) {
+      oddRejected = true;
+      assert.include(String(error), "InvalidApplicationCleanupAccounts");
+    }
+    assert.isTrue(oddRejected, "impar debe fallar");
+  });
+
+  it("V3-TEST-015-03 remaining_accounts is_writable false debe fallar", async () => {
+    const jobId = newJob(12);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    const other = Keypair.generate();
+    await airdrop(f, 1);
+    await airdrop(other, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("ra-writable-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    await program.methods.applyToJob(jobId, 1, hashProposal("ra-writable-1"))
+      .accountsPartial({ applicant: other.publicKey, client: client.publicKey, job, application: applicationPda(job, 1, other.publicKey), systemProgram: SystemProgram.programId })
+      .signers([other]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    let roRejected = false;
+    try {
+      await program.methods.cleanupApplications(jobId, 1)
+        .accountsPartial({ client: client.publicKey, job })
+        .remainingAccounts([
+          { pubkey: applicationPda(job, 1, other.publicKey), isWritable: false, isSigner: false },
+          { pubkey: other.publicKey, isWritable: true, isSigner: false },
+        ])
+        .rpc();
+    } catch (error) {
+      roRejected = true;
+      assert.include(String(error), "InvalidApplicationCleanupAccounts");
+    }
+    assert.isTrue(roRejected, "is_writable false debe fallar");
+  });
+
+  it("V3-TEST-015-04 remaining_accounts pubkey mismatch debe fallar", async () => {
+    const jobId = newJob(13);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    const other = Keypair.generate();
+    const impostor = Keypair.generate();
+    await airdrop(f, 1);
+    await airdrop(other, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("ra-pubkey-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    await program.methods.applyToJob(jobId, 1, hashProposal("ra-pubkey-1"))
+      .accountsPartial({ applicant: other.publicKey, client: client.publicKey, job, application: applicationPda(job, 1, other.publicKey), systemProgram: SystemProgram.programId })
+      .signers([other]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    let mismatchRejected = false;
+    try {
+      await program.methods.cleanupApplications(jobId, 1)
+        .accountsPartial({ client: client.publicKey, job })
+        .remainingAccounts([
+          { pubkey: applicationPda(job, 1, impostor.publicKey), isWritable: true, isSigner: false },
+          { pubkey: other.publicKey, isWritable: true, isSigner: false },
+        ])
+        .rpc();
+    } catch (error) {
+      mismatchRejected = true;
+      assert.include(String(error), "InvalidApplicationCleanupAccounts");
+    }
+    assert.isTrue(mismatchRejected, "pubkey mismatch debe fallar");
+  });
+
+  it("V3-TEST-015-05 remaining_accounts excede MAX_CLEANUP_BATCH (22 metas) debe fallar", async () => {
+    const jobId = newJob(14);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    await airdrop(f, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    const apps = Array.from({ length: 11 }, () => Keypair.generate());
+    for (const a of apps) await airdrop(a, 0.2);
+    for (let i = 0; i < 11; i++) {
+      await program.methods.applyToJob(jobId, i, hashProposal(`ra-batch-${i}`))
+        .accountsPartial({ applicant: apps[i].publicKey, client: client.publicKey, job, application: applicationPda(job, i, apps[i].publicKey), systemProgram: SystemProgram.programId })
+        .signers([apps[i]]).rpc();
+    }
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: apps[0].publicKey, application: applicationPda(job, 0, apps[0].publicKey) }).rpc();
+    // 22 metas = 11 apps -> excede MAX_CLEANUP_BATCH 10, debe fallar antes de validar pubkeys
+    const fakeMetas22 = Array.from({ length: 11 }, () => {
+      const fakeApp = Keypair.generate().publicKey;
+      const fakeApplicant = Keypair.generate().publicKey;
+      return [
+        { pubkey: fakeApp, isWritable: true, isSigner: false },
+        { pubkey: fakeApplicant, isWritable: true, isSigner: false },
+      ];
+    }).flat();
+    let batchRejected = false;
+    try {
+      await program.methods.cleanupApplications(jobId, 1)
+        .accountsPartial({ client: client.publicKey, job })
+        .remainingAccounts(fakeMetas22)
+        .rpc();
+    } catch (error) {
+      batchRejected = true;
+      assert.include(String(error), "InvalidApplicationCleanupAccounts");
+    }
+    assert.isTrue(batchRejected, "22 metas (>10 apps) debe fallar");
+  });
+
+  it("V3-TEST-015-06 evidence_cleanup_cursor overflow: cleanup más que remaining debe fallar", async () => {
+    const jobId = newJob(15);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    await airdrop(f, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("ev-overflow-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    await program.methods.submitWork(jobId).accountsPartial({ freelancer: f.publicKey, client: client.publicKey, job }).signers([f]).rpc();
+    await program.methods.raiseDispute(jobId).accountsPartial({ raiser: client.publicKey, client: client.publicKey, job, ticket: null, dispute: disputePda(job), escrow: arbFeePda(job) }).rpc();
+    await program.methods.acceptDispute(jobId).accountsPartial({ accepter: f.publicKey, client: client.publicKey, job, dispute: disputePda(job), escrow: arbFeePda(job) }).signers([f]).rpc();
+    const dispute = disputePda(job);
+    for (let i = 0; i < 2; i++) {
+      await program.methods.submitEvidence(jobId, i, hashProposal(`ev-overflow-${i}`))
+        .accountsPartial({ submitter: i % 2 === 0 ? client.publicKey : f.publicKey, client: client.publicKey, job, dispute, evidence: evidencePda(dispute, i), systemProgram: SystemProgram.programId })
+        .signers(i % 2 === 0 ? [] : [f]).rpc();
+    }
+    const existingPool = await program.account.arbiterPool.fetchNullable(arbiterPoolPda());
+    if (!existingPool) {
+      await program.methods.createArbiterPool().accountsPartial({ authority: client.publicKey, pool: arbiterPoolPda(), config: configPda, systemProgram: SystemProgram.programId }).rpc();
+    }
+    const arb = Keypair.generate();
+    await airdrop(arb, 1);
+    try { await program.methods.addArbiter(arb.publicKey).accountsPartial({ authority: client.publicKey, pool: arbiterPoolPda(), config: configPda }).rpc(); } catch {}
+    await program.methods.assignArbiter(jobId).accountsPartial({ authority: client.publicKey, client: client.publicKey, job, dispute, pool: arbiterPoolPda(), arbiter: arb.publicKey, config: configPda }).rpc();
+    await program.methods.resolveDispute(jobId, 50).accountsPartial({ arbiter: arb.publicKey, client: client.publicKey, job, dispute }).signers([arb]).rpc();
+    // evidence_count=2, intentar cleanup con 3 evidencias debe fallar
+    let overflowRejected = false;
+    try {
+      await program.methods.cleanupDisputeEvidence(jobId).accountsPartial({ resolver: arb.publicKey, client: client.publicKey, job, dispute, config: configPda })
+        .remainingAccounts([
+          { pubkey: evidencePda(dispute, 0), isWritable: true, isSigner: false },
+          { pubkey: evidencePda(dispute, 1), isWritable: true, isSigner: false },
+          { pubkey: evidencePda(dispute, 2), isWritable: true, isSigner: false },
+        ])
+        .signers([arb]).rpc();
+    } catch (error) {
+      overflowRejected = true;
+      assert.include(String(error), "InvalidEvidenceCleanupAccounts");
+    }
+    assert.isTrue(overflowRejected, "cleanup con más evidencias que remaining debe fallar");
+  });
+
+  it("V3-TEST-015-07 evidence_cleanup paginación 11 evidencias debe fallar MAX_EVIDENCE_CLEANUP_BATCH", async () => {
+    const jobId = newJob(16);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    await airdrop(f, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("ev-batch-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    await program.methods.submitWork(jobId).accountsPartial({ freelancer: f.publicKey, client: client.publicKey, job }).signers([f]).rpc();
+    await program.methods.raiseDispute(jobId).accountsPartial({ raiser: client.publicKey, client: client.publicKey, job, ticket: null, dispute: disputePda(job), escrow: arbFeePda(job) }).rpc();
+    await program.methods.acceptDispute(jobId).accountsPartial({ accepter: f.publicKey, client: client.publicKey, job, dispute: disputePda(job), escrow: arbFeePda(job) }).signers([f]).rpc();
+    const dispute = disputePda(job);
+    for (let i = 0; i < 10; i++) {
+      await program.methods.submitEvidence(jobId, i, hashProposal(`ev-batch10-${i}`))
+        .accountsPartial({ submitter: i % 2 === 0 ? client.publicKey : f.publicKey, client: client.publicKey, job, dispute, evidence: evidencePda(dispute, i), systemProgram: SystemProgram.programId })
+        .signers(i % 2 === 0 ? [] : [f]).rpc();
+    }
+    const arb = Keypair.generate();
+    await airdrop(arb, 1);
+    try { await program.methods.addArbiter(arb.publicKey).accountsPartial({ authority: client.publicKey, pool: arbiterPoolPda(), config: configPda }).rpc(); } catch {}
+    await program.methods.assignArbiter(jobId).accountsPartial({ authority: client.publicKey, client: client.publicKey, job, dispute, pool: arbiterPoolPda(), arbiter: arb.publicKey, config: configPda }).rpc();
+    await program.methods.resolveDispute(jobId, 50).accountsPartial({ arbiter: arb.publicKey, client: client.publicKey, job, dispute }).signers([arb]).rpc();
+    let batchRejected = false;
+    try {
+      await program.methods.cleanupDisputeEvidence(jobId).accountsPartial({ resolver: arb.publicKey, client: client.publicKey, job, dispute, config: configPda })
+        .remainingAccounts(Array.from({ length: 11 }, (_, i) => ({ pubkey: evidencePda(dispute, i), isWritable: true, isSigner: false })))
+        .signers([arb]).rpc();
+    } catch (error) {
+      batchRejected = true;
+      assert.include(String(error), "InvalidEvidenceCleanupAccounts");
+    }
+    assert.isTrue(batchRejected, "11 evidencias en un tx debe fallar (MAX 10)");
+  });
+
+  it("V3-TEST-015-08 MAX_PAUSE_DURATION 30d: pause y expire inmediato debe fallar JobPaused (no expirado)", async () => {
+    const jobId = newJob(17);
+    const job = jobPda(client.publicKey, jobId);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.pauseJob(jobId).accountsPartial({ client: client.publicKey, job }).rpc();
+    let fetched = await program.account.job.fetch(job);
+    assert.isTrue(fetched.paused, "job debe estar pausado");
+    assert.equal(fetched.pausedAt.toNumber() > 0, true);
+    // MAX_PAUSE_DURATION = 30*24*3600 = 2592000
+    assert.equal(30 * 24 * 60 * 60, 2592000);
+    let notExpiredRejected = false;
+    try {
+      await program.methods.expirePausedJob(jobId).accountsPartial({ caller: client.publicKey, client: client.publicKey, job }).rpc();
+    } catch (error) {
+      notExpiredRejected = true;
+      assert.include(String(error), "JobPaused");
+    }
+    assert.isTrue(notExpiredRejected, "expire inmediato debe fallar JobPaused (no han pasado 30d)");
+    await program.methods.unpauseJob(jobId).accountsPartial({ client: client.publicKey, job }).rpc();
+    fetched = await program.account.job.fetch(job);
+    assert.isFalse(fetched.paused, "unpause debe limpiar paused");
+    assert.equal(fetched.pausedAt.toNumber(), 0);
+  });
+
+  it("V3-TEST-015-09 pause_job solo Created/Funded sin freelancer; rechaza con freelancer y cancel_job paginado", async () => {
+    const jobId = newJob(18);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    await airdrop(f, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("pause-no-freelancer-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    // pause en Funded sin freelancer debe pasar (ya testeado 08), pero tras accept debe fallar
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    let pauseWithFreelancerRejected = false;
+    try {
+      await program.methods.pauseJob(jobId).accountsPartial({ client: client.publicKey, job }).rpc();
+    } catch (error) {
+      pauseWithFreelancerRejected = true;
+      assert.include(String(error), "CannotPauseWithFreelancer");
+    }
+    assert.isTrue(pauseWithFreelancerRejected, "pause con freelancer debe fallar");
+    // cancel_job con cleanup paginado tras InProgress
+    await program.methods.submitWork(jobId).accountsPartial({ freelancer: f.publicKey, client: client.publicKey, job }).signers([f]).rpc();
+    // cancel no permitido en Submitted, debe fallar InvalidJobStatus
+    let cancelRejected = false;
+    try {
+      await program.methods.cancelJob(jobId).accountsPartial({ client: client.publicKey, job }).rpc();
+    } catch (error) {
+      cancelRejected = true;
+      assert.include(String(error), "InvalidJobStatus");
+    }
+    assert.isTrue(cancelRejected, "cancel en Submitted debe fallar");
+  });
+
+  it("V3-TEST-015-10 withdraw_treasury happy path y validación", async () => {
+    const newTreasury = Keypair.generate();
+    await airdrop(newTreasury, 2);
+    await program.methods.updateTreasury(newTreasury.publicKey)
+      .accountsPartial({ authority: client.publicKey, config: configPda, newTreasury: newTreasury.publicKey }).rpc();
+    const dest = Keypair.generate().publicKey;
+    const treasuryBefore = await provider.connection.getBalance(newTreasury.publicKey);
+    assert.isAtLeast(treasuryBefore, 1_000_000);
+    const withdrawAmount = new BN(500_000);
+    await program.methods.withdrawTreasury(withdrawAmount)
+      .accountsPartial({ treasury: newTreasury.publicKey, destination: dest, config: configPda })
+      .signers([newTreasury]).rpc();
+    const treasuryAfter = await provider.connection.getBalance(newTreasury.publicKey);
+    assert.equal(treasuryBefore - treasuryAfter, withdrawAmount.toNumber());
+    const destInfo = await provider.connection.getAccountInfo(dest);
+    assert.isNotNull(destInfo);
+    assert.equal(destInfo!.lamports, withdrawAmount.toNumber());
+  });
+
+  it("V3-TEST-015-11 withdraw_treasury rechaza 0, insufficient funds y not authorized", async () => {
+    // treasury controlada para este test
+    const ctrlTreasury = Keypair.generate();
+    await airdrop(ctrlTreasury, 2);
+    await program.methods.updateTreasury(ctrlTreasury.publicKey)
+      .accountsPartial({ authority: client.publicKey, config: configPda, newTreasury: ctrlTreasury.publicKey }).rpc();
+    // amount 0 debe fallar AmountTooSmall con signer correcto
+    let zeroRejected = false;
+    try {
+      await program.methods.withdrawTreasury(new BN(0))
+        .accountsPartial({ treasury: ctrlTreasury.publicKey, destination: Keypair.generate().publicKey, config: configPda })
+        .signers([ctrlTreasury]).rpc();
+    } catch (error) {
+      zeroRejected = true;
+      assert.include(String(error), "AmountTooSmall");
+    }
+    assert.isTrue(zeroRejected, "0 debe fallar AmountTooSmall");
+    // NotAuthorized: impostor pubkey distinta a config.treasury
+    const impostor = Keypair.generate();
+    await airdrop(impostor, 1);
+    let notAuthRejected = false;
+    try {
+      await program.methods.withdrawTreasury(new BN(1000))
+        .accountsPartial({ treasury: impostor.publicKey, destination: Keypair.generate().publicKey, config: configPda })
+        .signers([impostor]).rpc();
+    } catch (error) {
+      notAuthRejected = true;
+      assert.include(String(error), "NotAuthorized");
+    }
+    assert.isTrue(notAuthRejected, "impostor treasury debe fallar NotAuthorized");
+    const ctrlBal = await provider.connection.getBalance(ctrlTreasury.publicKey);
+    let insufficientRejected = false;
+    try {
+      await program.methods.withdrawTreasury(new BN(ctrlBal + 1_000_000))
+        .accountsPartial({ treasury: ctrlTreasury.publicKey, destination: Keypair.generate().publicKey, config: configPda })
+        .signers([ctrlTreasury]).rpc();
+    } catch (error) {
+      insufficientRejected = true;
+      assert.include(String(error), "InsufficientFunds");
+    }
+    assert.isTrue(insufficientRejected, "exceso debe fallar InsufficientFunds");
+    const restore = Keypair.generate();
+    await airdrop(restore, 1);
+    await program.methods.updateTreasury(restore.publicKey)
+      .accountsPartial({ authority: client.publicKey, config: configPda, newTreasury: restore.publicKey }).rpc();
+    treasury = restore.publicKey;
+  });
+
+  it("V3-TEST-015-12 withdraw_arbitration happy path", async () => {
+    const newArb = Keypair.generate();
+    await airdrop(newArb, 2);
+    await program.methods.updateArbitrationTreasury(newArb.publicKey)
+      .accountsPartial({ authority: client.publicKey, config: configPda, newArbitrationTreasury: newArb.publicKey }).rpc();
+    const dest = Keypair.generate().publicKey;
+    const before = await provider.connection.getBalance(newArb.publicKey);
+    const amt = new BN(300_000);
+    await program.methods.withdrawArbitration(amt)
+      .accountsPartial({ arbitrationTreasury: newArb.publicKey, destination: dest, config: configPda })
+      .signers([newArb]).rpc();
+    const after = await provider.connection.getBalance(newArb.publicKey);
+    assert.equal(before - after, amt.toNumber());
+    arbTreasury = newArb.publicKey;
+  });
+
+  it("V3-TEST-015-13 resolve_dispute NotArbiter debe fallar", async () => {
+    const jobId = newJob(19);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    await airdrop(f, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("resolve-notarb-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    await program.methods.submitWork(jobId).accountsPartial({ freelancer: f.publicKey, client: client.publicKey, job }).signers([f]).rpc();
+    await program.methods.raiseDispute(jobId).accountsPartial({ raiser: client.publicKey, client: client.publicKey, job, ticket: null, dispute: disputePda(job), escrow: arbFeePda(job) }).rpc();
+    await program.methods.acceptDispute(jobId).accountsPartial({ accepter: f.publicKey, client: client.publicKey, job, dispute: disputePda(job), escrow: arbFeePda(job) }).signers([f]).rpc();
+    const dispute = disputePda(job);
+    const arb = Keypair.generate();
+    await airdrop(arb, 1);
+    try { await program.methods.addArbiter(arb.publicKey).accountsPartial({ authority: client.publicKey, pool: arbiterPoolPda(), config: configPda }).rpc(); } catch {}
+    await program.methods.assignArbiter(jobId).accountsPartial({ authority: client.publicKey, client: client.publicKey, job, dispute, pool: arbiterPoolPda(), arbiter: arb.publicKey, config: configPda }).rpc();
+    const impostor = Keypair.generate();
+    await airdrop(impostor, 1);
+    let notArbRejected = false;
+    try {
+      await program.methods.resolveDispute(jobId, 50)
+        .accountsPartial({ arbiter: impostor.publicKey, client: client.publicKey, job, dispute })
+        .signers([impostor]).rpc();
+    } catch (error) {
+      notArbRejected = true;
+      assert.include(String(error), "NotArbiter");
+    }
+    assert.isTrue(notArbRejected, "impostor no debe poder resolver");
+  });
+
+  it("V3-TEST-015-14 resolve_dispute InvalidPercent y DisputeAlreadyResolved", async () => {
+    const jobId = newJob(20);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    await airdrop(f, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("resolve-pct-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    await program.methods.submitWork(jobId).accountsPartial({ freelancer: f.publicKey, client: client.publicKey, job }).signers([f]).rpc();
+    await program.methods.raiseDispute(jobId).accountsPartial({ raiser: client.publicKey, client: client.publicKey, job, ticket: null, dispute: disputePda(job), escrow: arbFeePda(job) }).rpc();
+    await program.methods.acceptDispute(jobId).accountsPartial({ accepter: f.publicKey, client: client.publicKey, job, dispute: disputePda(job), escrow: arbFeePda(job) }).signers([f]).rpc();
+    const dispute = disputePda(job);
+    const arb = Keypair.generate();
+    await airdrop(arb, 1);
+    try { await program.methods.addArbiter(arb.publicKey).accountsPartial({ authority: client.publicKey, pool: arbiterPoolPda(), config: configPda }).rpc(); } catch {}
+    await program.methods.assignArbiter(jobId).accountsPartial({ authority: client.publicKey, client: client.publicKey, job, dispute, pool: arbiterPoolPda(), arbiter: arb.publicKey, config: configPda }).rpc();
+    let pctRejected = false;
+    try {
+      await program.methods.resolveDispute(jobId, 101)
+        .accountsPartial({ arbiter: arb.publicKey, client: client.publicKey, job, dispute })
+        .signers([arb]).rpc();
+    } catch (error) {
+      pctRejected = true;
+      assert.include(String(error), "InvalidPercent");
+    }
+    assert.isTrue(pctRejected, "101% debe fallar InvalidPercent");
+    await program.methods.resolveDispute(jobId, 60)
+      .accountsPartial({ arbiter: arb.publicKey, client: client.publicKey, job, dispute })
+      .signers([arb]).rpc();
+    let alreadyRejected = false;
+    try {
+      await program.methods.resolveDispute(jobId, 30)
+        .accountsPartial({ arbiter: arb.publicKey, client: client.publicKey, job, dispute })
+        .signers([arb]).rpc();
+    } catch (error) {
+      alreadyRejected = true;
+      assert.include(String(error), "DisputeAlreadyResolved");
+    }
+    assert.isTrue(alreadyRejected, "segunda resolución debe fallar DisputeAlreadyResolved");
+  });
+
+  it("V3-TEST-015-15 cleanup paginado + finalize conserva payout y cierra evidencias", async () => {
+    const jobId = newJob(21);
+    const job = jobPda(client.publicKey, jobId);
+    const f = Keypair.generate();
+    await airdrop(f, 1);
+    await program.methods.createJob(jobId, new BN(2_000_000), new BN(Math.floor(Date.now() / 1000) + 3600))
+      .accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.depositFunds(jobId).accountsPartial({ client: client.publicKey, job, config: configPda }).rpc();
+    await program.methods.applyToJob(jobId, 0, hashProposal("cleanup-final-0"))
+      .accountsPartial({ applicant: f.publicKey, client: client.publicKey, job, application: applicationPda(job, 0, f.publicKey), systemProgram: SystemProgram.programId })
+      .signers([f]).rpc();
+    await program.methods.acceptApplication(jobId, 0)
+      .accountsPartial({ client: client.publicKey, job, applicant: f.publicKey, application: applicationPda(job, 0, f.publicKey) }).rpc();
+    await program.methods.submitWork(jobId).accountsPartial({ freelancer: f.publicKey, client: client.publicKey, job }).signers([f]).rpc();
+    await program.methods.raiseDispute(jobId).accountsPartial({ raiser: client.publicKey, client: client.publicKey, job, ticket: null, dispute: disputePda(job), escrow: arbFeePda(job) }).rpc();
+    await program.methods.acceptDispute(jobId).accountsPartial({ accepter: f.publicKey, client: client.publicKey, job, dispute: disputePda(job), escrow: arbFeePda(job) }).signers([f]).rpc();
+    const dispute = disputePda(job);
+    for (let i = 0; i < 5; i++) {
+      await program.methods.submitEvidence(jobId, i, hashProposal(`cleanup-final-ev-${i}`))
+        .accountsPartial({ submitter: i % 2 === 0 ? client.publicKey : f.publicKey, client: client.publicKey, job, dispute, evidence: evidencePda(dispute, i), systemProgram: SystemProgram.programId })
+        .signers(i % 2 === 0 ? [] : [f]).rpc();
+    }
+    const arb = Keypair.generate();
+    await airdrop(arb, 1);
+    try { await program.methods.addArbiter(arb.publicKey).accountsPartial({ authority: client.publicKey, pool: arbiterPoolPda(), config: configPda }).rpc(); } catch {}
+    await program.methods.assignArbiter(jobId).accountsPartial({ authority: client.publicKey, client: client.publicKey, job, dispute, pool: arbiterPoolPda(), arbiter: arb.publicKey, config: configPda }).rpc();
+    await program.methods.resolveDispute(jobId, 40).accountsPartial({ arbiter: arb.publicKey, client: client.publicKey, job, dispute }).signers([arb]).rpc();
+    // cleanup parcial 2 evidencias, verifica cursor
+    await program.methods.cleanupDisputeEvidence(jobId).accountsPartial({ resolver: arb.publicKey, client: client.publicKey, job, dispute, config: configPda })
+      .remainingAccounts([
+        { pubkey: evidencePda(dispute, 0), isWritable: true, isSigner: false },
+        { pubkey: evidencePda(dispute, 1), isWritable: true, isSigner: false },
+      ])
+      .signers([arb]).rpc();
+    let afterPartial = await program.account.dispute.fetch(dispute);
+    assert.equal(afterPartial.evidenceCleanupCursor, 2, "cursor debe avanzar a 2");
+    assert.isNull(await provider.connection.getAccountInfo(evidencePda(dispute, 0)));
+    assert.isNull(await provider.connection.getAccountInfo(evidencePda(dispute, 1)));
+    const evRentRemaining = (await Promise.all([2, 3, 4].map(i => provider.connection.getAccountInfo(evidencePda(dispute, i))))).reduce((s, a) => s + (a?.lamports ?? 0), 0);
+    const clientBefore = await provider.connection.getBalance(client.publicKey);
+    // finalize debe cerrar restantes 3 evidencias y conservar payout: 40% cliente, 60% freelancer, shortfall 0 (bonds cubren 5%)
+    await program.methods.finalizeDisputePayouts(jobId).accountsPartial({
+      resolver: arb.publicKey, client: client.publicKey, job, dispute, escrow: arbFeePda(job),
+      freelancer: f.publicKey, treasury, arbitrationTreasury: arbTreasury, config: configPda,
+    }).remainingAccounts([
+      { pubkey: evidencePda(dispute, 2), isWritable: true, isSigner: false },
+      { pubkey: evidencePda(dispute, 3), isWritable: true, isSigner: false },
+      { pubkey: evidencePda(dispute, 4), isWritable: true, isSigner: false },
+      { pubkey: applicationPda(job, 0, f.publicKey), isWritable: true, isSigner: false },
+      { pubkey: f.publicKey, isWritable: true, isSigner: false },
+    ]).signers([arb]).rpc();
+    for (let i = 2; i < 5; i++) assert.isNull(await provider.connection.getAccountInfo(evidencePda(dispute, i)), `ev ${i} cerrada`);
+    const clientAfter = await provider.connection.getBalance(client.publicKey);
+    assert.isAtLeast(clientAfter - clientBefore, evRentRemaining, "rent de evidencias restantes vuelve al cliente");
+  });
 });
