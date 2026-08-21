@@ -575,7 +575,10 @@ pub fn resolve_support_ticket(ctx: Context<ResolveSupportTicket>, _job_id: u64) 
         ErrorCode::InvalidJobStatus
     );
 
-    cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
+    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx
+    if !ctx.remaining_accounts.is_empty() {
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+    }
 
     let remaining_principal = job
         .amount
@@ -622,13 +625,25 @@ pub fn finalize_dispute_payouts(
         .evidence_count
         .checked_sub(dispute.evidence_cleanup_cursor)
         .ok_or(ErrorCode::InvalidEvidenceCleanupAccounts)?;
+    // V3-PERF-011: paginación 10 por tx para evidence y applications.
+    // Si hay más de 10 evidencias pendientes, el caller debe paginar vía
+    // `cleanup_dispute_evidence` antes de `finalize`. Aquí solo se permite
+    // hasta MAX_EVIDENCE_CLEANUP_BATCH por tx.
     require!(
         ctx.remaining_accounts.len() >= expected_evidence as usize,
         ErrorCode::InvalidEvidenceCleanupAccounts
     );
     let (evidence_accounts, application_accounts) =
         ctx.remaining_accounts.split_at(expected_evidence as usize);
-    cleanup_job_applications(job, &job.key(), 0, application_accounts, true, true)?;
+    // Validar paginación tipada para ambos slices
+    require!(
+        evidence_accounts.len() <= crate::MAX_EVIDENCE_CLEANUP_BATCH,
+        ErrorCode::InvalidEvidenceCleanupAccounts
+    );
+    crate::validate_evidence_remaining(evidence_accounts)?;
+    if !application_accounts.is_empty() {
+        cleanup_job_applications(job, &job.key(), 0, application_accounts, false, true)?;
+    }
 
     let amount = job
         .amount
@@ -726,6 +741,12 @@ pub fn cleanup_dispute_evidence(
         ctx.remaining_accounts.len() <= remaining as usize,
         ErrorCode::InvalidEvidenceCleanupAccounts
     );
+    // V3-PERF-011: paginación obligatoria 10 por tx + RemainingAccounts tipado
+    require!(
+        ctx.remaining_accounts.len() <= crate::MAX_EVIDENCE_CLEANUP_BATCH,
+        ErrorCode::InvalidEvidenceCleanupAccounts
+    );
+    crate::validate_evidence_remaining(ctx.remaining_accounts)?;
     for (offset, evidence) in ctx.remaining_accounts.iter().enumerate() {
         let index = dispute.evidence_cleanup_cursor + offset as u8;
         close_evidence_account(

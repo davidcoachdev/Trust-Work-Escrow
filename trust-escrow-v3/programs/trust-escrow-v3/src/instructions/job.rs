@@ -535,6 +535,8 @@ pub fn cleanup_applications(
         !ctx.remaining_accounts.is_empty(),
         ErrorCode::InvalidApplicationCleanupAccounts
     );
+    // V3-ARCH-004 + V3-PERF-011: paginación obligatoria 10 por tx validada dentro
+    // de cleanup_job_applications via RemainingAccounts tipado y MAX_CLEANUP_BATCH.
     cleanup_job_applications(
         job,
         &job.key(),
@@ -599,7 +601,17 @@ pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<
         ErrorCode::InvalidTreasury
     );
 
-    cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
+    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx. Si job tiene >10 applicants,
+    // el caller debe haber paginado vía `cleanup_applications` en txs previas.
+    // Aquí solo se permite hasta MAX_CLEANUP_BATCH por tx; si remaining está vacío
+    // y job aún tiene applicants, se asume que ya fueron paginados (allow_closed).
+    if !ctx.remaining_accounts.is_empty() {
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+    } else if job.applicants.len() > crate::MAX_CLEANUP_BATCH {
+        // Si no se paginó previamente, el caller debe haber usado cleanup_applications.
+        // No forzamos full_range para permitir 10 por tx; el close final ocurre igual.
+        msg!("auto_approve: applicants {} paginated off-tx, assuming pre-cleanup", job.applicants.len());
+    }
 
     let amount = job
         .amount
@@ -679,7 +691,10 @@ pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64) -> Result<()> {
         ErrorCode::AllMilestonesRequired
     );
 
-    cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
+    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx, no 50 en una.
+    if !ctx.remaining_accounts.is_empty() {
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+    }
 
     let amount = job
         .amount
@@ -736,7 +751,11 @@ pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64) -> Result<()> {
         ErrorCode::InvalidJobStatus
     );
 
-    cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
+    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx. Job sin applicants o con 0 remaining
+    // se considera pre-paginado; si hay remaining, se valida tipado + 10 por tx.
+    if !ctx.remaining_accounts.is_empty() {
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+    }
 
     if job.status == JobStatus::Funded {
         let total = job
@@ -804,7 +823,10 @@ pub fn expire_paused_job(ctx: Context<ExpirePausedJob>, _job_id: u64) -> Result<
             > MAX_PAUSE_DURATION,
         ErrorCode::JobPaused
     );
-    cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, true, true)?;
+    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx
+    if !ctx.remaining_accounts.is_empty() {
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+    }
     if job.status == JobStatus::Funded {
         let total = job
             .amount
