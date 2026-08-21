@@ -1,0 +1,11 @@
+{
+  "installCommand": "npm install --legacy-peer-deps",
+  "buildCommand": "npm run build",
+  "framework": "nextjs",
+  "env": {
+    "NEXT_PUBLIC_RPC_URL": "https://api.devnet.solana.com",
+    "NEXT_PUBLIC_API_URL": "https://api.devnet.solana.com",
+    "NEXT_PUBLIC_PROGRAM_ID": "7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh",
+    "NEXT_PUBLIC_CLUSTER": "devnet"
+  }
+}

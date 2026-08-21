@@ -12,7 +12,7 @@
 |---|---|
 | **Repositorio público GitHub** | https://github.com/davidcoachdev/Trust-Work-Escrow |
 | **Branch/tag entrega** | `main` @ `d1eaafe` + tag `v3.0.0-audit` (7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh) |
-| **MVP en Devnet** | **Program:** `7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh` <br> **Explorer:** https://explorer.solana.com/address/7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh?cluster=devnet <br> **RPC:** `https://api.devnet.solana.com` <br> **Slot deploy:** `486034851` <br> **Firma deploy:** `6VNKeq2f2rn86etaVkncsWTPSpbeVSUn4YPR7EBiHvKP2ERYANFjFNCp8upp7XhqdKQSxwEoVjMNx715MxuoBbb` <br> **Frontend demo (Vercel):** _pendiente deploy_ → `http://localhost:3001` local con `NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com` |
+| **MVP en Devnet** | **Program:** `7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh` <br> **Explorer:** https://explorer.solana.com/address/7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh?cluster=devnet <br> **RPC:** `https://api.devnet.solana.com` <br> **Slot deploy:** `486034851` <br> **Firma deploy:** `6VNKeq2f2rn86etaVkncsWTPSpbeVSUn4YPR7EBiHvKP2ERYANFjFNCp8upp7XhqdKQSxwEoVjMNx715MxuoBbb` <br> **Frontend demo (Vercel):** **https://frontend-two-smoky-60.vercel.app** + Production `https://frontend-htkuid1sk-dcdevreps-projects.vercel.app` (Next 16, `NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com`, `NEXT_PUBLIC_PROGRAM_ID=7a2YhCd7...`) |
 | **Video Demo 2min (1080p MP4 Drive)** | **Drive:** _pendiente grabación_ → subir a `drive.google.com` y pegar link aquí <br> **Contenido:** flujo `create_job` (publisher) → `apply` (freelancer) → `accept` → `submit_work` → `approve` + integración Solana (Phantom, `getHealth`, `program show` 7a2Y, Explorer) |
 | **Docs** | `docs/DEPLOYMENT_V3.md` (hashes c964..., c89a..., comandos reproducibles) + `docs/stack/README.md` (levantar todo) + `docs/BACKEND_COVERAGE.md` T26 + `TECH_DEBT_AUDIT.md` |
 | **Otros** | `frontend` Next 16 + Zustand + `api/` por método (24/24) + dashboard freelancer/publisher 34/34, `backend` 31 endpoints 72/72, `landing` Dioxus 0.7.9 |
@@ -44,7 +44,7 @@
 
 > Copiar y pegar en canal privado WayLearn:
 >
-> Hola equipo WayLearn! Entrega MVP Trust Work Escrow v3 — Repo: https://github.com/davidcoachdev/Trust-Work-Escrow (tag v3.0.0-audit) — MVP Devnet: https://explorer.solana.com/address/7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh?cluster=devnet — Video 2min: [Drive link] — Docs: docs/ENTREGA_MVP.md — Gracias!
+> Hola equipo WayLearn! Entrega MVP Trust Work Escrow v3 — Repo: https://github.com/davidcoachdev/Trust-Work-Escrow (tag v3.0.0-audit) — MVP Devnet: https://explorer.solana.com/address/7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh?cluster=devnet — Frontend: https://frontend-two-smoky-60.vercel.app — Video 2min: [Drive link] — Docs: docs/ENTREGA_MVP.md — Gracias!
 
 ---
 
@@ -52,7 +52,7 @@
 
 - [x] Repo público + tag
 - [x] MVP devnet 7a2Y slot 486034851 sig 6VNKeq...
-- [ ] Frontend Vercel deploy con `NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com` (ahora `localhost:3001`)
+- [x] Frontend Vercel deploy `https://frontend-two-smoky-60.vercel.app` (Production `https://frontend-htkuid1sk-dcdevreps-projects.vercel.app`) con `NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com`
 - [ ] Video 2min 1080p MP4 Drive (flujo + integración)
-- [ ] Subir `docs/ENTREGA_MVP.md` con links finales
+- [x] Subir `docs/ENTREGA_MVP.md` con links finales
 - [ ] Avisar en Discord privado
