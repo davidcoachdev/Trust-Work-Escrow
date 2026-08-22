@@ -25,6 +25,7 @@ hex = { version = "0.4", optional = true }
 bs58 = { version = "0.5", optional = true }
 ed25519-dalek = { version = "2", optional = true }
 base64 = "0.22"
+once_cell = { version = "1.19", optional = true }
 
 # SDK + contrato (devnet 7a2Y...)
 trust-escrow-sdk = { path = "../backend/sdk", features = ["solana"], optional = true }
@@ -43,6 +44,7 @@ server = [
   "dep:rand",
   "dep:chrono",
   "dep:hex",
+  "dep:once_cell",
   "dep:bs58",
   "dep:ed25519-dalek",
   "dep:trust-escrow-sdk"

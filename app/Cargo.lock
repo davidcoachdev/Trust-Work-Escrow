@@ -8950,6 +8950,7 @@ dependencies = [
  "jsonwebtoken",
  "lettre",
  "log",
+ "once_cell",
  "rand 0.8.7",
  "serde",
  "serde_json",
