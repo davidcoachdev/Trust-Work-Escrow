@@ -1,0 +1,15 @@
+[package]
+name = "escrow-core"
+version = "0.1.0"
+edition = "2021"
+description = "Shared Solana logic for Trust Work Escrow CLI and TUI"
+
+[dependencies]
+anchor-client = { version = "0.32.1" }
+solana-rpc-client = "2.3.1"
+solana-rpc-client-api = "2.3.13"
+solana-account-decoder-client-types = "2.3"
+solana-transaction-status = "2.3"
+borsh = "1"
+anyhow = "1"
+tracing = "0.1"

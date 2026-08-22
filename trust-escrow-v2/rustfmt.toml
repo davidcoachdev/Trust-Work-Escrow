@@ -1,0 +1,57 @@
+# Rustfmt configuration for Trust Work Escrow CLI/TUI applications
+# Matches project conventions
+
+max_width = 100
+hard_tabs = false
+tab_spaces = 4
+
+fn_args_layout = "Tall"
+brace_style = "SameLineWhere"
+control_brace_style = "AlwaysSameLine"
+
+reorder_imports = true
+reorder_modules = true
+remove_nested_parens = true
+
+# Documentation
+wrap_comments = false
+format_code_in_doc_comments = true
+normalize_comments = true
+normalize_doc_attributes = true
+
+# Expressions and control flow
+binop_separator = "Front"
+combine_control_expr = true
+match_block_trailing_comma = false
+overflow_delimited_expr = true
+struct_field_align_threshold = 0
+enum_discrim_align_threshold = 0
+
+# Imports
+group_imports = "StdExternalCrate"
+imports_granularity = "Crate" 
+
+# Macro formatting
+format_macro_matchers = true
+format_macro_bodies = true
+
+# String formatting 
+format_strings = false
+
+# Trailing elements
+trailing_comma = "Vertical"
+trailing_semicolon = true
+
+# Use field init shorthand
+use_field_init_shorthand = true
+
+# Function formatting
+fn_single_line = false
+where_single_line = false
+
+# Array formatting
+array_width = 60
+
+# Chain formatting
+chain_width = 60
+single_line_if_else_max_width = 50

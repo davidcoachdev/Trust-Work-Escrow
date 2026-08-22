@@ -1,0 +1,14 @@
+flowchart LR
+  W0["Wave 0: T-001"]
+  W1["Wave 1: T-002\nFixtures"]
+  W2["Wave 2: T-003, T-005, T-008, T-021\nIndependent tests/inventory"]
+  W3["Wave 3: T-004, T-006, T-007\nDependent tests"]
+  W4["Wave 4: T-009, T-010\nConfig + Job"]
+  W4A["Wave 4A: T-022\nCompact Job + Applications PDA"]
+  W5["Wave 5: T-011, T-012, T-023\nCleanup + Arbiter + apply"]
+  W6["Wave 6: T-013, T-014, T-024\nPayouts + localnet + accept/cleanup"]
+  W7["Wave 7: T-015..T-017, T-025\nDeploy + integrated tests + runtime PDA"]
+  W8["Wave 8: T-018, T-026\nQuality + Applications IDL/docs"]
+  W9["Wave 9: T-019\nFinal validation"]
+  W10["Wave 10: T-020\nRelease report"]
+  W0 --> W1 --> W2 --> W3 --> W4 --> W4A --> W5 --> W6 --> W7 --> W8 --> W9 --> W10

@@ -1,0 +1,56 @@
+[package]
+name = "trust-escrow-api"
+version = "3.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "REST API (axum) for Trust Work Escrow v3 with OpenAPI/Swagger docs"
+
+[[bin]]
+name = "trust-escrow-api"
+path = "src/main.rs"
+
+[dependencies]
+# Local SDK crate (path dependency).
+trust-escrow-sdk = { path = "../sdk" }
+
+# Web framework & runtime
+axum = "0.7"
+tokio = { version = "1.0", features = ["full"] }
+
+# OpenAPI / Swagger
+utoipa = { version = "4.2", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "7.1", features = ["axum"] }
+
+# Serialization & config
+dotenvy = "0.15"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1.0"
+async-trait = "0.1"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+bs58 = "0.5"
+ed25519-dalek = "2"
+rand = "0.8"
+regex = "1"
+
+# Solana toolchain — only compiled when `solana` feature is active.
+solana-sdk = { version = "2.1", optional = true }
+solana-client = { version = "2.1", optional = true }
+anchor-client = { version = "0.32.1", optional = true }
+
+[features]
+default = ["server"]
+# Keeps the original light scaffold available when explicitly disabled.
+server = []
+# Enable SDK's Solana toolchain (Anchor + solana-sdk) for on-chain integration flows.
+# Used by `integration` tests that talk to the local validator (program 7a2Y...).
+solana = ["trust-escrow-sdk/solana", "dep:solana-sdk", "dep:solana-client", "dep:anchor-client"]

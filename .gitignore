@@ -15,6 +15,8 @@ out/
 .env
 .env.local
 *.env
+!.env.example
+!.env.example.*
 
 # Sistema
 .DS_Store
@@ -24,5 +26,40 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Backup del proyecto anterior
+# Backups
 _backup/
+backups/
+*.tar.gz
+*.tar.gz.gpg
+
+# Solana
+test-ledger/
+*.so
+
+# Keypairs — NUNCA commitear keypairs sin cifrar
+*-keypair.json
+deploy-keypair.json
+id.json
+!target/deploy/*-keypair.json
+
+# Scripts con credenciales (no subir)
+scripts/setup-github.sh
+.git-credentials
+
+# Deploy artifacts
+/tmp/onchain-*.so
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Atlassian / skills registry (generated, local)
+.atl/*
+
+# Tooling local state
+.serena/
+
+# Surfpool local state
+.surfpool/

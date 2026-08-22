@@ -1,0 +1,153 @@
+# ═══════════════════════════════════════════════════════════════
+# ci.yml — CI Final Gate T20: validator + CI + coverage
+# Ejecuta: cargo test --workspace, clippy -D warnings, fmt, validator 7a2Y, secret scan, 0600 audit, coverage
+# No habilita mainnet — el gate rechaza RPC_URL mainnet antes de enviar
+# ═══════════════════════════════════════════════════════════════
+
+name: CI — Backend v3 Final Gate (T20)
+
+on:
+  push:
+    branches: [main, develop, "feature/**"]
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci.yml"
+      - "scripts/final-gate.sh"
+      - "scripts/secret-scan.sh"
+      - "scripts/check-permissions.sh"
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "backend/**"
+      - ".github/workflows/ci.yml"
+      - "scripts/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_TOOLCHAIN: stable
+  PROGRAM_ID: "7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh"
+  SOLANA_RPC_URL: "http://127.0.0.1:8899"
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # Job 1: Backend workspace — test + clippy + fmt + gate
+  # ──────────────────────────────────────────────────────────
+  backend-gate:
+    name: Backend gate (test + clippy + fmt + coverage)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy, rustfmt
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            backend/target
+          key: cargo-ci-${{ runner.os }}-${{ hashFiles('backend/Cargo.lock') }}
+          restore-keys: cargo-ci-${{ runner.os }}-
+
+      - name: Guard — block mainnet RPC in CI
+        run: |
+          if echo "${SOLANA_RPC_URL:-}" | grep -qi "mainnet"; then
+            echo "::error::SOLANA_RPC_URL apunta a mainnet — bloqueado por security B5/R17"
+            exit 1
+          fi
+          echo "✅ RPC_URL no es mainnet: ${SOLANA_RPC_URL:-"(default localnet)"}"
+
+      - name: Lint (clippy) — strict -D warnings
+        run: cargo clippy --manifest-path backend/Cargo.toml -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --manifest-path backend/Cargo.toml --all -- --check
+
+      - name: Run tests (workspace)
+        run: cargo test --manifest-path backend/Cargo.toml
+
+      - name: Secret scan (gitleaks + fallback)
+        run: |
+          chmod +x scripts/secret-scan.sh || true
+          ./scripts/secret-scan.sh --ci
+
+      - name: Permission audit (0600)
+        run: |
+          chmod +x scripts/check-permissions.sh || true
+          ./scripts/check-permissions.sh --ci
+
+      - name: Final gate (validator + CI + coverage)
+        env:
+          CI: "true"
+        run: |
+          chmod +x scripts/final-gate.sh
+          ./scripts/final-gate.sh --ci
+
+      - name: Upload gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-gate-logs
+          path: |
+            backend/target/final-gate-*.log
+            target/final-gate-*.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Coverage summary (test counts)
+        if: always()
+        run: |
+          echo "## 📊 Backend v3 — Final Gate T20" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Program:** \`${{ env.PROGRAM_ID }}\` | **RPC:** \`${{ env.SOLANA_RPC_URL }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          # Test counts desde el log o re-ejecutando -- --list
+          if [ -f backend/target/final-gate-cargo-test.log ] || [ -f target/final-gate-cargo-test.log ]; then
+            LOG=$(cat backend/target/final-gate-cargo-test.log 2>/dev/null || cat target/final-gate-cargo-test.log 2>/dev/null || echo "")
+            PASSED=$(echo "$LOG" | grep -oE "[0-9]+ passed" | awk '{s+=$1} END{print s+0}')
+            FAILED=$(echo "$LOG" | grep -oE "[0-9]+ failed" | awk '{s+=$1} END{print s+0}')
+            echo "- **Tests:** ${PASSED:-?} passed / ${FAILED:-0} failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "- **Clippy:** \`-D warnings\` enforced" >> $GITHUB_STEP_SUMMARY
+          echo "- **Fmt:** \`cargo fmt --check\` enforced" >> $GITHUB_STEP_SUMMARY
+          echo "- **Validator:** local 7a2Y health check (warn in CI)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Security:** secret-scan + 0600 audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Gate script: \`./scripts/final-gate.sh --ci\` | Docs: \`docs/BACKEND_COVERAGE.md\`" >> $GITHUB_STEP_SUMMARY
+
+  # ──────────────────────────────────────────────────────────
+  # Job 2: Validator smoke (only when validator available)
+  # Se ejecuta condicionalmente; no bloquea el gate si no hay validator
+  # ──────────────────────────────────────────────────────────
+  validator-smoke:
+    name: Validator 7a2Y smoke (localnet)
+    runs-on: ubuntu-24.04
+    if: false # habilitable manualmente: validator efímero requiere toolchain solana
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Solana CLI (stable)
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Validator health (7a2Y)
+        run: |
+          curl -s -X POST -H "Content-Type: application/json" \
+            -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' \
+            http://127.0.0.1:8899 || echo "validator no disponible (expected in CI sin solana-test-validator)"
+          solana program show 7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh --url http://127.0.0.1:8899 || echo "program no verificado (sin validator)"

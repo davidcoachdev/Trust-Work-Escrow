@@ -1,199 +1,180 @@
-# 🚀 Dev Container Template — Solana + Anchor + Rust + Node.js
+# Trust Work Escrow v2 🛡️
 
-> **Contenedor listo para desarrollar proyectos sobre Solana.**
-> Abre este repositorio en un Dev Container y empieza a crear.
+> **Protocolo de escrow descentralizado en Solana para freelancers y clientes. Construido para el WayLearn Solana Hackathon.**
 
----
-
-## 📦 ¿Qué incluye este contenedor?
-
-| Herramienta    | Versión   | Descripción                          |
-| -------------- | --------- | ------------------------------------ |
-| **Ubuntu**     | 24.04 LTS | Sistema base                         |
-| **Rust**       | stable    | Lenguaje para smart contracts y APIs |
-| **Solana CLI** | v3.0.15   | Herramientas de línea de comando     |
-| **Anchor**     | 0.32.x    | Framework para programas Solana      |
-| **Node.js**    | 20.x LTS  | Runtime para frontend y tests        |
-| **Yarn**       | latest    | Gestor de paquetes                   |
-
-## 🏁 Inicio rápido
-
-### 1. Verificar que todo funciona
-
-```bash
-rustc --version
-solana --version
-anchor --version
-node --version
-yarn --version
-```
-
-### 2. Configurar Solana para desarrollo local
-
-```bash
-solana config set --url localhost
-solana-keygen new --no-bip39-passphrase    # Solo si no tienes keypair
-```
+[![Solana](https://img.shields.io/badge/Solana-2.x-9945FF?logo=solana&logoColor=white)](https://solana.com)
+[![Anchor](https://img.shields.io/badge/Anchor-0.32-blue)](https://www.anchor-lang.com)
+[![Rust](https://img.shields.io/badge/Rust-1.89-orange?logo=rust)](https://www.rust-lang.org)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+[![WayLearn](https://img.shields.io/badge/WayLearn-Hackathon-FF6B6B?logo=rocket)](https://dorahacks.io/hackathon/solana-waylearn-2026/detail)
 
 ---
 
-## 📋 Guías para crear proyectos
+## 🎯 Qué Es
 
-### Opción A: Proyecto Anchor (Smart Contract Solana)
+**Trust Work Escrow v2** es un protocolo on-chain que permite pagos seguros entre clientes y freelancers (individuales o equipos) sin intermediarios.
+
+```
+Cliente deposita fondos → Freelancer entrega trabajo → Cliente aprueba → Pago automático
+                                          ↓
+                              Si hay desacuerdo → Árbitro resuelve
+```
+
+| | Escrow Tradicional | Trust Work Escrow v2 |
+|--|-------------------|---------------------|
+| **Centralización** | Banco/tercero | Código = confianza |
+| **Comisiones** | 3-10% | Configurable |
+| **Velocidad** | Días/semanas | Instantáneo en Solana |
+| **Identidad** | Requiere KYC | Solo wallet |
+| **Disputas** | Decisión unilateral | Arbitraje con % configurable |
+
+---
+
+## ⚡ Características Principales
+
+### Smart Contract (Anchor/Rust)
+- **Multi-wallet**: hasta 5 wallets por usuario
+- **Equipos**: freelancers en grupo (Owner, PM, Contributors)
+- **Arbitraje**: pool de árbitros, resolución con % configurable
+- **Milestones**: pagos por hitos
+- **Pausable**: admin puede pausar el programa en emergencias
+
+---
+
+## 🏗️ Arquitectura
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                         FRONTEND                        │
+│              Next.js + Wallet Connect                   │
+│               (planes post-hackathon)                   │
+└─────────────────────┬───────────────────────────────────┘
+                      │
+┌─────────────────────┴───────────────────────────────────┐
+│                    SMART CONTRACT                       │
+│              Anchor 0.32 + Rust + Solana               │
+│                                                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
+│  │  Config  │  │   User   │  │   Team   │  │  Job   │  │
+│  └──────────┘  └──────────┘  └──────────┘  └────────┘  │
+│                                                         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────┐  │
+│  │   Work   │  │ Dispute  │  │Milestone │  │Treasury│  │
+│  └──────────┘  └──────────┘  └──────────┘  └────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📦 Estructura del Repo
+
+```
+Trust-Work-Escrow/
+├── trust-escrow/              # v1 (bootcamp) — CLI, TUI, escrow-core
+│   └── README.md             # Documentación legacy
+│
+├── trust-escrow-v2/          # v2 (hackathon) — Smart contract
+│   ├── programs/
+│   │   └── trust-escrow-v2/ # Smart contract Anchor
+│   │       └── src/
+│   │           └── lib.rs            # TODO el contrato (monolítico)
+│   ├── Anchor.toml
+│   ├── Cargo.toml
+│   └── AGENDA.md             # Roadmap de desarrollo
+│
+└── README.md                 # Este archivo
+```
+
+**⚠️ Nota:** El smart contract está en un solo archivo `lib.rs` debido a un bug conocido en Anchor 0.32.x con módulos anidados (`#[program]` macro issue #3690).
+
+---
+
+## 🚀 Cómo Construir
+
+### Prerrequisitos
+
+- Rust 1.89+
+- Solana CLI 2.x
+- Anchor 0.32+
+- Node.js 20 LTS
+
+### Smart Contract (v2)
 
 ```bash
-# Crear proyecto Anchor desde cero
-anchor init mi-proyecto
-cd mi-proyecto
+cd trust-escrow-v2/programs/trust-escrow-v2
+
+# Instalar dependencias
+cargo fetch
 
 # Compilar
-anchor build
+cargo build
 
-# Ejecutar tests
-anchor test
-```
-
-**Estructura generada:**
-
-```
-mi-proyecto/
-├── Anchor.toml          # Configuración del proyecto
-├── Cargo.toml           # Workspace Rust
-├── package.json         # Dependencias JS para tests
-├── programs/            # Smart contracts (Rust)
-│   └── mi-proyecto/
-│       └── src/lib.rs
-├── tests/               # Tests de integración (TypeScript)
-│   └── mi-proyecto.ts
-├── app/                 # Cliente (opcional)
-└── migrations/          # Scripts de despliegue
-```
-
-### Opción B: Proyecto Rust puro (API, CLI, librería)
-
-```bash
-# Binario
-cargo init mi-api --name mi-api
-
-# Librería
-cargo init mi-lib --lib --name mi-lib
-```
-
-**Frameworks recomendados para API:**
-
-- **Axum** — async, moderno, ecosistema Tokio
-- **Actix-web** — alto rendimiento
-- **Rocket** — ergonómico, macros declarativas
-
-```bash
-# Ejemplo: API con Axum
-cargo init backend --name backend
-cd backend
-cargo add axum tokio --features tokio/full
-cargo add serde --features derive
-cargo add serde_json
-```
-
-### Opción C: Frontend (Next.js + React)
-
-```bash
-npx create-next-app@latest frontend --typescript --tailwind --app --src-dir
-cd frontend
-yarn dev    # Puerto 3000
-```
-
-### Opción D: Monorepo completo (Anchor + Backend + Frontend)
-
-```bash
-# 1. Inicializar Anchor
-anchor init mi-proyecto
-cd mi-proyecto
-
-# 2. Agregar backend Rust
-cargo init backend --name backend
-# Agregar al Cargo.toml workspace:
-# [workspace]
-# members = ["programs/*", "backend"]
-
-# 3. Agregar frontend
-npx create-next-app@latest frontend --typescript --tailwind --app --src-dir
-
-# 4. Configurar Yarn workspaces en package.json:
-# "workspaces": ["app", "frontend"]
+# Ver IDL (después de anchor build)
+cat target/idl/trust_escrow_v2.json | jq '.instructions | length'
+# → 31 instrucciones
 ```
 
 ---
 
-## 🔌 Puertos disponibles
+## 📊 Progreso del Hackathon
 
-| Puerto | Uso típico         |
-| ------ | ------------------ |
-| 3000   | Frontend (Next.js) |
-| 8080   | Backend API (Axum) |
-| 8899   | Solana RPC HTTP    |
-| 8900   | Solana WebSocket   |
-| 9900   | Solana Faucet      |
+**Deadline:** 23 de marzo de 2026, 23:30 UTC
 
-## 🛠 Comandos útiles
+| Fase | Descripción | Estado |
+|------|-------------|--------|
+| 01-setup | Config, Users, Wallets | ✅ Completada |
+| 02-jobs-teams | Jobs, Teams, Apply/Accept | ✅ Completada |
+| 03-disputes | Disputes, Milestones, Treasury | ✅ Completada |
+| 04-tests-idl | Tests, IDL, Documentación | 🔲 Pendiente |
 
-```bash
-# === Solana ===
-solana-test-validator --reset        # Validador local
-solana balance                       # Ver balance
-solana airdrop 2                     # Obtener SOL de prueba
+### Instrucciones del Contrato (31 total)
 
-# === Anchor ===
-anchor build                         # Compilar programa
-anchor test                          # Build + test
-anchor deploy                        # Desplegar a la red configurada
-anchor keys list                     # Ver Program IDs
-
-# === Rust ===
-cargo build                          # Compilar proyecto Rust
-cargo test                           # Ejecutar tests
-cargo clippy                         # Linter
-cargo fmt                            # Formatear código
-
-# === Node.js ===
-yarn install                         # Instalar dependencias
-yarn dev                             # Servidor de desarrollo
-npx ts-mocha -p tsconfig.json tests/**/*.ts   # Tests TypeScript
-```
-
-## 📝 Convenciones recomendadas
-
-### Commits (Conventional Commits)
-
-```
-feat: ✨ nueva funcionalidad
-fix: 🐛 corrección de bug
-test: 🧪 agregar tests
-docs: 📖 documentación
-refactor: ♻️ reestructuración
-chore: 🔧 mantenimiento
-```
-
-### Ramas
-
-- `main` — producción
-- `feature/nombre` — nuevas funcionalidades
-- `fix/nombre` — correcciones
+| Módulo | # | Instrucciones |
+|--------|---|---------------|
+| Config | 5 | `initialize_config`, `pause`, `unpause`, `withdraw_treasury`, `update_treasury` |
+| User | 4 | `create_user`, `add_wallet`, `set_active_wallet`, `update_user` |
+| Team | 2 | `create_team`, `add_team_member` |
+| Job | 8 | `create_job`, `deposit_funds`, `apply_to_job`, `accept_application`, `submit_work`, `approve_work`, `reject_work`, `cancel_job` |
+| Arbiter | 3 | `create_arbiter_pool`, `add_arbiter`, `remove_arbiter` |
+| Dispute | 5 | `raise_dispute`, `submit_evidence`, `assign_arbiter`, `resolve_dispute`, `finalize_dispute_payouts` |
+| Milestone | 4 | `create_milestone`, `submit_milestone`, `approve_milestone`, `reject_milestone` |
 
 ---
 
-## 📂 Archivos del template
+## 🔄 Flujo de un Job
 
 ```
-/
-├── .devcontainer/       # Configuración del Dev Container
-├── .github/             # GitHub Actions, Dependabot, Copilot
-├── .gitignore           # Archivos excluidos de Git
-├── LICENSE              # MIT License
-└── README.md            # ← Este archivo
+CREATED → APPLICATIONS_OPEN → IN_PROGRESS → SUBMITTED → APPROVED
+                       ↓                              ↓
+                  CANCELLED                      DISPUTED → RESOLVED
+                   (refund)
 ```
+
+**Seguridad:**
+- Cliente ≠ Freelancer siempre
+- ÁRBITRO seleccionado del pool
+- Programa pausable por admin
+- Fondos solo se mueven después de approve
 
 ---
+
+## 📖 Documentación
+
+| Documento | Descripción |
+|-----------|-------------|
+| [AGENDA.md](./trust-escrow-v2/AGENDA.md) | Roadmap completo con fases y tareas |
+| [v1 README](./trust-escrow/README.md) | Documentación del proyecto bootcamp |
+
+---
+
+## 🤝 Contribuir
+
+Ver [CONTRIBUTING.md](./CONTRIBUTING.md)
 
 ## 📄 Licencia
 
-[MIT](LICENSE)
+MIT License — ver [LICENSE](./LICENSE)
+
+---
+
+**Construido para el [WayLearn Solana Hackathon 2026](https://dorahacks.io/hackathon/solana-waylearn-2026/detail)**

@@ -1,0 +1,67 @@
+{
+  "pda": "Dispute",
+  "seed": [
+    "dispute",
+    "job"
+  ],
+  "onchain_fields": [
+    {
+      "name": "job",
+      "type": "Pubkey"
+    },
+    {
+      "name": "raised_by",
+      "type": "Pubkey"
+    },
+    {
+      "name": "arbiter",
+      "type": "Option<Pubkey>"
+    },
+    {
+      "name": "status",
+      "type": "DisputeStatus (enum)"
+    },
+    {
+      "name": "evidence_count",
+      "type": "u8"
+    },
+    {
+      "name": "evidence_cleanup_cursor",
+      "type": "u8"
+    },
+    {
+      "name": "deadline",
+      "type": "i64"
+    },
+    {
+      "name": "client_payout_percent",
+      "type": "u8"
+    },
+    {
+      "name": "freelancer_payout_percent",
+      "type": "u8"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": [
+    {
+      "name": "reason",
+      "to": "postgres:disputes_metadata"
+    },
+    {
+      "name": "created_at",
+      "to": "postgres:disputes_metadata"
+    },
+    {
+      "name": "resolved_at",
+      "to": "postgres:disputes_metadata"
+    },
+    {
+      "name": "resolution",
+      "to": "postgres:disputes_metadata"
+    }
+  ]
+}

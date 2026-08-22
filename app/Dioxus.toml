@@ -1,0 +1,10 @@
+[application]
+name = "trust-work-escrow-landing"
+default_platform = "web"
+
+[web.app]
+title = "Trust Work Escrow — Escrow descentralizado en Solana"
+
+[tailwind]
+input = "tailwind.css"
+output = "assets/tailwind.css"

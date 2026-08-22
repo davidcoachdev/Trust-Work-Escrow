@@ -1,0 +1,39 @@
+{
+  "collection": "chat_messages",
+  "purpose": "Mensajeria E2EE entre cliente y freelancer de un job",
+  "jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "job_pda",
+      "from",
+      "to",
+      "ciphertext",
+      "ts"
+    ],
+    "properties": {
+      "job_pda": {
+        "bsonType": "string"
+      },
+      "from": {
+        "bsonType": "string"
+      },
+      "to": {
+        "bsonType": "string"
+      },
+      "ciphertext": {
+        "bsonType": "string"
+      },
+      "ts": {
+        "bsonType": "date"
+      }
+    }
+  },
+  "indexes": [
+    {
+      "keys": {
+        "job_pda": 1,
+        "ts": 1
+      }
+    }
+  ]
+}

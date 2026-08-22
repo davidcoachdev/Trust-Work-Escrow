@@ -1,0 +1,32 @@
+[package]
+name = "trust-escrow-v3-fuzz"
+version = "0.0.1"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+trust-escrow-v3 = { path = "../programs/trust-escrow-v3" }
+borsh = "0.10"
+anchor-lang = "0.32.1"
+
+[[bin]]
+name = "remaining_accounts_malformed"
+path = "fuzz_targets/remaining_accounts_malformed.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "evidence_cursor_overflow"
+path = "fuzz_targets/evidence_cursor_overflow.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "max_pause_and_fees"
+path = "fuzz_targets/max_pause_and_fees.rs"
+test = false
+doc = false

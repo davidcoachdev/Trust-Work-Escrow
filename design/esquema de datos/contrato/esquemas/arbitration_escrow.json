@@ -1,0 +1,22 @@
+{
+  "pda": "ArbitrationEscrow",
+  "seed": [
+    "arb_fee",
+    "job"
+  ],
+  "onchain_fields": [
+    {
+      "name": "client_bond",
+      "type": "u64"
+    },
+    {
+      "name": "freelancer_bond",
+      "type": "u64"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": []
+}

@@ -1,0 +1,45 @@
+{
+  "pda": "Application",
+  "seed": [
+    "application",
+    "job",
+    "index",
+    "applicant"
+  ],
+  "onchain_fields": [
+    {
+      "name": "job",
+      "type": "Pubkey"
+    },
+    {
+      "name": "index",
+      "type": "u8"
+    },
+    {
+      "name": "applicant",
+      "type": "Pubkey"
+    },
+    {
+      "name": "proposal_hash",
+      "type": "[u8; 32]"
+    },
+    {
+      "name": "status",
+      "type": "ApplicationStatus (enum)"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": [
+    {
+      "name": "proposal",
+      "to": "postgres:applications"
+    },
+    {
+      "name": "applied_at",
+      "to": "postgres:applications"
+    }
+  ]
+}

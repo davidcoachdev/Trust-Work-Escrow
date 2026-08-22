@@ -1,0 +1,147 @@
+# ═══════════════════════════════════════════════════════════════
+# devnet-deploy.yml — Auto-deploy a devnet desde rama main
+#
+# Trigger: push a main (solo si cambia código del programa)
+# Pasos: build → test → deploy devnet → verify
+# ═══════════════════════════════════════════════════════════════
+
+name: Deploy to Devnet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "programs/**"
+      - "Anchor.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
+  workflow_dispatch: # permite ejecución manual
+
+concurrency:
+  group: devnet-deploy
+  cancel-in-progress: false
+
+env:
+  SOLANA_CLI_VERSION: "stable"
+  ANCHOR_VERSION: "0.32.1"
+  NODE_VERSION: "20"
+  RUST_TOOLCHAIN: "stable"
+  CLUSTER: "devnet"
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: clippy, rustfmt
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "yarn"
+
+      - name: Install Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Install Anchor CLI
+        run: |
+          cargo install --git https://github.com/coral-xyz/anchor --tag v${{ env.ANCHOR_VERSION }} anchor-cli --locked
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Lint (clippy)
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Build program
+        run: anchor build
+
+      - name: Run tests
+        run: anchor test
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: program-build
+          path: |
+            target/deploy/*.so
+            target/deploy/*-keypair.json
+            target/idl/*.json
+          retention-days: 30
+
+  deploy-devnet:
+    name: Deploy to Devnet
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    environment: devnet
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: program-build
+          path: target/
+
+      - name: Setup Solana CLI
+        run: |
+          sh -c "$(curl -sSfL https://release.anza.xyz/stable/install)"
+          echo "$HOME/.local/share/solana/install/active_release/bin" >> $GITHUB_PATH
+
+      - name: Configure Solana for devnet
+        run: |
+          solana config set --url devnet
+          echo "${{ secrets.DEVNET_DEPLOY_KEYPAIR }}" > /tmp/deploy-keypair.json
+          solana config set --keypair /tmp/deploy-keypair.json
+
+      - name: Check balance
+        run: |
+          BALANCE=$(solana balance --lamports | awk '{print $1}')
+          echo "Balance: $(echo "scale=2; $BALANCE / 1000000000" | bc) SOL"
+          if [ "$BALANCE" -lt 2000000000 ]; then
+            echo "::warning::Saldo bajo. Intentando airdrop..."
+            solana airdrop 2 || echo "Airdrop falló, continuando..."
+          fi
+
+      - name: Deploy to devnet
+        run: |
+          anchor deploy --provider.cluster devnet
+          echo "## Deploy Results" >> $GITHUB_STEP_SUMMARY
+          echo "- **Cluster:** devnet" >> $GITHUB_STEP_SUMMARY
+          echo "- **Program ID:** $(anchor keys list | head -1)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+
+      - name: Cleanup keypair
+        if: always()
+        run: rm -f /tmp/deploy-keypair.json
+
+      - name: Verify deployment
+        run: |
+          PROGRAM_ID=$(anchor keys list | head -1 | awk '{print $2}')
+          solana program show "$PROGRAM_ID"

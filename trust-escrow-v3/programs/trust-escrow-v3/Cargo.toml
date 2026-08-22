@@ -1,0 +1,21 @@
+[package]
+name = "trust-escrow-v3"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.32.1"
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+
+[dev-dependencies]
+proptest = "1.6"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("anchor-debug", "idl-build", "cpi", "custom-panic", "custom-heap", "no-idl", "no-log-ix-name", "no-entrypoint", "fuzzing"))', 'cfg(target_os, values("solana"))'] }

@@ -1,23 +1,25 @@
-# Solana Dev Container — Copilot Instructions
+# Trust Work Escrow — Copilot Instructions
 
-## 🏗️ ¿Qué es este contenedor?
+## 🏗️ ¿Qué es este proyecto?
 
-Este es un **Dev Container template** preconfigurado para desarrollar proyectos sobre **Solana**. Viene vacío y listo para que inicies tu proyecto desde cero.
+**Trust Work Escrow** es una plataforma de pagos escrow descentralizada para freelancers y clientes, construida sobre Solana. Incluye un smart contract (Anchor), una librería compartida (escrow-core), un CLI (Clap) y un TUI (Ratatui).
 
-El contenedor incluye todas las herramientas necesarias: Rust, Solana CLI, Anchor Framework y Node.js.
+**Program ID:** `5gu5JCSpB8MKyJzhXpGaCt8SruAMnRD6cTPbwPX6JTYo`
+
+El proyecto corre en un **Dev Container** preconfigurado con todas las herramientas.
 
 ## 🧱 Herramientas disponibles
 
 | Herramienta    | Versión   | Uso                                 |
 | -------------- | --------- | ----------------------------------- |
-| **Rust**       | stable    | Smart contracts, APIs, CLIs         |
-| **Solana CLI** | stable    | Interacción con la blockchain       |
-| **Anchor**     | 0.32.x    | Framework para programas Solana     |
-| **Node.js**    | 20.x LTS  | Frontend, tests, tooling            |
+| **Rust**       | 1.89      | Smart contracts, CLI, TUI, Libs      |
+| **Solana CLI** | 3.0.15    | Interacción con la blockchain       |
+| **Anchor**     | 0.32.1    | Framework para programas Solana     |
+| **Node.js**    | 20.x LTS  | Tests de integración (TypeScript)    |
 | **Yarn**       | latest    | Gestión de paquetes                 |
 | **Ubuntu**     | 24.04 LTS | Sistema base (GLIBC 2.39 requerido) |
 
-## 📁 Estructura del template
+## 📁 Estructura del proyecto
 
 ```
 /
@@ -34,39 +36,20 @@ El contenedor incluye todas las herramientas necesarias: Rust, Solana CLI, Ancho
 │   └── workflows/
 │       └── devcontainer-prebuild.yml
 │
-├── .gitignore           # Exclusiones para Git
+├── docs/                # Documentación completa (9 archivos)
+│
+├── trust-escrow/        # Proyecto Anchor principal
+│   ├── programs/trust-escrow/src/  # Smart contract (12 instrucciones)
+│   ├── escrow-core/     # Librería compartida (13 ops, 14 tests)
+│   ├── cli/             # CLI (clap + escrow-core, 13 comandos)
+│   ├── tui/             # TUI (ratatui + escrow-core, 4 roles, 4 temas)
+│   ├── tests/           # Tests de integración (TypeScript, 23 tests)
+│   └── migrations/
+│
+├── scripts/             # Scripts de deploy y backup
+├── .gitignore
 ├── LICENSE              # MIT License
-├── README.md            # Instrucciones del template
-└── _backup/             # Proyecto anterior (eliminar cuando quieras)
-```
-
-## 🚀 Cómo crear un proyecto nuevo
-
-### Proyecto Anchor (Smart Contract Solana)
-
-```bash
-anchor init nombre-proyecto
-```
-
-### Proyecto Rust puro (API con Axum)
-
-```bash
-cargo init backend --name backend
-cargo add axum tokio --features tokio/full
-```
-
-### Frontend Next.js
-
-```bash
-npx create-next-app@latest frontend --typescript --tailwind --app --src-dir
-```
-
-### Monorepo completo
-
-```bash
-anchor init nombre-proyecto && cd nombre-proyecto
-cargo init backend --name backend
-npx create-next-app@latest frontend --typescript --tailwind --app --src-dir
+└── README.md            # Instrucciones del proyecto
 ```
 
 ## ✍️ Convenciones de código
@@ -117,7 +100,7 @@ cargo test            # Tests unitarios Rust
 | 8900   | Solana WebSocket   |
 | 9900   | Solana Faucet      |
 
-## 🛠 Comandos útiles
+## 🛠 Comandos del proyecto
 
 ```bash
 # Verificar herramientas
@@ -126,23 +109,31 @@ rustc --version && solana --version && anchor --version && node --version
 # Solana
 solana config set --url localhost
 solana-test-validator --reset
-solana airdrop 2
+solana airdrop 5
 
-# Anchor
+# Smart Contract
 anchor build
-anchor test
+anchor test              # Tests de integración (23 tests)
 anchor deploy
 anchor keys list
 
-# Rust
-cargo build
-cargo test
+# escrow-core
+cd escrow-core && cargo test    # 14 tests unitarios
+
+# CLI
+cd cli && cargo build
+cargo run -- --help
+
+# TUI
+cd tui && cargo build
+cargo run
+
+# Calidad
 cargo clippy --workspace
 cargo fmt
 
-# Node.js
+# Node.js (para tests)
 yarn install
-yarn dev
 ```
 
 ## 📝 Commits (Conventional Commits)
@@ -180,7 +171,26 @@ chore: 🔧 mantenimiento
 - No crear cuentas sin `Space` calculado
 - No commitear sin tests
 - No mezclar lógica de negocio con handlers HTTP
+- No tocar `.devcontainer/` sin autorización
+- No duplicar lógica de Solana en CLI/TUI (usar `escrow-core`)
 
-## 💡 Nota
+## 📌 Contexto del proyecto
 
-Cuando el usuario cree un proyecto nuevo, **actualiza este archivo** con los detalles específicos del proyecto: dominio, estructura, instrucciones del programa, endpoints, etc.
+### Smart Contract (12 instrucciones)
+`initialize_config`, `create_job`, `deposit_funds`, `accept_job`, `submit_work`, `approve_work`, `reject_work`, `raise_dispute`, `resolve_dispute`, `cancel_job`, `pause_program`, `unpause_program`
+
+### CLI (13 subcomandos)
+`init`, `create`, `deposit`, `accept`, `submit`, `approve`, `reject`, `raise-dispute`, `resolve-dispute`, `cancel`, `show`, `pause`, `unpause`
+
+### TUI (4 roles)
+Admin, Client, Freelancer, Arbiter — cada uno con menú contextual de operaciones
+
+### escrow-core (librería compartida)
+Toda lógica de interacción con Solana centralizada. CLI y TUI dependen de ella vía `path = "../escrow-core"`.
+
+### Workspace Cargo
+- `trust-escrow/Cargo.toml`: `members = ["programs/*"]`, `exclude = ["cli", "tui", "escrow-core"]`
+- CLI, TUI y escrow-core tienen su propio `[workspace]` o quedan excluídos
+
+### Certificación
+Proyecto para **WayLearn Solana Developer Certification**.

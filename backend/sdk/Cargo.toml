@@ -1,0 +1,50 @@
+[package]
+name = "trust-escrow-sdk"
+version = "3.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Rust SDK for Trust Work Escrow v3 (scaffold / stubs, no business logic yet)"
+keywords = ["solana", "escrow", "blockchain", "freelance", "payments"]
+
+[lib]
+name = "trust_escrow_sdk"
+
+[dependencies]
+# Anchor & Solana core — pinned to the v3 contract toolchain (Anchor 0.32.1 / Solana 2.1.x).
+# Declared optional so the stub scaffold builds without compiling the full Solana toolchain;
+# later tasks (T2+) enable the `solana` feature to implement PDA derivation and RPC clients.
+anchor-client = { version = "0.32.1", optional = true }
+anchor-lang = { version = "0.32.1", optional = true }
+# Anchor 0.32 serializes accounts with borsh; the derive macros emit `borsh::` paths,
+# so it must be a direct dependency of this crate when the `solana` feature is on.
+borsh = { version = "0.10", optional = true }
+solana-sdk = { version = "2.1", optional = true }
+solana-client = { version = "2.1", optional = true }
+solana-account-decoder = { version = "2.1", optional = true }
+solana-transaction-status = { version = "2.1", optional = true }
+
+# Error handling & utilities (lightweight, always available)
+thiserror = "1.0"
+anyhow = "1.0"
+base64 = "0.22"
+tokio = { version = "1.0", features = ["time", "rt", "rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1.53", features = ["macros", "rt-multi-thread"] }
+serial_test = "3"
+serde_json = "1.0"
+
+[features]
+default = []
+# Enables the real Anchor/Solana dependencies for implementation tasks.
+solana = [
+    "dep:anchor-client",
+    "dep:anchor-lang",
+    "dep:borsh",
+    "dep:solana-sdk",
+    "dep:solana-client",
+    "dep:solana-account-decoder",
+    "dep:solana-transaction-status",
+]

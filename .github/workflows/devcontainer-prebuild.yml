@@ -3,6 +3,10 @@ name: Dev Container Prebuild
 # Reconstruye la imagen del dev container automáticamente cuando cambia
 # cualquier archivo en .devcontainer/, y también cada lunes a las 02:00 UTC
 # para capturar actualizaciones de seguridad del sistema operativo base.
+#
+# La imagen se publica en ghcr.io y sirve como cache para:
+#   - Codespaces (arranque < 1 min con prebuild)
+#   - Builds locales (docker pull + cache layer match)
 on:
   push:
     branches:
@@ -26,6 +30,9 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and push dev container image
         uses: devcontainers/ci@v0.3

@@ -1,0 +1,21 @@
+{
+  "pda": "ArbiterPool",
+  "seed": [
+    "arbiter_pool"
+  ],
+  "onchain_fields": [
+    {
+      "name": "authority",
+      "type": "Pubkey"
+    },
+    {
+      "name": "arbiters",
+      "type": "Vec<Pubkey> (max 50)"
+    },
+    {
+      "name": "bump",
+      "type": "u8"
+    }
+  ],
+  "moved_offchain": []
+}

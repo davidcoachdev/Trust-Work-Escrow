@@ -1,0 +1,42 @@
+{
+  "collection": "api_logs",
+  "purpose": "Logs de la API (auditoria de acceso)",
+  "jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "method",
+      "path",
+      "status",
+      "ts"
+    ],
+    "properties": {
+      "method": {
+        "bsonType": "string"
+      },
+      "path": {
+        "bsonType": "string"
+      },
+      "auth_wallet": {
+        "bsonType": "string"
+      },
+      "status": {
+        "bsonType": "int"
+      },
+      "ts": {
+        "bsonType": "date"
+      }
+    }
+  },
+  "indexes": [
+    {
+      "keys": {
+        "ts": 1
+      }
+    },
+    {
+      "keys": {
+        "auth_wallet": 1
+      }
+    }
+  ]
+}

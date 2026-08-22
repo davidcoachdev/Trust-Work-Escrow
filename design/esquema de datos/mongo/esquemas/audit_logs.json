@@ -1,0 +1,39 @@
+{
+  "collection": "audit_logs",
+  "purpose": "Auditoria de acciones sobre PDAs on-chain",
+  "jsonSchema": {
+    "bsonType": "object",
+    "required": [
+      "actor",
+      "action",
+      "pda",
+      "ts"
+    ],
+    "properties": {
+      "actor": {
+        "bsonType": "string"
+      },
+      "action": {
+        "bsonType": "string"
+      },
+      "pda": {
+        "bsonType": "string"
+      },
+      "ts": {
+        "bsonType": "date"
+      }
+    }
+  },
+  "indexes": [
+    {
+      "keys": {
+        "pda": 1
+      }
+    },
+    {
+      "keys": {
+        "ts": 1
+      }
+    }
+  ]
+}

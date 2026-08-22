@@ -1,0 +1,41 @@
+# ═══════════════════════════════════════════════════════════════
+# .gitattributes — Previene CRLF en scripts bash
+# En Windows, Git puede convertir LF → CRLF, lo cual rompe
+# los scripts bash dentro del contenedor.
+# ═══════════════════════════════════════════════════════════════
+
+# Shell scripts — siempre LF
+*.sh text eol=lf
+
+# Dockerfile — siempre LF
+Dockerfile text eol=lf
+Dockerfile.* text eol=lf
+
+# Config JSON — siempre LF para consistencia en el contenedor
+*.json text eol=lf
+*.jsonc text eol=lf
+
+# YAML
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# TOML (Cargo.toml, Anchor.toml)
+*.toml text eol=lf
+
+# Markdown
+*.md text eol=lf
+
+# TypeScript / JavaScript
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+
+# Rust
+*.rs text eol=lf
+
+# CSS
+*.css text eol=lf
+
+# Default: auto-detect
+* text=auto
