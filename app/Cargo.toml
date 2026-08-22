@@ -1,0 +1,51 @@
+[package]
+name = "trust-work-escrow-app"
+version = "0.1.0"
+edition = "2021"
+description = "Trust Work Escrow — Dioxus 0.7 fullstack (app + SDK + contrato devnet)"
+
+[dependencies]
+dioxus = { version = "=0.7.9", features = ["web", "router", "fullstack"] }
+dioxus-logger = "0.7"
+web-sys = { version = "0.3", features = ["Window", "Document", "Storage", "Element", "HtmlElement", "Navigator"] }
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Server — free, sin pagar
+axum = { version = "0.7", optional = true }
+tokio = { version = "1.0", features = ["full"], optional = true }
+sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "tls-rustls"], optional = true }
+lettre = { version = "0.11", features = ["tokio1-rustls", "builder"], optional = true }
+jsonwebtoken = { version = "9", optional = true }
+argon2 = { version = "0.5", optional = true }
+rand = { version = "0.8", optional = true }
+chrono = { version = "0.4", features = ["serde"], optional = true }
+hex = { version = "0.4", optional = true }
+base64 = "0.22"
+
+# SDK + contrato (devnet 7a2Y...)
+trust-escrow-sdk = { path = "../backend/sdk", features = ["solana"], optional = true }
+
+[features]
+default = ["web"]
+web = ["dioxus/web", "dioxus/router"]
+server = [
+  "dioxus/fullstack",
+  "dep:axum",
+  "dep:tokio",
+  "dep:sqlx",
+  "dep:lettre",
+  "dep:jsonwebtoken",
+  "dep:argon2",
+  "dep:rand",
+  "dep:chrono",
+  "dep:hex",
+  "dep:trust-escrow-sdk"
+]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
