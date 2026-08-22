@@ -3,10 +3,11 @@ use dioxus::prelude::*;
 use crate::features::landing::LandingPage;
 use crate::features::auth::{LoginPage, SignupPage};
 use crate::features::contact::ContactPage;
+use crate::features::dashboard::{AdminDashboard, ClientDashboard, FreelancerDashboard};
 use crate::ui::Navbar;
+use crate::features::dashboard::{AdminLayoutComponent as AdminLayout, ClientLayoutComponent as ClientLayout, FreelancerLayoutComponent as FreelancerLayout};
 
-/// Top-level pages of the landing site, powered by dioxus-router.
-/// `Navbar` acts as a persistent layout (it renders the routed page via `Outlet`).
+/// Top-level pages — dcdev theme, i18n ES/EN, role-based layouts
 #[derive(Routable, Clone)]
 pub enum Route {
     #[layout(Navbar)]
@@ -18,4 +19,16 @@ pub enum Route {
     SignupPage {},
     #[route("/contact")]
     ContactPage {},
+
+    #[layout(ClientLayout)]
+    #[route("/dashboard/client")]
+    ClientDashboard {},
+
+    #[layout(FreelancerLayout)]
+    #[route("/dashboard/freelancer")]
+    FreelancerDashboard {},
+
+    #[layout(AdminLayout)]
+    #[route("/dashboard/admin")]
+    AdminDashboard {},
 }
