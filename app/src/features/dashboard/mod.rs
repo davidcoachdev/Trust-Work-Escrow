@@ -95,8 +95,26 @@ pub fn FreelancerDashboard() -> Element {
     rsx! {
         div { class: "space-y-6",
             h1 { class: "text-3xl font-bold text-primary", "Dashboard Freelancer" }
-            p { class: "text-muted", "Jobs disponibles y tus postulaciones B5Ks..." }
-            div { class: "bg-surface border border-border rounded-2xl p-6", "Próximo: listar jobs y apply" }
+            p { class: "text-muted", "Jobs disponibles en devnet 7a2Y... y tus postulaciones." }
+            div { class: "bg-surface border border-border rounded-2xl p-6 space-y-3",
+                div { class: "flex justify-between items-center",
+                    span { class: "font-medium", "Job #0 — Landing Trust Work" }
+                    span { class: "text-xs bg-primary text-on-primary px-2 py-1 rounded-full", "Funded" }
+                }
+                div { class: "grid grid-cols-2 gap-3 text-sm",
+                    div { class: "bg-bg border border-border rounded-xl p-3",
+                        div { class: "text-muted text-xs", "PDA Job" }
+                        a { class: "font-mono text-xs text-primary underline break-all", href: "https://explorer.solana.com/address/JCR9fRx9eMqr27jk2KvXSVFsewq7JxaAXHZg54YjjLTw?cluster=devnet", target: "_blank", "JCR9...LTw" }
+                        div { class: "text-xs", "0.115 SOL congelados" }
+                    }
+                    div { class: "bg-bg border border-border rounded-xl p-3",
+                        div { class: "text-muted text-xs", "Tu aplicación" }
+                        a { class: "font-mono text-xs text-primary underline break-all", href: "https://explorer.solana.com/address/B5KscoN4F35K8EAxLUhuobqosWneB82DxnFb3fX64ys7?cluster=devnet", target: "_blank", "B5Ks...ys7" }
+                        div { class: "text-xs", "Pending — hash 056934..." }
+                    }
+                }
+                a { class: "inline-flex bg-primary text-on-primary rounded-xl px-4 py-2 text-sm font-medium", href: "https://explorer.solana.com/tx/3FDyPuuwEni6KqtafBcNrKDdAhY6vRJf53abFusdbLsHFo5i8wCXvBGeJeEA1mPCNXyTSyNNhNy3mWYLPtU3weRo?cluster=devnet", target: "_blank", "Ver Tx Apply 3FDy..." }
+            }
         }
     }
 }
