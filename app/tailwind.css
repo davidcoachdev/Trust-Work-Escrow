@@ -1,0 +1,185 @@
+@import "tailwindcss";
+
+/* Scan Rust + RSX source so utility classes are detected */
+@source "./src/**/*.{rs,rsx,html,css}";
+
+/* ============================================================
+   Trust Work Escrow — theming
+   Skins (dcdev / cyan / solana) x mode (dark / light) via CSS
+   vars on <html data-theme> / <html data-mode>. Mapped to
+   Tailwind color utilities (bg-bg, text-fg, bg-primary...)
+   through @theme so utilities follow the active skin.
+   ============================================================ */
+
+/* ---------- Dark (default) ---------- */
+:root,
+[data-theme="dcdev"] {
+  --bg: #120808;
+  --bg-2: #1e0e0e;
+  --fg: #f0d2d2;
+  --fg-2: #8c4646;
+  --primary: #ff3c3c;
+  --primary-2: #781414;
+  --on-primary: #f0d2d2;
+  --border: #a01e1e;
+  --gradient: linear-gradient(135deg, #ff3c3c, #781414);
+}
+
+[data-theme="cyan"] {
+  --bg: #1a1a2e;
+  --bg-2: #20203a;
+  --fg: #e0e0e0;
+  --fg-2: #646482;
+  --primary: #00d4ff;
+  --primary-2: #6464c8;
+  --on-primary: #e0e0e0;
+  --border: #505078;
+  --gradient: linear-gradient(135deg, #00d4ff, #6464c8);
+}
+
+[data-theme="solana"] {
+  --bg: #121212;
+  --bg-2: #ece4fd;
+  --fg: #ffffff;
+  --fg-2: #999999;
+  --primary: #14f195;
+  --primary-2: #9945ff;
+  --on-primary: #0d0c11;
+  --border: #2a2333;
+  --gradient: linear-gradient(135deg, #9945ff, #14f195);
+}
+
+/* ---------- Light variants ---------- */
+[data-theme="dcdev"][data-mode="light"] {
+  --bg: #fff6f6;
+  --bg-2: #fceaea;
+  --fg: #2a0e0e;
+  --fg-2: #9a6a6a;
+  --primary: #ff3c3c;
+  --primary-2: #c92b2b;
+  --on-primary: #fff6f6;
+  --border: #e8c4c4;
+  --gradient: linear-gradient(135deg, #ff3c3c, #c92b2b);
+}
+
+[data-theme="cyan"][data-mode="light"] {
+  --bg: #f4fbfe;
+  --bg-2: #eaf7fc;
+  --fg: #0e2230;
+  --fg-2: #5a7e8c;
+  --primary: #00b8d4;
+  --primary-2: #0090a8;
+  --on-primary: #ffffff;
+  --border: #c2e4ee;
+  --gradient: linear-gradient(135deg, #00b8d4, #6464c8);
+}
+
+[data-theme="solana"][data-mode="light"] {
+  --bg: #ffffff;
+  --bg-2: #ece4fd;
+  --fg: #0d0c11;
+  --fg-2: #6b6580;
+  --primary: #0e9e5c;
+  --primary-2: #0b7e49;
+  --on-primary: #ffffff;
+  --border: #d9d2ec;
+  --gradient: linear-gradient(135deg, #9945ff, #14f195);
+}
+
+/* ---------- Map to Tailwind theme tokens ---------- */
+@theme {
+  --color-bg: var(--bg);
+  --color-surface: var(--bg-2);
+  --color-fg: var(--fg);
+  --color-muted: var(--fg-2);
+  --color-primary: var(--primary);
+  --color-primary-2: var(--primary-2);
+  --color-on-primary: var(--on-primary);
+  --color-border: var(--border);
+}
+
+/* ---------- Base ---------- */
+@layer base {
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+  html {
+    scroll-behavior: smooth;
+  }
+  body {
+    font-family: "Inter", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+}
+
+/* ---------- Custom utilities / components ---------- */
+@utility gradient {
+  background-image: var(--gradient);
+}
+
+@layer components {
+  /* Centered max-width container */
+  .wrap {
+    width: min(1120px, calc(100% - 64px));
+    margin-inline: auto;
+  }
+}
+
+/* ---------- Animations ---------- */
+@keyframes dropdown-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Scroll reveal for landing sections (class toggled by IntersectionObserver) */
+.reveal {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal { opacity: 1; transform: none; transition: none; }
+}
+
+/* ---------- Themed scrollbar (follows active skin) ---------- */
+html {
+  scrollbar-color: var(--border) var(--bg);
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+::-webkit-scrollbar-thumb {
+  background-color: var(--primary);
+  border-radius: 9999px;
+  border: 3px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--primary-2);
+}

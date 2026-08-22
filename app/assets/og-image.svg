@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#120808" />
+      <stop offset="1" stop-color="#2A1414" />
+    </linearGradient>
+    <linearGradient id="brand" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#FF3C3C" />
+      <stop offset="1" stop-color="#781414" />
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)" />
+  <circle cx="980" cy="120" r="320" fill="url(#brand)" opacity="0.18" />
+  <g transform="translate(96 232)">
+    <rect x="0" y="-8" width="64" height="64" rx="14" fill="url(#brand)" />
+    <path d="M32 8l12 5v9c0 8-5 13-12 16-7-3-12-8-12-16v-9l12-5z" fill="none" stroke="#F0D2D2" stroke-width="3" stroke-linejoin="round" transform="translate(-16 0)" />
+    <text x="84" y="44" font-family="Inter, system-ui, sans-serif" font-size="44" font-weight="700" fill="#F0D2D2">Trust Work Escrow</text>
+    <text x="2" y="120" font-family="Inter, system-ui, sans-serif" font-size="34" font-weight="500" fill="#8C4646">Escrow descentralizado para trabajo real</text>
+    <text x="2" y="168" font-family="Inter, system-ui, sans-serif" font-size="26" fill="#8C4646">Pagos seguros on-chain con Solana</text>
+  </g>
+</svg>

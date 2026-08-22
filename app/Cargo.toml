@@ -1,0 +1,16 @@
+[package]
+name = "trust-work-escrow-landing"
+version = "0.1.0"
+edition = "2021"
+description = "Landing page for Trust Work Escrow (Dioxus 0.7, multi-theme, i18n)"
+
+[dependencies]
+dioxus = { version = "=0.7.9", features = ["web", "router"] }
+web-sys = { version = "0.3", features = ["Window", "Document", "Storage", "Element", "HtmlElement", "Navigator"] }
+log = "0.4"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
