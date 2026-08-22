@@ -22,6 +22,8 @@ argon2 = { version = "0.5", optional = true }
 rand = { version = "0.8", optional = true }
 chrono = { version = "0.4", features = ["serde"], optional = true }
 hex = { version = "0.4", optional = true }
+bs58 = { version = "0.5", optional = true }
+ed25519-dalek = { version = "2", optional = true }
 base64 = "0.22"
 
 # SDK + contrato (devnet 7a2Y...)
@@ -41,6 +43,8 @@ server = [
   "dep:rand",
   "dep:chrono",
   "dep:hex",
+  "dep:bs58",
+  "dep:ed25519-dalek",
   "dep:trust-escrow-sdk"
 ]
 
