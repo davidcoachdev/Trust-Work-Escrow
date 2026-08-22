@@ -112,26 +112,26 @@ pub async fn send_otp_email(email: &str, code: &str) -> Result<(), String> {
 // --- Server Functions Dioxus fullstack (Task A1) ---
 use dioxus::prelude::*;
 
-#[server(SendOtp)]
+#[server]
 pub async fn send_otp(email: String) -> Result<String, ServerFnError> {
     let email = email.trim().to_lowercase();
     if !email.contains('@') {
-        return Err(ServerFnError::ServerError("email inválido".to_string()));
+        return Err(ServerFnError::new("email inválido".to_string()));
     }
-    let code = generate_otp(&email).map_err(|e| ServerFnError::ServerError(e))?;
+    let code = generate_otp(&email).map_err(|e| ServerFnError::new(e))?;
     send_otp_email(&email, &code)
         .await
-        .map_err(|e| ServerFnError::ServerError(e))?;
+        .map_err(|e| ServerFnError::new(e))?;
     Ok(format!("OTP enviado a {} (revisa logs dev)", email))
 }
 
-#[server(VerifyOtp)]
+#[server]
 pub async fn verify_otp_server(email: String, code: String) -> Result<String, ServerFnError> {
     let email = email.trim().to_lowercase();
     match verify_otp(&email, &code) {
         Ok(true) => Ok("verified".to_string()),
-        Ok(false) => Err(ServerFnError::ServerError("código incorrecto".to_string())),
-        Err(e) => Err(ServerFnError::ServerError(e)),
+        Ok(false) => Err(ServerFnError::new("código incorrecto".to_string())),
+        Err(e) => Err(ServerFnError::new(e)),
     }
 }
 

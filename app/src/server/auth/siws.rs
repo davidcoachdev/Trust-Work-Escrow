@@ -32,7 +32,7 @@ pub fn verify_siws(pubkey_b58: &str, message: &str, signature_b58: &str) -> Resu
 // Server function — llamada desde Dioxus WASM (Phantom firma)
 use dioxus::prelude::*;
 
-#[server(VerifySiws)]
+#[server]
 pub async fn verify_siws_server(
     pubkey: String,
     message: String,
@@ -43,13 +43,13 @@ pub async fn verify_siws_server(
     {
         match verify_siws(&pubkey, &message, &signature) {
             Ok(true) => Ok("verified".to_string()),
-            Ok(false) => Err(ServerFnError::ServerError("firma inválida".to_string())),
-            Err(e) => Err(ServerFnError::ServerError(e)),
+            Ok(false) => Err(ServerFnError::new("firma inválida".to_string())),
+            Err(e) => Err(ServerFnError::new(e)),
         }
     }
     #[cfg(not(feature = "server"))]
     {
-        Err(ServerFnError::ServerError("server only".to_string()))
+        Err(ServerFnError::new("server only".to_string()))
     }
 }
 

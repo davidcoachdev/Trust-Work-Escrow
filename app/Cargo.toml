@@ -13,10 +13,10 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Server — free, sin pagar
-axum = { version = "0.7", optional = true }
+axum = { version = "0.7", features = ["ws"], optional = true }
 tokio = { version = "1.0", features = ["full"], optional = true }
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio", "tls-rustls"], optional = true }
-lettre = { version = "0.11", features = ["tokio1-rustls", "builder"], optional = true }
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls", "builder", "smtp-transport", "pool", "ring", "webpki-roots"], optional = true }
 jsonwebtoken = { version = "9", optional = true }
 argon2 = { version = "0.5", optional = true }
 rand = { version = "0.8", optional = true }
@@ -25,6 +25,7 @@ hex = { version = "0.4", optional = true }
 bs58 = { version = "0.5", optional = true }
 ed25519-dalek = { version = "2", optional = true }
 base64 = "0.22"
+dioxus-server = { version = "=0.7.9", optional = true }
 once_cell = { version = "1.19", optional = true }
 
 # SDK + contrato (devnet 7a2Y...)
@@ -47,6 +48,7 @@ server = [
   "dep:once_cell",
   "dep:bs58",
   "dep:ed25519-dalek",
+  "dep:dioxus-server",
   "dep:trust-escrow-sdk"
 ]
 
