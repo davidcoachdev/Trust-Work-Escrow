@@ -4,6 +4,7 @@ use crate::features::landing::LandingPage;
 use crate::features::auth::{LoginPage, SignupPage};
 use crate::features::contact::ContactPage;
 use crate::features::dashboard::{AdminDashboard, ClientDashboard, FreelancerDashboard};
+use crate::features::arbitration::WebRtcPage;
 use crate::ui::Navbar;
 use crate::features::dashboard::{AdminLayoutComponent as AdminLayout, ClientLayoutComponent as ClientLayout, FreelancerLayoutComponent as FreelancerLayout};
 
@@ -31,4 +32,7 @@ pub enum Route {
     #[layout(AdminLayout)]
     #[route("/dashboard/admin")]
     AdminDashboard {},
+
+    #[route("/arbitration/webrtc")]
+    WebRtcPage {},
 }
