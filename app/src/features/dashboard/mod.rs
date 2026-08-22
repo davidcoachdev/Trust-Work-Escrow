@@ -124,8 +124,28 @@ pub fn AdminDashboard() -> Element {
     rsx! {
         div { class: "space-y-6",
             h1 { class: "text-3xl font-bold text-primary", "Dashboard Admin" }
-            p { class: "text-muted", "Métricas, treasury 6KSy... y custody" }
-            div { class: "bg-surface border border-border rounded-2xl p-6", "Solo manager/treasurer/custodian" }
+            p { class: "text-muted", "Métricas, treasuries y custody — solo manager/treasurer/custodian" }
+            div { class: "grid grid-cols-1 md:grid-cols-3 gap-4",
+                div { class: "bg-surface border border-border rounded-2xl p-4",
+                    div { class: "text-xs text-muted", "Manager" }
+                    div { class: "text-sm font-bold", "TVL 0.115 SOL" }
+                    div { class: "text-xs text-muted", "Jobs: 1 (JCR9...)" }
+                }
+                div { class: "bg-surface border border-border rounded-2xl p-4",
+                    div { class: "text-xs text-muted", "Treasury" }
+                    a { class: "font-mono text-xs text-primary underline break-all", href: "https://explorer.solana.com/address/6KSy8Mc2siExXqA1KGr6yQ9Dik2rp2rHe1dXHJaGCbi1?cluster=devnet", target: "_blank", "6KSy...GCbi1" }
+                    div { class: "text-xs", "0.01 SOL" }
+                }
+                div { class: "bg-surface border border-border rounded-2xl p-4",
+                    div { class: "text-xs text-muted", "Arb Treasury" }
+                    a { class: "font-mono text-xs text-primary underline break-all", href: "https://explorer.solana.com/address/CfkGxwsaSbczzAePDjsdqvjyKLCS22isFh48Yhzz4dHb?cluster=devnet", target: "_blank", "CfkG...4Hb" }
+                    div { class: "text-xs", "0.01 SOL" }
+                }
+            }
+            div { class: "bg-surface border border-border rounded-2xl p-6",
+                div { class: "text-sm font-bold", "Custody & Arbitraje" }
+                p { class: "text-xs text-muted", "Config PDA 7j7T... | ArbiterPool (vacío) | Disputas: 0" }
+            }
         }
     }
 }
