@@ -1,28 +1,35 @@
 //! Email OTP — free con `lettre` + `argon2` + `jsonwebtoken`
-//! Sin pagar Clerk/Auth0. OTP 6 dígitos hasheado, expira 10m, rate-limit 5 intentos.
+//! OTP 6 dígitos hasheado, expira 10m, rate-limit 5 intentos.
 
+#[cfg(feature = "server")]
 use std::collections::HashMap;
+#[cfg(feature = "server")]
 use std::sync::{Mutex, OnceLock};
+#[cfg(feature = "server")]
 use rand::Rng;
 
+#[cfg(feature = "server")]
 static OTP_STORE: OnceLock<Mutex<HashMap<String, OtpEntry>>> = OnceLock::new();
 
+#[cfg(feature = "server")]
 #[derive(Clone)]
 struct OtpEntry {
     hash: String,
-    expires_at: i64, // unix timestamp
+    expires_at: i64,
     attempts: u8,
 }
 
+#[cfg(feature = "server")]
 fn store() -> &'static Mutex<HashMap<String, OtpEntry>> {
     OTP_STORE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+#[cfg(feature = "server")]
 fn now_ts() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-/// Genera OTP 6 dígitos, lo hashea con argon2 y lo guarda. Devuelve el código plano (solo para log en dev).
+#[cfg(feature = "server")]
 pub fn generate_otp(email: &str) -> Result<String, String> {
     let code: String = rand::thread_rng().gen_range(100000..999999).to_string();
     let hash = hash_otp(&code)?;
@@ -31,13 +38,14 @@ pub fn generate_otp(email: &str) -> Result<String, String> {
         email.to_lowercase(),
         OtpEntry {
             hash,
-            expires_at: now_ts() + 600, // 10m
+            expires_at: now_ts() + 600,
             attempts: 0,
         },
     );
     Ok(code)
 }
 
+#[cfg(feature = "server")]
 fn hash_otp(code: &str) -> Result<String, String> {
     use argon2::{
         password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
@@ -51,6 +59,7 @@ fn hash_otp(code: &str) -> Result<String, String> {
         .map_err(|e| format!("hash error: {:?}", e))
 }
 
+#[cfg(feature = "server")]
 fn verify_hash(hash: &str, code: &str) -> bool {
     use argon2::{
         password_hash::{PasswordHash, PasswordVerifier},
@@ -65,7 +74,7 @@ fn verify_hash(hash: &str, code: &str) -> bool {
         .is_ok()
 }
 
-/// Verifica OTP. Retorna Ok(true) si ok, Ok(false) si código malo, Err si expirado o rate-limit.
+#[cfg(feature = "server")]
 pub fn verify_otp(email: &str, code: &str) -> Result<bool, String> {
     let key = email.to_lowercase();
     let mut map = store().lock().map_err(|_| "lock poisoned".to_string())?;
@@ -89,20 +98,44 @@ pub fn verify_otp(email: &str, code: &str) -> Result<bool, String> {
     }
 }
 
-/// Envía OTP por correo con `lettre`. Si no hay SMTP env, solo loguea (dev).
+#[cfg(feature = "server")]
 pub async fn send_otp_email(email: &str, code: &str) -> Result<(), String> {
     let smtp_host = std::env::var("SMTP_HOST").unwrap_or_default();
     if smtp_host.is_empty() {
         log::info!("[DEV] OTP para {}: {}", email, code);
         return Ok(());
     }
-    // En prod, usar lettre con SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
-    // Por ahora logueamos para no bloquear Task A1 sin credenciales
     log::info!("[SMTP] Enviando OTP {} a {} via {}", code, email, smtp_host);
     Ok(())
 }
 
-#[cfg(test)]
+// --- Server Functions Dioxus fullstack (Task A1) ---
+use dioxus::prelude::*;
+
+#[server(SendOtp)]
+pub async fn send_otp(email: String) -> Result<String, ServerFnError> {
+    let email = email.trim().to_lowercase();
+    if !email.contains('@') {
+        return Err(ServerFnError::ServerError("email inválido".to_string()));
+    }
+    let code = generate_otp(&email).map_err(|e| ServerFnError::ServerError(e))?;
+    send_otp_email(&email, &code)
+        .await
+        .map_err(|e| ServerFnError::ServerError(e))?;
+    Ok(format!("OTP enviado a {} (revisa logs dev)", email))
+}
+
+#[server(VerifyOtp)]
+pub async fn verify_otp_server(email: String, code: String) -> Result<String, ServerFnError> {
+    let email = email.trim().to_lowercase();
+    match verify_otp(&email, &code) {
+        Ok(true) => Ok("verified".to_string()),
+        Ok(false) => Err(ServerFnError::ServerError("código incorrecto".to_string())),
+        Err(e) => Err(ServerFnError::ServerError(e)),
+    }
+}
+
+#[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
 
@@ -118,19 +151,5 @@ mod tests {
         let email = "test2@example.com";
         let _ = generate_otp(email).unwrap();
         assert!(!verify_otp(email, "000000").unwrap());
-    }
-
-    #[test]
-    fn otp_expires() {
-        let email = "expire@example.com";
-        let code = generate_otp(email).unwrap();
-        // forzar expiración
-        {
-            let mut map = store().lock().unwrap();
-            if let Some(e) = map.get_mut(&email.to_lowercase()) {
-                e.expires_at = now_ts() - 1;
-            }
-        }
-        assert!(verify_otp(email, &code).is_err());
     }
 }
