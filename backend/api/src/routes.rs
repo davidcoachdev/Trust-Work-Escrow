@@ -147,8 +147,8 @@ async fn list_jobs(State(state): State<AppState>) -> Result<impl IntoResponse, A
             freelancer: None,
             title: j.title,
             description: j.description,
-            amount: 1_000_000,
-            fee_amount: fee_amount(1_000_000),
+            amount: j.amount,
+            fee_amount: j.fee_amount,
             status: JobStatusDto::Created,
             deadline: j.created_at + 86400,
             applicants_count: 0,
@@ -166,7 +166,8 @@ async fn create_job(
     let existing = state.repo.list_jobs().await?;
     let job_id = existing.len() as u64;
     let pda = job_pda(job_id);
-    let meta = JobMetadata::new(pda.clone(), req.title.clone(), req.description.clone())?;
+    let fee = fee_amount(req.amount);
+    let meta = JobMetadata::new(pda.clone(), req.title.clone(), req.description.clone(), req.amount, fee)?;
     state.repo.create_job(meta).await.map_err(ApiError::from)?;
     let resp = JobResponse {
         job_id,
@@ -206,8 +207,8 @@ async fn get_job(
         freelancer: None,
         title: job.title,
         description: job.description,
-        amount: 1_000_000,
-        fee_amount: fee_amount(1_000_000),
+        amount: job.amount,
+        fee_amount: job.fee_amount,
         status: JobStatusDto::Created,
         deadline: job.created_at + 86400,
         applicants_count: app_count,
