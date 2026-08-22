@@ -132,6 +132,10 @@ pub struct JobMetadata {
     pub title: String,
     /// Human-readable description (0..=500 chars).
     pub description: String,
+    /// Job amount in lamports (mirrors on-chain `Job.amount`).
+    pub amount: u64,
+    /// Fee amount in lamports (mirrors on-chain `Job.fee_amount` = 2.5% of amount).
+    pub fee_amount: u64,
     /// Optional free-form skills / tags (off-chain only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
@@ -147,12 +151,16 @@ impl JobMetadata {
         pda_address: String,
         title: String,
         description: String,
+        amount: u64,
+        fee_amount: u64,
     ) -> Result<Self, ValidationError> {
         let now = chrono::Utc::now().timestamp();
         let m = Self {
             pda_address,
             title,
             description,
+            amount,
+            fee_amount,
             skills: Vec::new(),
             created_at: now,
             updated_at: now,
@@ -616,23 +624,23 @@ mod tests {
 
     #[test]
     fn job_title_validation() {
-        let ok = JobMetadata::new(pda(1), "Build a landing".into(), "desc".into()).unwrap();
+        let ok = JobMetadata::new(pda(1), "Build a landing".into(), "desc".into(), 1000000, 25000).unwrap();
         assert_eq!(ok.title, "Build a landing");
 
         assert!(matches!(
-            JobMetadata::new(pda(2), "".into(), "desc".into()),
+            JobMetadata::new(pda(2), "".into(), "desc".into(), 1000000, 25000),
             Err(ValidationError::EmptyTitle)
         ));
         assert!(matches!(
-            JobMetadata::new(pda(3), "a".repeat(101), "desc".into()),
+            JobMetadata::new(pda(3), "a".repeat(101), "desc".into(), 1000000, 25000),
             Err(ValidationError::TitleTooLong(_, _))
         ));
         assert!(matches!(
-            JobMetadata::new(pda(4), "ok".into(), "a".repeat(501)),
+            JobMetadata::new(pda(4), "ok".into(), "a".repeat(501), 1000000, 25000),
             Err(ValidationError::DescriptionTooLong(_, _))
         ));
         assert!(matches!(
-            JobMetadata::new("".into(), "ok".into(), "desc".into()),
+            JobMetadata::new("".into(), "ok".into(), "desc".into(), 1000000, 25000),
             Err(ValidationError::EmptyPda)
         ));
     }
