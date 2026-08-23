@@ -6,7 +6,10 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: twe-postgres
+    container_name: trust-work-escrow-postgres
+    labels:
+      project: trust-work-escrow
+      role: db-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-twe}
@@ -26,7 +29,10 @@ services:
 
   mongo:
     image: mongo:7
-    container_name: twe-mongo
+    container_name: trust-work-escrow-mongo
+    labels:
+      project: trust-work-escrow
+      role: db-mongo
     restart: unless-stopped
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-twe}
@@ -48,7 +54,10 @@ services:
     build:
       context: .
       dockerfile: backend/api/Dockerfile # pinned toolchain: rust:1.89 — see rust-toolchain.toml / trust-escrow-v3/rust-toolchain.toml
-    container_name: twe-api
+    container_name: trust-work-escrow-api
+    labels:
+      project: trust-work-escrow
+      role: api
     restart: unless-stopped
     depends_on:
       postgres:
