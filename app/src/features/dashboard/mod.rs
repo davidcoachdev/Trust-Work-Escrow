@@ -1,5 +1,10 @@
+pub mod config;
+pub use config::ConfigPage;
+
 use dioxus::prelude::*;
 use crate::ui::{DashboardRole, Sidebar};
+use crate::route::Route;
+use crate::server::auth::guest::use_auth;
 
 #[component]
 pub fn ClientLayout() -> Element {
@@ -36,8 +41,18 @@ pub fn ClientDashboard() -> Element {
     let mut title = use_signal(|| String::new());
     let mut amount_sol = use_signal(|| "0.1".to_string());
     let mut msg = use_signal(|| String::new());
+    let auth = use_auth();
+    let is_guest = auth.user.read().as_ref().map(|u| u.is_guest).unwrap_or(true);
+    let has_wallet = auth.user.read().as_ref().and_then(|u| u.wallet_pubkey.clone()).is_some();
+    let mut show_wallet_modal = use_signal(|| false);
     rsx! {
         div { class: "space-y-6",
+            if is_guest {
+                div { class: "bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-center justify-between",
+                    span { class: "text-sm text-amber-700 dark:text-amber-300", "Modo invitado · Solo lectura" }
+                    Link { class: "text-sm text-primary underline", to: Route::LoginPage {}, "Iniciar sesión" }
+                }
+            }
             h1 { class: "text-3xl font-bold text-primary", "Dashboard Cliente" }
             p { class: "text-muted", "Crea jobs on-chain devnet 7a2Y... y ve tu escrow congelado." }
             div { class: "bg-surface border border-border rounded-2xl p-6 space-y-3",
@@ -64,6 +79,10 @@ pub fn ClientDashboard() -> Element {
                 form { class: "grid gap-3",
                     onsubmit: move |evt| {
                         evt.prevent_default();
+                        if !has_wallet {
+                            show_wallet_modal.set(true);
+                            return;
+                        }
                         let t = title.read().clone();
                         let amt = amount_sol.read().clone();
                         spawn(async move {
@@ -83,6 +102,18 @@ pub fn ClientDashboard() -> Element {
                     button { class: "bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium hover:opacity-90", r#type: "submit", "Crear Job (usa 3whY... en devnet)" }
                     if !msg.read().is_empty() {
                         p { class: "text-sm text-primary", "{msg.read()}" }
+                    }
+                }
+            }
+            if *show_wallet_modal.read() {
+                div { class: "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4",
+                    div { class: "bg-surface border border-border rounded-2xl p-6 max-w-sm w-full space-y-4",
+                        h3 { class: "text-lg font-bold", "Necesitás billetera" }
+                        p { class: "text-sm text-muted", "Para interactuar (crear job, firmar) necesitás una billetera. La creación es solo en Config > Wallet para evitar múltiples billeteras." }
+                        div { class: "flex gap-2",
+                            Link { class: "flex-1 bg-primary text-on-primary rounded-xl px-4 py-2 text-sm text-center font-medium", to: Route::ConfigPage {}, "Ir a Config > Wallet" }
+                            button { class: "bg-bg border border-border rounded-xl px-4 py-2 text-sm", r#type: "button", onclick: move |_| show_wallet_modal.set(false), "Cerrar" }
+                        }
                     }
                 }
             }

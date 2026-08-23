@@ -44,6 +44,7 @@ const REVEAL_SCRIPT: &str = r#"
 
 #[component]
 pub fn LandingPage() -> Element {
+    #[cfg(target_arch = "wasm32")]
     use_effect(|| {
         spawn(async {
             let _ = document::eval(REVEAL_SCRIPT).await;

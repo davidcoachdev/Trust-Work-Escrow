@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::features::landing::LandingPage;
 use crate::features::auth::{LoginPage, SignupPage};
 use crate::features::contact::ContactPage;
-use crate::features::dashboard::{AdminDashboard, ClientDashboard, FreelancerDashboard};
+use crate::features::dashboard::{AdminDashboard, ClientDashboard, FreelancerDashboard, ConfigPage};
 use crate::features::arbitration::{WebRtcPage, ArbitrationScreens};
 use crate::ui::Navbar;
 use crate::features::dashboard::{AdminLayoutComponent as AdminLayout, ClientLayoutComponent as ClientLayout, FreelancerLayoutComponent as FreelancerLayout};
@@ -32,6 +32,11 @@ pub enum Route {
     #[layout(AdminLayout)]
     #[route("/dashboard/admin")]
     AdminDashboard {},
+
+    // Config > Wallet — single place to create deterministic wallet
+    #[layout(ClientLayout)]
+    #[route("/dashboard/config")]
+    ConfigPage {},
 
     #[route("/arbitration/webrtc")]
     WebRtcPage {},
