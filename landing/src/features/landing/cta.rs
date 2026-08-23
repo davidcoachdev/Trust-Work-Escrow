@@ -1,16 +1,20 @@
 use dioxus::prelude::*;
 use crate::i18n::{tr, use_i18n};
+use crate::route::Route;
+use crate::ui::Reveal;
 
 #[component]
 pub fn Cta() -> Element {
     let l = *use_i18n().lang.read();
     rsx! {
-        section { class: "py-24",
+        section { id: "cta", class: "py-24 scroll-mt-20",
             div { class: "wrap",
-                div { class: "gradient rounded-3xl p-16 text-center text-on-primary",
-                    h2 { class: "text-3xl font-bold", {tr(l, "cta.title")} }
-                    p { class: "mt-3 opacity-90", {tr(l, "cta.body")} }
-                    a { class: "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-base font-medium border border-on-primary text-on-primary bg-transparent mt-6 transition hover:-translate-y-0.5", href: "#", {tr(l, "cta.button")} }
+                Reveal {
+                    div { class: "gradient rounded-3xl p-16 text-center text-on-primary",
+                        h2 { class: "text-3xl font-bold", {tr(l, "cta.title")} }
+                        p { class: "mt-3 opacity-90", {tr(l, "cta.body")} }
+                        Link { class: "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-base font-medium border border-on-primary text-on-primary bg-transparent mt-6 transition hover:-translate-y-0.5", to: Route::LoginPage {}, {tr(l, "cta.button")} }
+                    }
                 }
             }
         }

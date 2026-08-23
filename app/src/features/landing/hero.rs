@@ -21,7 +21,7 @@ pub fn Hero() -> Element {
                 }
                 Reveal { delay: 300,
                     div { class: "mt-8 flex gap-4 justify-center flex-wrap",
-                        a { class: "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-base font-medium bg-primary text-on-primary transition hover:-translate-y-0.5 active:scale-[0.98]", href: "#cta", {tr(l, "hero.cta")} }
+                        Link { class: "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-base font-medium bg-primary text-on-primary transition hover:-translate-y-0.5 active:scale-[0.98]", to: Route::SignupPage {}, {tr(l, "hero.cta")} }
                         Link { class: "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-base font-medium border border-primary text-primary bg-transparent transition hover:-translate-y-0.5 active:scale-[0.98]", to: Route::DocsPage {}, {tr(l, "hero.ctaSecondary")} }
                     }
                 }
