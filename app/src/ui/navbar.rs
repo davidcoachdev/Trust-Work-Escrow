@@ -35,7 +35,6 @@ pub fn Navbar() -> Element {
                             to: Route::SignupPage {},
                             {tr(l, "nav.signup")}
                         }
-                        span { class: "text-xs bg-surface border border-border rounded-full px-2 py-1 text-muted", "Invitado" }
                     } else {
                         // Authenticated (gmail) — marketing still minimal, just go to dashboard
                         if let Some(u) = user_opt.clone() {

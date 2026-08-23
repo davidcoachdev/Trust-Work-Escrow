@@ -11,7 +11,7 @@ pub fn HowItWorks() -> Element {
         ("how.step3.title", "how.step3.body", "03", 300u64),
     ];
     rsx! {
-        section { class: "py-24 bg-surface",
+        section { id: "how", class: "py-24 bg-surface scroll-mt-20",
             div { class: "wrap",
                 Reveal {
                     h2 { class: "text-3xl font-bold tracking-tight text-center mb-12", {tr(l, "how.title")} }
