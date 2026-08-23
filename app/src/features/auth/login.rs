@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use crate::i18n::{tr, use_i18n};
+use crate::route::Route;
 
 #[component]
 pub fn LoginPage() -> Element {
@@ -57,7 +58,11 @@ pub fn LoginPage() -> Element {
                                 loading.set(true);
                                 msg.set(String::new());
                                 match crate::server::auth::email::verify_otp_server(e, c).await {
-                                    Ok(_) => msg.set("¡Verificado! Ya eres guest → vincula wallet".to_string()),
+                                    Ok(_) => {
+                                        msg.set("¡Verificado! Redirigiendo a Config...".to_string());
+                                        let nav = dioxus::prelude::navigator();
+                                        nav.push(Route::ConfigPage {});
+                                    },
                                     Err(err) => msg.set(format!("Error: {}", err)),
                                 }
                                 loading.set(false);

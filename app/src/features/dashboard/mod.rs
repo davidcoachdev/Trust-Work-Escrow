@@ -115,11 +115,15 @@ pub fn ClientDashboard() -> Element {
                         }
                     }
                 }
-            } else if !is_guest {
+            } else {
                 Reveal { delay: 180,
                     div { class: "bg-surface border border-dashed border-border rounded-2xl p-6 text-center space-y-3",
                         p { class: "text-sm text-muted", "Necesitás billetera para crear jobs, firmar y liberar escrow." }
-                        Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::ConfigPage {}, "Crear mi billetera en Config" }
+                        if is_guest {
+                            Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::LoginPage {}, "Iniciar sesión" }
+                        } else {
+                            Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::ConfigPage {}, "Crear mi billetera en Config" }
+                        }
                     }
                 }
             }
@@ -133,6 +137,7 @@ pub fn FreelancerDashboard() -> Element {
     let is_guest = auth.user.read().as_ref().map(|u| u.is_guest).unwrap_or(true);
     let has_wallet = auth.user.read().as_ref().and_then(|u| u.wallet_pubkey.clone()).is_some();
     let can_act = !is_guest && has_wallet;
+    let mut apply_msg = use_signal(|| String::new());
     rsx! {
         div { class: "space-y-6",
             if is_guest {
@@ -179,24 +184,39 @@ pub fn FreelancerDashboard() -> Element {
                     a { class: "inline-flex bg-primary text-on-primary rounded-xl px-4 py-2 text-sm font-medium", href: "https://explorer.solana.com/tx/3FDyPuuwEni6KqtafBcNrKDdAhY6vRJf53abFusdbLsHFo5i8wCXvBGeJeEA1mPCNXyTSyNNhNy3mWYLPtU3weRo?cluster=devnet", target: "_blank", "Ver Tx Apply 3FDy..." }
                     // Postular CTA — gated by wallet
                     if can_act {
-                        button { class: "mt-3 w-full bg-primary text-on-primary rounded-xl px-4 py-2.5 font-medium hover:opacity-90 transition hover:-translate-y-0.5 active:scale-[0.98]", r#type: "button",
+                        button {
+                            class: "mt-3 w-full bg-primary text-on-primary rounded-xl px-4 py-2.5 font-medium hover:opacity-90 transition hover:-translate-y-0.5 active:scale-[0.98]",
+                            r#type: "button",
+                            onclick: move |_| {
+                                apply_msg.set("Postulación enviada (mock) — firmando con tu wallet en devnet 7a2Y… Tx 3FDy…".to_string());
+                                log::info!("apply to job #0");
+                            },
                             "Postular a este Job"
+                        }
+                        if !apply_msg.read().is_empty() {
+                            p { class: "text-sm text-primary text-center mt-2", "{apply_msg.read()}" }
                         }
                     } else {
                         div { class: "mt-3 space-y-2",
                             button { class: "w-full bg-bg border border-border rounded-xl px-4 py-2.5 font-medium opacity-50 cursor-not-allowed", r#type: "button", disabled: true, "Postular (requiere billetera)" }
-                            if !is_guest {
+                            if is_guest {
+                                Link { class: "block text-xs text-primary underline text-center", to: Route::LoginPage {}, "Iniciá sesión para postularte →" }
+                            } else {
                                 p { class: "text-xs text-amber-600 text-center", "Conectá tu billetera en Config > Wallet para postularte" }
                             }
                         }
                     }
                 }
             }
-            if !can_act && !is_guest {
+            if !can_act {
                 Reveal { delay: 180,
                     div { class: "bg-surface border border-dashed border-border rounded-2xl p-6 text-center space-y-3",
                         p { class: "text-sm text-muted", "Sin billetera no podés firmar la postulación on-chain." }
-                        Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::ConfigPage {}, "Crear mi billetera en Config" }
+                        if is_guest {
+                            Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::LoginPage {}, "Iniciar sesión" }
+                        } else {
+                            Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::ConfigPage {}, "Crear mi billetera en Config" }
+                        }
                     }
                 }
             }

@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 use std::string::String;
 use crate::i18n::{tr, use_i18n};
+use crate::route::Route;
 
 #[component]
 pub fn SignupPage() -> Element {
@@ -9,14 +10,17 @@ pub fn SignupPage() -> Element {
     let mut email = use_signal(|| String::new());
     let mut password = use_signal(|| String::new());
 
+    let navigator = use_navigator();
     rsx! {
         section { class: "py-24 wrap",
             div { class: "bg-surface border border-border rounded-2xl p-8 max-w-sm mx-auto",
                 h1 { class: "text-3xl font-bold tracking-tight text-center mb-2", {tr(l, "nav.signup")} }
+                p { class: "text-sm text-muted text-center mb-4", "¿Ya tenés cuenta? Ingresá con OTP." }
                 form { class: "grid gap-4 mt-6",
                     onsubmit: move |evt| {
                         evt.prevent_default();
                         log::info!("signup submit: {}/{}", name.read(), email.read());
+                        navigator.push(Route::LoginPage {});
                     },
                     div { class: "grid gap-1.5",
                         label { class: "text-sm text-muted", {tr(l, "auth.name")} }

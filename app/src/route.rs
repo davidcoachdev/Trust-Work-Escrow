@@ -5,6 +5,7 @@ use crate::features::auth::{LoginPage, SignupPage};
 use crate::features::contact::ContactPage;
 use crate::features::dashboard::{AdminDashboard, ClientDashboard, ConfigPage, FreelancerDashboard};
 use crate::features::arbitration::{ArbitrationScreens, WebRtcPage};
+use crate::features::docs::DocsPage;
 use crate::ui::{DashboardLayout, MarketingLayout};
 
 /// App routes — Next.js App Router pattern via Dioxus nested layouts:
@@ -18,6 +19,8 @@ pub enum Route {
         #[layout(MarketingLayout)]
             #[route("/")]
             LandingPage {},
+            #[route("/docs")]
+            DocsPage {},
             #[route("/login")]
             LoginPage {},
             #[route("/signup")]

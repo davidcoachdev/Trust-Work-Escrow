@@ -2,6 +2,7 @@
 //! Do NOT create wallets on the fly in modals.
 
 use dioxus::prelude::*;
+use crate::route::Route;
 use crate::server::auth::guest::use_auth;
 use crate::server::auth::wallet::{get_or_create_wallet, reveal_wallet_private_key, link_wallet_to_user};
 
@@ -26,6 +27,7 @@ pub fn ConfigPage() -> Element {
     let current_email = user.as_ref().map(|u| u.email.clone()).unwrap_or_default();
     let _has_wallet = user.as_ref().and_then(|u| u.wallet_pubkey.clone()).is_some();
     let current_pubkey = user.as_ref().and_then(|u| u.wallet_pubkey.clone()).unwrap_or_default();
+    let is_guest = user.as_ref().map(|u| u.is_guest).unwrap_or(true);
     // clones for closures (avoid move error)
     let current_email_create = current_email.clone();
     let current_email_reveal = current_email.clone();
@@ -45,6 +47,12 @@ pub fn ConfigPage() -> Element {
         div { class: "space-y-6 max-w-2xl",
             h1 { class: "text-3xl font-bold text-primary", "Configuración" }
             p { class: "text-muted text-sm", "Gestioná tu billetera Solana. La creación es determinística por email (HMAC) y recuperable vía OTP. Solo se crea aquí." }
+            if is_guest {
+                div { class: "bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-center justify-between",
+                    span { class: "text-sm text-amber-700 dark:text-amber-300", "Necesitás iniciar sesión para gestionar tu billetera" }
+                    Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-4 py-2 text-sm font-medium", to: Route::LoginPage {}, "Ir a Login" }
+                }
+            }
 
             div { class: "bg-surface border border-border rounded-2xl p-6 space-y-4",
                 h2 { class: "text-lg font-bold", "Wallet Solana" }

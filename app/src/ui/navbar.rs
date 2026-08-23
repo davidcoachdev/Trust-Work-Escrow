@@ -25,8 +25,8 @@ pub fn Navbar() -> Element {
                 Link { class: "font-bold text-lg tracking-tight", to: Route::LandingPage {}, {tr(l, "brand")} }
                 nav { class: "hidden md:flex items-center gap-6",
                     Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::LandingPage {}, {tr(l, "nav.home")} }
-                    Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::LandingPage {}, {tr(l, "nav.jobs")} }
-                    Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::LandingPage {}, {tr(l, "nav.docs")} }
+                    Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::DocsPage {}, {tr(l, "nav.jobs")} }
+                    Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::DocsPage {}, {tr(l, "nav.docs")} }
                     Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::ContactPage {}, {tr(l, "nav.contact")} }
                     if is_guest {
                         Link { class: "inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-medium border border-primary text-primary bg-transparent hover:bg-primary/10 transition", to: Route::LoginPage {}, {tr(l, "nav.login")} }
