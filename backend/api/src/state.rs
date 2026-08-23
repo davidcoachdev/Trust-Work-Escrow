@@ -184,6 +184,8 @@ pub struct AppState {
     pub requests_total: Arc<AtomicU64>,
     /// Total error responses (4xx/5xx).
     pub errors_total: Arc<AtomicU64>,
+    /// Monotonic job id counter (atomic, Clone+Sync via Arc).
+    pub next_job_id: Arc<AtomicU64>,
 }
 
 /// In-memory representation of the on-chain `ArbiterPool`.
@@ -236,6 +238,7 @@ impl AppState {
             start_time: Instant::now(),
             requests_total: Arc::new(AtomicU64::new(0)),
             errors_total: Arc::new(AtomicU64::new(0)),
+            next_job_id: Arc::new(AtomicU64::new(0)),
         }
     }
 

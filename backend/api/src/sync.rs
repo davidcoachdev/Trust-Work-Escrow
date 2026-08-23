@@ -477,10 +477,11 @@ impl SyncEngine {
             other => Err(SyncError::Repository(other)),
         };
 
-        // JobCreated: payload esperado `{"pda":"...","title":"...","description":"..."}`
+        // JobCreated: payload esperado `{"pda":"...","title":"...","description":"...","amount":...,"deadline":...}`
         // Si payload ausente, se construye un placeholder determinístico por signature.
+        // `amount` and `deadline` are optional in the event payload; 0 means unknown/off-chain sync fallback.
         if kind == "JobCreated" || kind.starts_with("JobCreated") {
-            let (pda, title, desc) = if let Some(p) = &ev.payload {
+            let (pda, title, desc, amount, deadline) = if let Some(p) = &ev.payload {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(p) {
                     let pda = v
                         .get("pda")
@@ -497,12 +498,18 @@ impl SyncEngine {
                         .and_then(|x| x.as_str())
                         .unwrap_or("")
                         .to_string();
-                    (pda, title, desc)
+                    // Amount is optional in the event payload; 0 means unknown.
+                    let amount = v.get("amount").and_then(|x| x.as_u64()).unwrap_or(0);
+                    // Deadline is optional; 0 means unknown (sync fallback where payload has no deadline).
+                    let deadline = v.get("deadline").and_then(|x| x.as_i64()).unwrap_or(0);
+                    (pda, title, desc, amount, deadline)
                 } else {
                     (
                         ev.signature.clone(),
                         "Job from on-chain event".into(),
                         String::new(),
+                        0u64,
+                        0i64,
                     )
                 }
             } else {
@@ -510,6 +517,8 @@ impl SyncEngine {
                     ev.signature.clone(),
                     "Job from on-chain event".into(),
                     String::new(),
+                    0u64,
+                    0i64,
                 )
             };
             // Evitar doble validación de PDA en tests con signature corta: si pda
@@ -523,7 +532,10 @@ impl SyncEngine {
             } else {
                 pda
             };
-            let job = JobMetadata::new(pda, title, desc).map_err(|e| {
+            // Fee mirrors the on-chain 2.5% platform fee (routes::fee_amount).
+            let fee = amount * 250 / 10_000;
+            let sync_client = format!("7a2YhCd7iivXfyySkp1pf5jjSyncClient{:0>10}", ev.slot);
+            let job = JobMetadata::new(pda, title, desc, amount, fee, deadline, sync_client).map_err(|e| {
                 SyncError::InvalidParameter(format!("job validation before repo: {}", e))
             })?;
             match self.repo.create_job(job).await {
@@ -980,8 +992,16 @@ mod tests {
         // Pre-insertar job con misma pda que el evento va a intentar crear.
         // Usar PDA válida (32..128 chars) y payload explícito con esa misma PDA.
         let valid_pda = format!("7a2YhCd7iivXfyySkp1pf5jj{:0>20}{:02}", 1u8, 1u8);
-        let existing =
-            JobMetadata::new(valid_pda.clone(), "T sigDup".into(), "D sigDup".into()).unwrap();
+        let existing = JobMetadata::new(
+            valid_pda.clone(),
+            "T sigDup".into(),
+            "D sigDup".into(),
+            1_000_000,
+            25_000,
+            0,
+            format!("7a2YhCd7iivXfyySkp1pf5jjSyncClient{:0>10}", 1),
+        )
+        .unwrap();
         repo.create_job(existing).await.unwrap();
 
         let sig_fetcher = Arc::new(MockSignatureFetcher::single_batch(vec![sig("sigDup", 1)]));

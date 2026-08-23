@@ -441,7 +441,9 @@ mod tests {
     #[tokio::test]
     async fn job_crud() {
         let repo = InMemoryMetadataRepository::new();
-        let job = JobMetadata::new(pda(1), "Title".into(), "Desc".into()).unwrap();
+        let dl = chrono::Utc::now().timestamp() + 86400;
+        let client = format!("7a2YhCd7iivXfyySkp1pf5jjClient{:0>20}{:02}", 1u8, 1u8);
+        let job = JobMetadata::new(pda(1), "Title".into(), "Desc".into(), 1_000_000, 25_000, dl, client).unwrap();
 
         // create
         repo.create_job(job.clone()).await.unwrap();
@@ -480,6 +482,12 @@ mod tests {
             pda_address: pda(2),
             title: "".into(),
             description: "desc".into(),
+            amount: 1_000_000,
+            fee_amount: 25_000,
+            deadline: 0,
+            client: "client".into(),
+            freelancer: None,
+            status: crate::metadata::JobStatus::Created,
             skills: vec![],
             created_at: 0,
             updated_at: 0,

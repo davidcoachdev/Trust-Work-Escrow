@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use std::str::FromStr;
+#[cfg(target_arch = "wasm32")]
 use web_sys::{window, Window};
 
 /// Languages. ES is the default (Latam); EN is the second.
@@ -44,6 +45,7 @@ impl FromStr for Lang {
 pub const LANG_KEY: &str = "twe-lang";
 
 /// Apply the language to <html lang> and persist it.
+#[cfg(target_arch = "wasm32")]
 pub fn apply_lang(lang: Lang) {
     if let Some(win) = window() {
         if let Some(doc) = win.document() {
@@ -57,7 +59,12 @@ pub fn apply_lang(lang: Lang) {
     }
 }
 
+/// SSR: no browser DOM to touch.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn apply_lang(_lang: Lang) {}
+
 /// Read persisted language, else browser language, else default ES.
+#[cfg(target_arch = "wasm32")]
 pub fn load_lang() -> Lang {
     if let Some(value) = window()
         .and_then(|w: Window| w.local_storage().ok().flatten())
@@ -71,6 +78,12 @@ pub fn load_lang() -> Lang {
             return Lang::Es;
         }
     }
+    Lang::Es
+}
+
+/// SSR fallback.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_lang() -> Lang {
     Lang::Es
 }
 

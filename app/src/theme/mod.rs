@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use std::str::FromStr;
+#[cfg(target_arch = "wasm32")]
 use web_sys::{window, Window};
 
 /// Available runtime themes (skins). `dcdev` is the master brand.
@@ -94,6 +95,7 @@ impl FromStr for Mode {
 pub const MODE_KEY: &str = "twe-mode";
 
 /// Apply the mode to <html data-mode> and persist it.
+#[cfg(target_arch = "wasm32")]
 pub fn apply_mode(mode: Mode) {
     if let Some(win) = window() {
         if let Some(doc) = win.document() {
@@ -107,13 +109,24 @@ pub fn apply_mode(mode: Mode) {
     }
 }
 
+/// SSR: no browser DOM to touch.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn apply_mode(_mode: Mode) {}
+
 /// Read the persisted mode, falling back to `Dark`.
+#[cfg(target_arch = "wasm32")]
 pub fn load_mode() -> Mode {
     window()
         .and_then(|w: Window| w.local_storage().ok().flatten())
         .and_then(|s| s.get_item(MODE_KEY).ok().flatten())
         .and_then(|v| Mode::from_str(&v).ok())
         .unwrap_or(Mode::Dark)
+}
+
+/// SSR fallback.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_mode() -> Mode {
+    Mode::Dark
 }
 
 #[derive(Clone, Copy)]
@@ -126,6 +139,7 @@ pub fn use_mode() -> ModeContext {
 }
 
 /// Apply the theme to <html data-theme> and persist it.
+#[cfg(target_arch = "wasm32")]
 pub fn apply_theme(theme: Theme) {
     if let Some(win) = window() {
         if let Some(doc) = win.document() {
@@ -139,13 +153,24 @@ pub fn apply_theme(theme: Theme) {
     }
 }
 
+/// SSR: no browser DOM to touch.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn apply_theme(_theme: Theme) {}
+
 /// Read the persisted theme, falling back to `dcdev`.
+#[cfg(target_arch = "wasm32")]
 pub fn load_theme() -> Theme {
     window()
         .and_then(|w: Window| w.local_storage().ok().flatten())
         .and_then(|s| s.get_item(THEME_KEY).ok().flatten())
         .and_then(|v| Theme::from_str(&v).ok())
         .unwrap_or(Theme::Dcdev)
+}
+
+/// SSR fallback.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_theme() -> Theme {
+    Theme::Dcdev
 }
 
 #[derive(Clone, Copy)]

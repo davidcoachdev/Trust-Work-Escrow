@@ -25,11 +25,25 @@
 //! handler signature changes. `cargo test` and `clippy` remain green with and
 //! without `--features solana`.
 
+use std::sync::atomic::Ordering;
+
 use crate::error::ApiError;
-use crate::metadata::JobMetadata;
+use crate::metadata::{JobMetadata, JobStatus};
 use crate::models::{CreateJobRequest, JobResponse, JobStatusDto};
 use crate::state::AppState;
 use crate::validation;
+
+fn job_status_to_dto(s: &JobStatus) -> JobStatusDto {
+    match s {
+        JobStatus::Created => JobStatusDto::Created,
+        JobStatus::Applied => JobStatusDto::Applied,
+        JobStatus::Assigned => JobStatusDto::Assigned,
+        JobStatus::Submitted => JobStatusDto::Submitted,
+        JobStatus::Approved => JobStatusDto::Approved,
+        JobStatus::Cancelled => JobStatusDto::Cancelled,
+        JobStatus::Rejected => JobStatusDto::Rejected,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // PDA helpers — deterministic `7a2Y` prefix used throughout `routes.rs`
@@ -68,6 +82,13 @@ fn fee_amount(amount: u64) -> u64 {
     amount * 250 / 10_000
 }
 
+fn job_id_from_pda(pda: &str) -> Option<u64> {
+    if pda.len() < 12 {
+        return None;
+    }
+    pda[pda.len() - 12..].parse().ok()
+}
+
 // ---------------------------------------------------------------------------
 // Core integration — validation-first, then repo, then (optionally) on-chain
 // ---------------------------------------------------------------------------
@@ -90,19 +111,35 @@ pub async fn create_job_integration(
     // 1. Validation-first — never touch chain or repo on bad input.
     validation::validate_create_job(&req)?;
 
-    // 2. Derive next job_id and PDA (same scheme as `routes::create_job`).
-    let existing = state.repo.list_jobs().await?;
-    let job_id = existing.len() as u64;
+    // 2. Derive next job_id atomically (same scheme as `routes::create_job`).
+    if state.next_job_id.load(Ordering::SeqCst) == 0 {
+        let count = state.repo.list_jobs().await?.len() as u64;
+        if count > 0 {
+            let _ = state
+                .next_job_id
+                .compare_exchange(0, count, Ordering::SeqCst, Ordering::SeqCst);
+        }
+    }
+    let job_id = state.next_job_id.fetch_add(1, Ordering::SeqCst);
     let pda = derive_job_pda_string(job_id);
 
     // 3. Persist off-chain metadata.
-    let meta = JobMetadata::new(pda.clone(), req.title.clone(), req.description.clone())?;
+    let client = placeholder_pubkey("Client");
+    let meta = JobMetadata::new(
+        pda.clone(),
+        req.title.clone(),
+        req.description.clone(),
+        req.amount,
+        fee_amount(req.amount),
+        req.deadline,
+        client.clone(),
+    )?;
     state.repo.create_job(meta).await?;
 
     // 4. Return enriched response.
     Ok(JobResponse {
         job_id,
-        client: placeholder_pubkey("Client"),
+        client,
         freelancer: None,
         title: req.title,
         description: req.description,
@@ -133,37 +170,51 @@ pub async fn get_job_enriched(state: &AppState, job_id: u64) -> Result<JobRespon
         .await
         .map(|v| v.len() as u32)
         .unwrap_or(0);
+    let client = if job.client.is_empty() {
+        placeholder_pubkey("Client")
+    } else {
+        job.client.clone()
+    };
     Ok(JobResponse {
         job_id,
-        client: placeholder_pubkey("Client"),
-        freelancer: None,
+        client,
+        freelancer: job.freelancer.clone(),
         title: job.title,
         description: job.description,
-        amount: 1_000_000,
-        fee_amount: fee_amount(1_000_000),
-        status: JobStatusDto::Created,
-        deadline: job.created_at + 86400,
+        amount: job.amount,
+        fee_amount: job.fee_amount,
+        status: job_status_to_dto(&job.status),
+        deadline: job.deadline,
         applicants_count: app_count,
     })
 }
 
 /// Enriched `GET /jobs` — lists all repo jobs as `JobResponse`s.
 pub async fn list_jobs_enriched(state: &AppState) -> Result<Vec<JobResponse>, ApiError> {
-    let jobs = state.repo.list_jobs().await?;
+    let mut jobs = state.repo.list_jobs().await?;
+    jobs.sort_by(|a, b| a.pda_address.cmp(&b.pda_address));
     let resp = jobs
         .into_iter()
         .enumerate()
-        .map(|(i, j)| JobResponse {
-            job_id: i as u64,
-            client: placeholder_pubkey("Client"),
-            freelancer: None,
-            title: j.title,
-            description: j.description,
-            amount: 1_000_000,
-            fee_amount: fee_amount(1_000_000),
-            status: JobStatusDto::Created,
-            deadline: j.created_at + 86400,
-            applicants_count: 0,
+        .map(|(idx, j)| {
+            let job_id = job_id_from_pda(&j.pda_address).unwrap_or(idx as u64);
+            let client = if j.client.is_empty() {
+                placeholder_pubkey("Client")
+            } else {
+                j.client.clone()
+            };
+            JobResponse {
+                job_id,
+                client,
+                freelancer: j.freelancer.clone(),
+                title: j.title,
+                description: j.description,
+                amount: j.amount,
+                fee_amount: j.fee_amount,
+                status: job_status_to_dto(&j.status),
+                deadline: j.deadline,
+                applicants_count: 0,
+            }
         })
         .collect();
     Ok(resp)
@@ -210,7 +261,8 @@ pub async fn create_job_full_flow(
     //    (so `get_job_enriched` works) and, when solana is active, the real
     //    address is also discoverable via `derive_job_pda_via_sdk`.
     let pda = derive_job_pda_string(job_id);
-    let meta = JobMetadata::new(pda.clone(), req.title.clone(), req.description.clone())?;
+    let client = placeholder_pubkey("Client");
+    let meta = JobMetadata::new(pda.clone(), req.title.clone(), req.description.clone(), req.amount, fee_amount(req.amount), req.deadline, client.clone())?;
     // `AlreadyExists` is idempotent for retries against a reused validator.
     match state.repo.create_job(meta).await {
         Ok(_) => {}
@@ -220,7 +272,7 @@ pub async fn create_job_full_flow(
 
     let resp = JobResponse {
         job_id,
-        client: placeholder_pubkey("Client"),
+        client,
         freelancer: None,
         title: req.title,
         description: req.description,
@@ -255,18 +307,26 @@ pub async fn list_jobs_full_flow(
     // are always present (read-through is the source of truth for `amount`/
     // `status`, but the MVP repo is the source for human-readable fields).
     if let Some(page) = on_chain {
-        let mut out = Vec::with_capacity(repo_jobs.len().max(page.jobs.len()));
-        for (i, j) in repo_jobs.into_iter().enumerate() {
+        let mut sorted = repo_jobs;
+        sorted.sort_by(|a, b| a.pda_address.cmp(&b.pda_address));
+        let mut out = Vec::with_capacity(sorted.len().max(page.jobs.len()));
+        for (idx, j) in sorted.into_iter().enumerate() {
+            let job_id = job_id_from_pda(&j.pda_address).unwrap_or(idx as u64);
+            let client = if j.client.is_empty() {
+                placeholder_pubkey("Client")
+            } else {
+                j.client.clone()
+            };
             out.push(JobResponse {
-                job_id: i as u64,
-                client: placeholder_pubkey("Client"),
-                freelancer: None,
+                job_id,
+                client,
+                freelancer: j.freelancer.clone(),
                 title: j.title,
                 description: j.description,
-                amount: 1_000_000,
-                fee_amount: fee_amount(1_000_000),
-                status: JobStatusDto::Created,
-                deadline: j.created_at + 86400,
+                amount: j.amount,
+                fee_amount: j.fee_amount,
+                status: job_status_to_dto(&j.status),
+                deadline: j.deadline,
                 applicants_count: 0,
             });
         }
@@ -426,6 +486,15 @@ mod tests {
             "amount": 2_000_000,
             "deadline": future_deadline()
         });
+        let (pk, sig, msg) = {
+            use base64::Engine as _;
+            use ed25519_dalek::{Signer, SigningKey};
+            let sk = SigningKey::from_bytes(&[7u8; 32]);
+            let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
+            let m = "integration-http";
+            let s = base64::engine::general_purpose::STANDARD.encode(sk.sign(m.as_bytes()).to_bytes());
+            (pk, s, m.to_string())
+        };
         let resp = app
             .clone()
             .oneshot(
@@ -433,6 +502,9 @@ mod tests {
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", pk)
+                    .header("x-signature", sig)
+                    .header("x-message", msg)
                     .body(Body::from(payload.to_string()))
                     .unwrap(),
             )
@@ -478,7 +550,9 @@ mod tests {
         // Must be length-valid for `validate_pda`
         assert!(a.len() >= 32 && a.len() <= 128);
         // Should round-trip through `JobMetadata::new` validation
-        let m = JobMetadata::new(a, "t".into(), "d".into()).unwrap();
+        let dl = chrono::Utc::now().timestamp() + 86400;
+        let client = placeholder_pubkey("Client");
+        let m = JobMetadata::new(a, "t".into(), "d".into(), 1_000_000, 25_000, dl, client).unwrap();
         assert_eq!(m.title, "t");
     }
 

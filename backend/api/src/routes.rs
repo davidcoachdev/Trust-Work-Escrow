@@ -8,10 +8,12 @@ use axum::{
     Json, Router,
 };
 
+use std::sync::atomic::Ordering;
+
 use crate::error::ApiError;
 use crate::metadata::{
-    ApplicationMetadata, DisputeMetadata, EvidenceMetadata, JobMetadata, MilestoneMetadata,
-    SupportTicketMetadata,
+    ApplicationMetadata, DisputeMetadata, EvidenceMetadata, JobMetadata, JobStatus,
+    MilestoneMetadata, SupportTicketMetadata,
 };
 use crate::models::*;
 use crate::state::{AppState, ArbiterPoolState};
@@ -44,6 +46,38 @@ fn placeholder_pubkey(label: &str) -> String {
 }
 fn fee_amount(amount: u64) -> u64 {
     amount * 250 / 10_000
+}
+
+fn job_id_from_pda(pda: &str) -> Option<u64> {
+    if pda.len() < 12 {
+        return None;
+    }
+    pda[pda.len() - 12..].parse().ok()
+}
+
+fn job_status_to_dto(s: &JobStatus) -> JobStatusDto {
+    match s {
+        JobStatus::Created => JobStatusDto::Created,
+        JobStatus::Applied => JobStatusDto::Applied,
+        JobStatus::Assigned => JobStatusDto::Assigned,
+        JobStatus::Submitted => JobStatusDto::Submitted,
+        JobStatus::Approved => JobStatusDto::Approved,
+        JobStatus::Cancelled => JobStatusDto::Cancelled,
+        JobStatus::Rejected => JobStatusDto::Rejected,
+    }
+}
+
+fn can_transition(from: &JobStatus, to: &JobStatus) -> bool {
+    use JobStatus::*;
+    match (from, to) {
+        (Created, Applied) => true,
+        (Applied, Assigned) => true,
+        (Assigned, Submitted) => true,
+        (Submitted, Approved) => true,
+        (Submitted, Rejected) => true,
+        (_, Cancelled) => !matches!(from, Approved | Cancelled | Rejected),
+        _ => false,
+    }
 }
 
 #[utoipa::path(post, path = "/auth/verify", tag = "Auth", responses((status = 200, description = "Signature verified", body = ApiStatus), (status = 401, description = "Invalid signature", body = crate::error::ErrorResponse)))]
@@ -137,21 +171,30 @@ async fn get_config(State(state): State<AppState>) -> Result<impl IntoResponse, 
 
 #[utoipa::path(get, path = "/jobs", tag = "Jobs", responses((status = 200, description = "List of jobs", body = [JobResponse])))]
 async fn list_jobs(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
-    let jobs = state.repo.list_jobs().await?;
+    let mut jobs = state.repo.list_jobs().await?;
+    jobs.sort_by(|a, b| a.pda_address.cmp(&b.pda_address));
     let resp: Vec<JobResponse> = jobs
         .into_iter()
         .enumerate()
-        .map(|(i, j)| JobResponse {
-            job_id: i as u64,
-            client: placeholder_pubkey("Client"),
-            freelancer: None,
-            title: j.title,
-            description: j.description,
-            amount: j.amount,
-            fee_amount: j.fee_amount,
-            status: JobStatusDto::Created,
-            deadline: j.created_at + 86400,
-            applicants_count: 0,
+        .map(|(idx, j)| {
+            let job_id = job_id_from_pda(&j.pda_address).unwrap_or(idx as u64);
+            let client = if j.client.is_empty() {
+                placeholder_pubkey("Client")
+            } else {
+                j.client.clone()
+            };
+            JobResponse {
+                job_id,
+                client,
+                freelancer: j.freelancer.clone(),
+                title: j.title,
+                description: j.description,
+                amount: j.amount,
+                fee_amount: j.fee_amount,
+                status: job_status_to_dto(&j.status),
+                deadline: j.deadline,
+                applicants_count: 0,
+            }
         })
         .collect();
     Ok((StatusCode::OK, Json(resp)))
@@ -159,24 +202,40 @@ async fn list_jobs(State(state): State<AppState>) -> Result<impl IntoResponse, A
 
 #[utoipa::path(post, path = "/jobs", tag = "Jobs", request_body = CreateJobRequest, responses((status = 201, description = "Job created", body = JobResponse)))]
 async fn create_job(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Json(req): Json<CreateJobRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     validation::validate_create_job(&req)?;
-    let existing = state.repo.list_jobs().await?;
-    let job_id = existing.len() as u64;
+    if state.next_job_id.load(Ordering::SeqCst) == 0 {
+        let count = state.repo.list_jobs().await?.len() as u64;
+        if count > 0 {
+            let _ = state
+                .next_job_id
+                .compare_exchange(0, count, Ordering::SeqCst, Ordering::SeqCst);
+        }
+    }
+    let job_id = state.next_job_id.fetch_add(1, Ordering::SeqCst);
     let pda = job_pda(job_id);
     let fee = fee_amount(req.amount);
-    let meta = JobMetadata::new(pda.clone(), req.title.clone(), req.description.clone(), req.amount, fee)?;
+    let meta = JobMetadata::new(
+        pda.clone(),
+        req.title.clone(),
+        req.description.clone(),
+        req.amount,
+        fee,
+        req.deadline,
+        auth.pubkey.clone(),
+    )?;
     state.repo.create_job(meta).await.map_err(ApiError::from)?;
     let resp = JobResponse {
         job_id,
-        client: placeholder_pubkey("Client"),
+        client: auth.pubkey,
         freelancer: None,
         title: req.title,
         description: req.description,
         amount: req.amount,
-        fee_amount: fee_amount(req.amount),
+        fee_amount: fee,
         status: JobStatusDto::Created,
         deadline: req.deadline,
         applicants_count: 0,
@@ -201,16 +260,21 @@ async fn get_job(
         .await
         .map(|v| v.len() as u32)
         .unwrap_or(0);
+    let client = if job.client.is_empty() {
+        placeholder_pubkey("Client")
+    } else {
+        job.client.clone()
+    };
     let resp = JobResponse {
         job_id,
-        client: placeholder_pubkey("Client"),
-        freelancer: None,
+        client,
+        freelancer: job.freelancer.clone(),
         title: job.title,
         description: job.description,
         amount: job.amount,
         fee_amount: job.fee_amount,
-        status: JobStatusDto::Created,
-        deadline: job.created_at + 86400,
+        status: job_status_to_dto(&job.status),
+        deadline: job.deadline,
         applicants_count: app_count,
     };
     Ok((StatusCode::OK, Json(resp)))
@@ -238,17 +302,17 @@ async fn deposit_funds(
 
 #[utoipa::path(post, path = "/jobs/:job_id/apply", tag = "Applications", request_body = ApplyRequest, responses((status = 201, description = "Application submitted", body = ApplicationResponse)))]
 async fn apply_to_job(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Path(job_id): Path<u64>,
     Json(req): Json<ApplyRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     let pda = job_pda(job_id);
-    state
+    let mut job = state
         .repo
         .get_job(&pda)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
-    // Off-chain validaciones espejo on-chain: texto vacío/excesivo, duplicados y límite 50
     validation::validate_apply(&req)?;
     let existing = state.repo.list_applications_by_job(&pda).await?;
     if existing.len() >= 50 {
@@ -256,10 +320,28 @@ async fn apply_to_job(
             "maximum 50 applications reached".into(),
         ));
     }
-    // En API sin signer real, usamos placeholder; detectamos duplicado si el hash ya existe (defensa)
-    // En on-chain real esto es `AlreadyApplied` por applicant pubkey
+    let applicant = auth.pubkey.clone();
+    if existing.iter().any(|a| a.applicant == applicant) {
+        return Err(ApiError::Conflict("already applied".into()));
+    }
+    // State machine: Created -> Applied, or stay Applied for additional applicants
+    if job.status == JobStatus::Created {
+        if !can_transition(&job.status, &JobStatus::Applied) {
+            return Err(ApiError::Conflict(format!(
+                "invalid status transition from {:?} to Applied",
+                job.status
+            )));
+        }
+        job.status = JobStatus::Applied;
+        job.updated_at = chrono::Utc::now().timestamp();
+        state.repo.update_job(job.clone()).await?;
+    } else if job.status != JobStatus::Applied {
+        return Err(ApiError::Conflict(format!(
+            "job not in a state to accept applications: {:?}",
+            job.status
+        )));
+    }
     let index = existing.len() as u8;
-    let applicant = placeholder_pubkey(&format!("Applicant{}", index));
     let app_pda = application_pda(job_id, index, &applicant);
     let meta = ApplicationMetadata::new(
         app_pda.clone(),
@@ -279,22 +361,37 @@ async fn apply_to_job(
 
 #[utoipa::path(post, path = "/jobs/:job_id/applications/:application_index/accept", tag = "Applications", responses((status = 200, description = "Application accepted", body = ApiStatus)))]
 async fn accept_application(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Path((job_id, application_index)): Path<(u64, u8)>,
 ) -> Result<impl IntoResponse, ApiError> {
     let pda = job_pda(job_id);
-    state
+    let mut job = state
         .repo
         .get_job(&pda)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
+    if job.client != auth.pubkey {
+        return Err(ApiError::Forbidden);
+    }
     let apps = state.repo.list_applications_by_job(&pda).await?;
-    if (application_index as usize) >= apps.len() && apps.is_empty() {
+    if (application_index as usize) >= apps.len() {
         return Err(ApiError::NotFound(format!(
             "application {} for job {} not found",
             application_index, job_id
         )));
     }
+    if !can_transition(&job.status, &JobStatus::Assigned) {
+        return Err(ApiError::Conflict(format!(
+            "invalid status transition from {:?} to Assigned",
+            job.status
+        )));
+    }
+    let chosen = &apps[application_index as usize];
+    job.freelancer = Some(chosen.applicant.clone());
+    job.status = JobStatus::Assigned;
+    job.updated_at = chrono::Utc::now().timestamp();
+    state.repo.update_job(job).await?;
     Ok((
         StatusCode::OK,
         Json(ApiStatus {
@@ -309,15 +406,26 @@ async fn accept_application(
 
 #[utoipa::path(post, path = "/jobs/:job_id/submit-work", tag = "Work", responses((status = 200, description = "Work submitted", body = ApiStatus)))]
 async fn submit_work(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Path(job_id): Path<u64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let pda = job_pda(job_id);
-    state
+    let mut job = state
         .repo
         .get_job(&pda)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
+    let _ = &auth.pubkey;
+    if !can_transition(&job.status, &JobStatus::Submitted) {
+        return Err(ApiError::Conflict(format!(
+            "invalid status transition from {:?} to Submitted",
+            job.status
+        )));
+    }
+    job.status = JobStatus::Submitted;
+    job.updated_at = chrono::Utc::now().timestamp();
+    state.repo.update_job(job).await?;
     Ok((
         StatusCode::OK,
         Json(ApiStatus {
@@ -329,15 +437,26 @@ async fn submit_work(
 
 #[utoipa::path(post, path = "/jobs/:job_id/approve-work", tag = "Work", responses((status = 200, description = "Work approved", body = ApiStatus)))]
 async fn approve_work(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Path(job_id): Path<u64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let pda = job_pda(job_id);
-    state
+    let mut job = state
         .repo
         .get_job(&pda)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
+    let _ = &auth.pubkey;
+    if !can_transition(&job.status, &JobStatus::Approved) {
+        return Err(ApiError::Conflict(format!(
+            "invalid status transition from {:?} to Approved",
+            job.status
+        )));
+    }
+    job.status = JobStatus::Approved;
+    job.updated_at = chrono::Utc::now().timestamp();
+    state.repo.update_job(job).await?;
     Ok((
         StatusCode::OK,
         Json(ApiStatus {
@@ -349,15 +468,26 @@ async fn approve_work(
 
 #[utoipa::path(post, path = "/jobs/:job_id/reject-work", tag = "Work", responses((status = 200, description = "Work rejected", body = ApiStatus)))]
 async fn reject_work(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Path(job_id): Path<u64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let pda = job_pda(job_id);
-    state
+    let mut job = state
         .repo
         .get_job(&pda)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
+    let _ = &auth.pubkey;
+    if !can_transition(&job.status, &JobStatus::Rejected) {
+        return Err(ApiError::Conflict(format!(
+            "invalid status transition from {:?} to Rejected",
+            job.status
+        )));
+    }
+    job.status = JobStatus::Rejected;
+    job.updated_at = chrono::Utc::now().timestamp();
+    state.repo.update_job(job).await?;
     Ok((
         StatusCode::OK,
         Json(ApiStatus {
@@ -369,15 +499,26 @@ async fn reject_work(
 
 #[utoipa::path(post, path = "/jobs/:job_id/cancel", tag = "Jobs", responses((status = 200, description = "Job cancelled", body = ApiStatus)))]
 async fn cancel_job(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Path(job_id): Path<u64>,
 ) -> Result<impl IntoResponse, ApiError> {
     let pda = job_pda(job_id);
-    state
+    let mut job = state
         .repo
         .get_job(&pda)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
+    let _ = &auth.pubkey;
+    if !can_transition(&job.status, &JobStatus::Cancelled) {
+        return Err(ApiError::Conflict(format!(
+            "invalid status transition from {:?} to Cancelled",
+            job.status
+        )));
+    }
+    job.status = JobStatus::Cancelled;
+    job.updated_at = chrono::Utc::now().timestamp();
+    state.repo.update_job(job).await?;
     Ok((
         StatusCode::OK,
         Json(ApiStatus {
@@ -389,6 +530,7 @@ async fn cancel_job(
 
 #[utoipa::path(post, path = "/jobs/:job_id/pause", tag = "Jobs", responses((status = 200, description = "Job paused", body = ApiStatus)))]
 async fn pause_job(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Path(job_id): Path<u64>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -398,6 +540,7 @@ async fn pause_job(
         .get_job(&pda)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
+    let _ = &auth.pubkey;
     Ok((
         StatusCode::OK,
         Json(ApiStatus {
@@ -409,6 +552,7 @@ async fn pause_job(
 
 #[utoipa::path(post, path = "/jobs/:job_id/unpause", tag = "Jobs", responses((status = 200, description = "Job unpaused", body = ApiStatus)))]
 async fn unpause_job(
+    auth: crate::auth::AuthenticatedUser,
     State(state): State<AppState>,
     Path(job_id): Path<u64>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -418,6 +562,7 @@ async fn unpause_job(
         .get_job(&pda)
         .await?
         .ok_or_else(|| ApiError::NotFound(format!("job {} not found", job_id)))?;
+    let _ = &auth.pubkey;
     Ok((
         StatusCode::OK,
         Json(ApiStatus {
@@ -878,6 +1023,19 @@ mod routes_tests {
         serde_json::from_slice(&b).unwrap()
     }
 
+    fn auth_headers(seed: u8, msg: &str) -> (String, String, String) {
+        use base64::Engine as _;
+        use ed25519_dalek::{Signer, SigningKey};
+        let sk = SigningKey::from_bytes(&[seed; 32]);
+        let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
+        let sig = base64::engine::general_purpose::STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
+        (pk, sig, msg.to_string())
+    }
+    fn add_auth(req: Request<Body>, seed: u8) -> Request<Body> {
+        // helper not used directly; we construct headers inline
+        req
+    }
+
     #[tokio::test]
     async fn config_ok() {
         let r = test_app()
@@ -895,6 +1053,7 @@ mod routes_tests {
     #[tokio::test]
     async fn jobs_crud_and_validation() {
         let app = test_app();
+        let (pk, sig, msg) = auth_headers(7, "create-job");
         let payload = serde_json::json!({"title":"Build landing","description":"desc","amount":1000000,"deadline": 9999999999i64});
         let r = app
             .clone()
@@ -903,13 +1062,34 @@ mod routes_tests {
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", pk.clone())
+                    .header("x-signature", sig.clone())
+                    .header("x-message", msg.clone())
                     .body(Body::from(payload.to_string()))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(r.status(), StatusCode::CREATED);
-        assert_eq!(body_json(r).await["title"], "Build landing");
+        let v = body_json(r).await;
+        assert_eq!(v["title"], "Build landing");
+        assert_eq!(v["client"], pk);
+        // without auth -> 401
+        let payload_no_auth = serde_json::json!({"title":"No auth","description":"desc","amount":1000,"deadline": 9999999999i64});
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs")
+                    .method(Method::POST)
+                    .header("content-type", "application/json")
+                    .body(Body::from(payload_no_auth.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+        let (pk2, sig2, msg2) = auth_headers(7, "bad-title");
         let bad = serde_json::json!({"title":"","description":"desc","amount":1000,"deadline": 9999999999i64});
         let r = app
             .clone()
@@ -918,12 +1098,16 @@ mod routes_tests {
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", pk2)
+                    .header("x-signature", sig2)
+                    .header("x-message", msg2)
                     .body(Body::from(bad.to_string()))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        let (pk3, sig3, msg3) = auth_headers(7, "bad-amount");
         let bad2 = serde_json::json!({"title":"ok","description":"desc","amount":0,"deadline": 9999999999i64});
         let r = app
             .clone()
@@ -932,6 +1116,9 @@ mod routes_tests {
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", pk3)
+                    .header("x-signature", sig3)
+                    .header("x-message", msg3)
                     .body(Body::from(bad2.to_string()))
                     .unwrap(),
             )
@@ -958,6 +1145,8 @@ mod routes_tests {
             .await
             .unwrap();
         assert_eq!(r.status(), StatusCode::OK);
+        let v = body_json(r).await;
+        assert_eq!(v["client"], pk);
         let r = app
             .clone()
             .oneshot(
@@ -973,40 +1162,196 @@ mod routes_tests {
     #[tokio::test]
     async fn deposit_and_work_lifecycle() {
         let app = test_app();
+        let (client_pk, client_sig, client_msg) = auth_headers(7, "lifecycle");
         let payload = serde_json::json!({"title":"T","description":"D","amount":5000,"deadline": 9999999999i64});
-        app.clone()
+        let r = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", client_pk.clone())
+                    .header("x-signature", client_sig.clone())
+                    .header("x-message", client_msg.clone())
                     .body(Body::from(payload.to_string()))
                     .unwrap(),
             )
             .await
             .unwrap();
-        for uri in [
-            "/jobs/0/deposit",
-            "/jobs/0/submit-work",
-            "/jobs/0/approve-work",
-            "/jobs/0/reject-work",
-            "/jobs/0/cancel",
-            "/jobs/0/pause",
-            "/jobs/0/unpause",
-        ] {
-            let r = app
-                .clone()
-                .oneshot(
-                    Request::builder()
-                        .uri(uri)
-                        .method(Method::POST)
-                        .body(Body::empty())
-                        .unwrap(),
-                )
-                .await
-                .unwrap();
-            assert_eq!(r.status(), StatusCode::OK, "uri {} failed", uri);
-        }
+        assert_eq!(r.status(), StatusCode::CREATED);
+        // deposit (no auth required) -> OK
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/deposit")
+                    .method(Method::POST)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        // submit before accept -> should be 409 (needs Assigned)
+        let (any_pk, any_sig, any_msg) = auth_headers(7, "submit-illegal");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/submit-work")
+                    .method(Method::POST)
+                    .header("x-pubkey", any_pk)
+                    .header("x-signature", any_sig)
+                    .header("x-message", any_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        // drive valid lifecycle: apply as freelancer (seed 9), accept as client, submit, approve
+        let (freelancer_pk, freelancer_sig, freelancer_msg) = auth_headers(9, "apply-lifecycle");
+        let proposal = "lifecycle proposal";
+        let hash = {
+            use sha2::{Digest, Sha256};
+            let mut h = Sha256::new();
+            h.update(proposal.as_bytes());
+            hex::encode(h.finalize())
+        };
+        let apply = serde_json::json!({"proposal": proposal, "proposal_hash": hash});
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/apply")
+                    .method(Method::POST)
+                    .header("content-type", "application/json")
+                    .header("x-pubkey", freelancer_pk.clone())
+                    .header("x-signature", freelancer_sig)
+                    .header("x-message", freelancer_msg)
+                    .body(Body::from(apply.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CREATED);
+        let (c2_pk, c2_sig, c2_msg) = auth_headers(7, "accept-lifecycle");
+        // need to use same client pubkey as job creator (seed 7)
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/applications/0/accept")
+                    .method(Method::POST)
+                    .header("x-pubkey", c2_pk)
+                    .header("x-signature", c2_sig)
+                    .header("x-message", c2_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        let (s_pk, s_sig, s_msg) = auth_headers(7, "submit-ok");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/submit-work")
+                    .method(Method::POST)
+                    .header("x-pubkey", s_pk)
+                    .header("x-signature", s_sig)
+                    .header("x-message", s_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        let (a_pk, a_sig, a_msg) = auth_headers(7, "approve-ok");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/approve-work")
+                    .method(Method::POST)
+                    .header("x-pubkey", a_pk)
+                    .header("x-signature", a_sig)
+                    .header("x-message", a_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        // after Approved, reject should be 409
+        let (rj_pk, rj_sig, rj_msg) = auth_headers(7, "reject-after-approve");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/reject-work")
+                    .method(Method::POST)
+                    .header("x-pubkey", rj_pk)
+                    .header("x-signature", rj_sig)
+                    .header("x-message", rj_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        // cancel after terminal should be 409
+        let (can_pk, can_sig, can_msg) = auth_headers(7, "cancel-after-terminal");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/cancel")
+                    .method(Method::POST)
+                    .header("x-pubkey", can_pk)
+                    .header("x-signature", can_sig)
+                    .header("x-message", can_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        // pause/unpause still OK (any auth)
+        let (p_pk, p_sig, p_msg) = auth_headers(7, "pause");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/pause")
+                    .method(Method::POST)
+                    .header("x-pubkey", p_pk)
+                    .header("x-signature", p_sig)
+                    .header("x-message", p_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        let (up_pk, up_sig, up_msg) = auth_headers(7, "unpause");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/unpause")
+                    .method(Method::POST)
+                    .header("x-pubkey", up_pk)
+                    .header("x-signature", up_sig)
+                    .header("x-message", up_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
         let r = app
             .clone()
             .oneshot(
@@ -1023,18 +1368,24 @@ mod routes_tests {
     #[tokio::test]
     async fn applications_flow() {
         let app = test_app();
+        let (client_pk, client_sig, client_msg) = auth_headers(7, "app-create");
         let payload = serde_json::json!({"title":"T","description":"D","amount":5000,"deadline": 9999999999i64});
-        app.clone()
+        let r = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", client_pk.clone())
+                    .header("x-signature", client_sig)
+                    .header("x-message", client_msg)
                     .body(Body::from(payload.to_string()))
                     .unwrap(),
             )
             .await
             .unwrap();
+        assert_eq!(r.status(), StatusCode::CREATED);
         let proposal = "My proposal text";
         let hash = {
             use sha2::{Digest, Sha256};
@@ -1043,6 +1394,7 @@ mod routes_tests {
             hex::encode(h.finalize())
         };
         let apply = serde_json::json!({"proposal": proposal, "proposal_hash": hash});
+        let (app_pk, app_sig, app_msg) = auth_headers(9, "apply-1");
         let r = app
             .clone()
             .oneshot(
@@ -1050,18 +1402,61 @@ mod routes_tests {
                     .uri("/jobs/0/apply")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", app_pk.clone())
+                    .header("x-signature", app_sig)
+                    .header("x-message", app_msg)
                     .body(Body::from(apply.to_string()))
                     .unwrap(),
             )
             .await
             .unwrap();
         assert_eq!(r.status(), StatusCode::CREATED);
+        // duplicate apply same applicant -> 409
+        let (dup_pk, dup_sig, dup_msg) = auth_headers(9, "apply-dup");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/apply")
+                    .method(Method::POST)
+                    .header("content-type", "application/json")
+                    .header("x-pubkey", dup_pk)
+                    .header("x-signature", dup_sig)
+                    .header("x-message", dup_msg)
+                    .body(Body::from(apply.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        // accept by non-client should be 403
+        let (other_pk, other_sig, other_msg) = auth_headers(11, "accept-wrong");
         let r = app
             .clone()
             .oneshot(
                 Request::builder()
                     .uri("/jobs/0/applications/0/accept")
                     .method(Method::POST)
+                    .header("x-pubkey", other_pk)
+                    .header("x-signature", other_sig)
+                    .header("x-message", other_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
+        // accept by correct client -> OK
+        let (c_pk, c_sig, c_msg) = auth_headers(7, "accept-ok");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/applications/0/accept")
+                    .method(Method::POST)
+                    .header("x-pubkey", c_pk)
+                    .header("x-signature", c_sig)
+                    .header("x-message", c_msg)
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1069,6 +1464,7 @@ mod routes_tests {
             .unwrap();
         assert_eq!(r.status(), StatusCode::OK);
         let bad = serde_json::json!({"proposal":"hi","proposal_hash":"nothex"});
+        let (bad_pk, bad_sig, bad_msg) = auth_headers(9, "bad-proposal");
         let r = app
             .clone()
             .oneshot(
@@ -1076,6 +1472,9 @@ mod routes_tests {
                     .uri("/jobs/0/apply")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", bad_pk)
+                    .header("x-signature", bad_sig)
+                    .header("x-message", bad_msg)
                     .body(Body::from(bad.to_string()))
                     .unwrap(),
             )
@@ -1086,6 +1485,7 @@ mod routes_tests {
     #[tokio::test]
     async fn milestones_flow() {
         let app = test_app();
+        let (pk, sig, msg) = auth_headers(7, "milestone-create");
         let payload = serde_json::json!({"title":"T","description":"D","amount":5000,"deadline": 9999999999i64});
         app.clone()
             .oneshot(
@@ -1093,6 +1493,9 @@ mod routes_tests {
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", pk)
+                    .header("x-signature", sig)
+                    .header("x-message", msg)
                     .body(Body::from(payload.to_string()))
                     .unwrap(),
             )
@@ -1146,6 +1549,7 @@ mod routes_tests {
     #[tokio::test]
     async fn disputes_and_support_flow() {
         let app = test_app();
+        let (pk, sig, msg) = auth_headers(7, "dispute-create");
         let payload = serde_json::json!({"title":"T","description":"D","amount":5000,"deadline": 9999999999i64});
         app.clone()
             .oneshot(
@@ -1153,6 +1557,9 @@ mod routes_tests {
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", pk)
+                    .header("x-signature", sig)
+                    .header("x-message", msg)
                     .body(Body::from(payload.to_string()))
                     .unwrap(),
             )
@@ -1392,7 +1799,6 @@ mod routes_tests {
             .await
             .unwrap();
         assert_eq!(r.status(), StatusCode::OK);
-        // Use a valid base58 32-byte pubkey (32 '1's = 32 zero bytes, valid)
         let arb = "11111111111111111111111111111111";
         let payload = serde_json::json!({"arbiter": arb});
         let r = app
@@ -1459,5 +1865,61 @@ mod routes_tests {
             .await
             .unwrap();
         assert_eq!(r.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn cancel_transitions() {
+        let app = test_app();
+        let (pk, sig, msg) = auth_headers(7, "cancel-create");
+        let payload = serde_json::json!({"title":"CancelMe","description":"desc","amount":1000,"deadline": 9999999999i64});
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs")
+                    .method(Method::POST)
+                    .header("content-type", "application/json")
+                    .header("x-pubkey", pk.clone())
+                    .header("x-signature", sig)
+                    .header("x-message", msg)
+                    .body(Body::from(payload.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CREATED);
+        let (c_pk, c_sig, c_msg) = auth_headers(7, "cancel");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/cancel")
+                    .method(Method::POST)
+                    .header("x-pubkey", c_pk)
+                    .header("x-signature", c_sig)
+                    .header("x-message", c_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        // second cancel should be 409
+        let (c2_pk, c2_sig, c2_msg) = auth_headers(7, "cancel2");
+        let r = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/0/cancel")
+                    .method(Method::POST)
+                    .header("x-pubkey", c2_pk)
+                    .header("x-signature", c2_sig)
+                    .header("x-message", c2_msg)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
     }
 }

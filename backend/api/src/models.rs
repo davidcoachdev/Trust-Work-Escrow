@@ -28,6 +28,10 @@ pub enum JobStatusDto {
     Disputed,
     Resolved,
     Cancelled,
+    Applied,
+    Assigned,
+    Approved,
+    Rejected,
 }
 
 /// Application status values.

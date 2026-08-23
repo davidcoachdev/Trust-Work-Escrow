@@ -121,6 +121,25 @@ fn validate_description(desc: &str) -> Result<(), ValidationError> {
 // Job metadata (Postgres `jobs_metadata`)
 // ---------------------------------------------------------------------------
 
+/// Job status for off-chain metadata (Demo Day minimal state machine).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "PascalCase")]
+pub enum JobStatus {
+    Created,
+    Applied,
+    Assigned,
+    Submitted,
+    Approved,
+    Cancelled,
+    Rejected,
+}
+
+impl Default for JobStatus {
+    fn default() -> Self {
+        Self::Created
+    }
+}
+
 /// Descriptive metadata for a `Job` PDA. Stored in Postgres, linked by
 /// `pda_address`. Complements the on-chain `Job` which only keeps
 /// `client`, `amount`, `status`, `deadline`, `applicants` etc.
@@ -136,6 +155,17 @@ pub struct JobMetadata {
     pub amount: u64,
     /// Fee amount in lamports (mirrors on-chain `Job.fee_amount` = 2.5% of amount).
     pub fee_amount: u64,
+    /// Unix timestamp (seconds) for job deadline (mirrors on-chain `Job.deadline`).
+    pub deadline: i64,
+    /// Client pubkey (base58) — job owner.
+    #[serde(default)]
+    pub client: String,
+    /// Freelancer pubkey if assigned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freelancer: Option<String>,
+    /// Off-chain job status (state machine).
+    #[serde(default)]
+    pub status: JobStatus,
     /// Optional free-form skills / tags (off-chain only).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skills: Vec<String>,
@@ -147,12 +177,15 @@ pub struct JobMetadata {
 
 impl JobMetadata {
     /// Create a new `JobMetadata` with current timestamps.
+    /// `client` is the job owner's pubkey (base58). `freelancer` is None and `status` is Created.
     pub fn new(
         pda_address: String,
         title: String,
         description: String,
         amount: u64,
         fee_amount: u64,
+        deadline: i64,
+        client: String,
     ) -> Result<Self, ValidationError> {
         let now = chrono::Utc::now().timestamp();
         let m = Self {
@@ -161,6 +194,10 @@ impl JobMetadata {
             description,
             amount,
             fee_amount,
+            deadline,
+            client,
+            freelancer: None,
+            status: JobStatus::Created,
             skills: Vec::new(),
             created_at: now,
             updated_at: now,
@@ -622,25 +659,30 @@ mod tests {
         format!("7a2YhCd7iivXfyySkp1pf5jj{:0>20}{:02}", n, n)
     }
 
+    fn client_pda(n: u8) -> String {
+        format!("7a2YhCd7iivXfyySkp1pf5jjClient{:0>20}{:02}", n, n)
+    }
+
     #[test]
     fn job_title_validation() {
-        let ok = JobMetadata::new(pda(1), "Build a landing".into(), "desc".into(), 1000000, 25000).unwrap();
+        let dl = chrono::Utc::now().timestamp() + 86400;
+        let ok = JobMetadata::new(pda(1), "Build a landing".into(), "desc".into(), 1000000, 25000, dl, client_pda(1)).unwrap();
         assert_eq!(ok.title, "Build a landing");
 
         assert!(matches!(
-            JobMetadata::new(pda(2), "".into(), "desc".into(), 1000000, 25000),
+            JobMetadata::new(pda(2), "".into(), "desc".into(), 1000000, 25000, dl, client_pda(2)),
             Err(ValidationError::EmptyTitle)
         ));
         assert!(matches!(
-            JobMetadata::new(pda(3), "a".repeat(101), "desc".into(), 1000000, 25000),
+            JobMetadata::new(pda(3), "a".repeat(101), "desc".into(), 1000000, 25000, dl, client_pda(3)),
             Err(ValidationError::TitleTooLong(_, _))
         ));
         assert!(matches!(
-            JobMetadata::new(pda(4), "ok".into(), "a".repeat(501), 1000000, 25000),
+            JobMetadata::new(pda(4), "ok".into(), "a".repeat(501), 1000000, 25000, dl, client_pda(4)),
             Err(ValidationError::DescriptionTooLong(_, _))
         ));
         assert!(matches!(
-            JobMetadata::new("".into(), "ok".into(), "desc".into(), 1000000, 25000),
+            JobMetadata::new("".into(), "ok".into(), "desc".into(), 1000000, 25000, dl, client_pda(5)),
             Err(ValidationError::EmptyPda)
         ));
     }

@@ -252,6 +252,15 @@ mod tests {
         use axum::http::Method;
         let state = AppState::default();
         let app = app_with_state(state);
+        let (pk, sig, msg) = {
+            use base64::Engine as _;
+            use ed25519_dalek::{Signer, SigningKey};
+            let sk = SigningKey::from_bytes(&[7u8; 32]);
+            let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
+            let m = "validation-test";
+            let s = base64::engine::general_purpose::STANDARD.encode(sk.sign(m.as_bytes()).to_bytes());
+            (pk, s, m.to_string())
+        };
         let payload = serde_json::json!({"title":"","description":"desc","amount":0,"deadline":0});
         let resp = app
             .clone()
@@ -260,6 +269,9 @@ mod tests {
                     .uri("/jobs")
                     .method(Method::POST)
                     .header("content-type", "application/json")
+                    .header("x-pubkey", pk)
+                    .header("x-signature", sig)
+                    .header("x-message", msg)
                     .body(Body::from(payload.to_string()))
                     .unwrap(),
             )

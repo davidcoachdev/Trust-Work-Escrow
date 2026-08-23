@@ -28,6 +28,16 @@ async fn http_create_list_enrichment() {
         "deadline": future_deadline()
     });
 
+    let (pk, sig, msg) = {
+        use base64::Engine as _;
+        use ed25519_dalek::{Signer, SigningKey};
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
+        let m = "http-create";
+        let s = base64::engine::general_purpose::STANDARD.encode(sk.sign(m.as_bytes()).to_bytes());
+        (pk, s, m.to_string())
+    };
+
     let resp = app
         .clone()
         .oneshot(
@@ -35,6 +45,9 @@ async fn http_create_list_enrichment() {
                 .uri("/jobs")
                 .method(Method::POST)
                 .header("content-type", "application/json")
+                .header("x-pubkey", pk)
+                .header("x-signature", sig)
+                .header("x-message", msg)
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -102,6 +115,15 @@ async fn validation_blocks_and_no_repo_side_effect() {
     assert!(list_jobs_enriched(&state).await.unwrap().is_empty());
 
     let app = app_with_state(state.clone());
+    let (pk2, sig2, msg2) = {
+        use base64::Engine as _;
+        use ed25519_dalek::{Signer, SigningKey};
+        let sk = SigningKey::from_bytes(&[7u8; 32]);
+        let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
+        let m = "bad-job";
+        let s = base64::engine::general_purpose::STANDARD.encode(sk.sign(m.as_bytes()).to_bytes());
+        (pk, s, m.to_string())
+    };
     let payload = serde_json::json!({"title":"","description":"desc","amount":0,"deadline":0});
     let resp = app
         .oneshot(
@@ -109,6 +131,9 @@ async fn validation_blocks_and_no_repo_side_effect() {
                 .uri("/jobs")
                 .method(Method::POST)
                 .header("content-type", "application/json")
+                .header("x-pubkey", pk2)
+                .header("x-signature", sig2)
+                .header("x-message", msg2)
                 .body(Body::from(payload.to_string()))
                 .unwrap(),
         )
@@ -121,8 +146,10 @@ async fn validation_blocks_and_no_repo_side_effect() {
 #[tokio::test]
 async fn derive_pda_string_matches_routes_and_is_validation_valid() {
     let pda = derive_job_pda_string(42);
+    let dl = chrono::Utc::now().timestamp() + 86400;
+    let client = format!("7a2YhCd7iivXfyySkp1pf5jjClient{:0>20}{:02}", 1u8, 1u8);
     let m =
-        trust_escrow_api::metadata::JobMetadata::new(pda.clone(), "t".into(), "d".into()).unwrap();
+        trust_escrow_api::metadata::JobMetadata::new(pda.clone(), "t".into(), "d".into(), 1_000_000, 25_000, dl, client).unwrap();
     assert_eq!(m.pda_address, pda);
     assert!(pda.starts_with("7a2Y"));
 }
