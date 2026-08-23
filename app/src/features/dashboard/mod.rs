@@ -2,38 +2,30 @@ pub mod config;
 pub use config::ConfigPage;
 
 use dioxus::prelude::*;
-use crate::ui::{DashboardRole, Sidebar};
 use crate::route::Route;
 use crate::server::auth::guest::use_auth;
+use crate::ui::DashboardLayout;
 
+// Re-export single DashboardLayout aliases for backward compat — old layouts were separate and caused 5 sidebars
+#[allow(unused_imports)]
+pub use crate::ui::DashboardLayout as ClientLayoutComponent;
+#[allow(unused_imports)]
+pub use crate::ui::DashboardLayout as FreelancerLayoutComponent;
+#[allow(unused_imports)]
+pub use crate::ui::DashboardLayout as AdminLayoutComponent;
+
+// Keep thin wrappers if someone still imports ClientLayout etc directly
 #[component]
 pub fn ClientLayout() -> Element {
-    rsx! {
-        div { class: "flex min-h-screen bg-bg text-fg",
-            Sidebar { role: DashboardRole::Client }
-            div { class: "flex-1 p-8", Outlet::<crate::route::Route> {} }
-        }
-    }
+    rsx! { DashboardLayout {} }
 }
-
 #[component]
 pub fn FreelancerLayout() -> Element {
-    rsx! {
-        div { class: "flex min-h-screen bg-bg text-fg",
-            Sidebar { role: DashboardRole::Freelancer }
-            div { class: "flex-1 p-8", Outlet::<crate::route::Route> {} }
-        }
-    }
+    rsx! { DashboardLayout {} }
 }
-
 #[component]
 pub fn AdminLayout() -> Element {
-    rsx! {
-        div { class: "flex min-h-screen bg-bg text-fg",
-            Sidebar { role: DashboardRole::Admin }
-            div { class: "flex-1 p-8", Outlet::<crate::route::Route> {} }
-        }
-    }
+    rsx! { DashboardLayout {} }
 }
 
 #[component]
@@ -44,7 +36,7 @@ pub fn ClientDashboard() -> Element {
     let auth = use_auth();
     let is_guest = auth.user.read().as_ref().map(|u| u.is_guest).unwrap_or(true);
     let has_wallet = auth.user.read().as_ref().and_then(|u| u.wallet_pubkey.clone()).is_some();
-    let mut show_wallet_modal = use_signal(|| false);
+    let can_act = !is_guest && has_wallet;
     rsx! {
         div { class: "space-y-6",
             if is_guest {
@@ -53,8 +45,16 @@ pub fn ClientDashboard() -> Element {
                     Link { class: "text-sm text-primary underline", to: Route::LoginPage {}, "Iniciar sesión" }
                 }
             }
+            // Wallet gate banner — shown when authenticated but no wallet
+            if !is_guest && !has_wallet {
+                div { class: "bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3",
+                    span { class: "text-sm text-amber-700 dark:text-amber-300", "Conectá tu billetera en Config > Wallet para habilitar acciones" }
+                    Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-4 py-2 text-sm font-medium", to: Route::ConfigPage {}, "Ir a Config > Wallet" }
+                }
+            }
             h1 { class: "text-3xl font-bold text-primary", "Dashboard Cliente" }
             p { class: "text-muted", "Crea jobs on-chain devnet 7a2Y... y ve tu escrow congelado." }
+            // Job listing — always visible, read-only
             div { class: "bg-surface border border-border rounded-2xl p-6 space-y-3",
                 div { class: "flex justify-between items-center",
                     span { class: "text-sm font-medium", "Escrow demo JCR9..." }
@@ -74,47 +74,39 @@ pub fn ClientDashboard() -> Element {
                 }
                 p { class: "text-xs text-muted", "Fix aplicado: GET /jobs ya devuelve amount real (no 1_000_000 hardcode)" }
             }
-            div { class: "bg-surface border border-border rounded-2xl p-6 space-y-4",
-                h2 { class: "text-xl font-bold", "Crear nuevo Job (devnet)" }
-                form { class: "grid gap-3",
-                    onsubmit: move |evt| {
-                        evt.prevent_default();
-                        if !has_wallet {
-                            show_wallet_modal.set(true);
-                            return;
+            // Only show create form when wallet present; otherwise show CTA
+            if can_act {
+                div { class: "bg-surface border border-border rounded-2xl p-6 space-y-4",
+                    h2 { class: "text-xl font-bold", "Crear nuevo Job (devnet)" }
+                    form { class: "grid gap-3",
+                        onsubmit: move |evt| {
+                            evt.prevent_default();
+                            let t = title.read().clone();
+                            let amt = amount_sol.read().clone();
+                            spawn(async move {
+                                msg.set(format!("Creando '{}' por {} SOL en devnet 7a2Y... (usa SDK devnet)", t, amt));
+                            });
+                        },
+                        input { class: "bg-bg border border-border rounded-xl px-3 py-2 text-fg",
+                            placeholder: "Título (ej: Landing Trust Work)",
+                            value: "{title.read()}",
+                            oninput: move |e| title.set(e.value()),
                         }
-                        let t = title.read().clone();
-                        let amt = amount_sol.read().clone();
-                        spawn(async move {
-                            msg.set(format!("Creando '{}' por {} SOL en devnet 7a2Y... (usa SDK devnet)", t, amt));
-                        });
-                    },
-                    input { class: "bg-bg border border-border rounded-xl px-3 py-2 text-fg",
-                        placeholder: "Título (ej: Landing Trust Work)",
-                        value: "{title.read()}",
-                        oninput: move |e| title.set(e.value()),
-                    }
-                    input { class: "bg-bg border border-border rounded-xl px-3 py-2 text-fg",
-                        placeholder: "0.1",
-                        value: "{amount_sol.read()}",
-                        oninput: move |e| amount_sol.set(e.value()),
-                    }
-                    button { class: "bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium hover:opacity-90", r#type: "submit", "Crear Job (usa 3whY... en devnet)" }
-                    if !msg.read().is_empty() {
-                        p { class: "text-sm text-primary", "{msg.read()}" }
+                        input { class: "bg-bg border border-border rounded-xl px-3 py-2 text-fg",
+                            placeholder: "0.1",
+                            value: "{amount_sol.read()}",
+                            oninput: move |e| amount_sol.set(e.value()),
+                        }
+                        button { class: "bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium hover:opacity-90", r#type: "submit", "Crear Job (usa 3whY... en devnet)" }
+                        if !msg.read().is_empty() {
+                            p { class: "text-sm text-primary", "{msg.read()}" }
+                        }
                     }
                 }
-            }
-            if *show_wallet_modal.read() {
-                div { class: "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4",
-                    div { class: "bg-surface border border-border rounded-2xl p-6 max-w-sm w-full space-y-4",
-                        h3 { class: "text-lg font-bold", "Necesitás billetera" }
-                        p { class: "text-sm text-muted", "Para interactuar (crear job, firmar) necesitás una billetera. La creación es solo en Config > Wallet para evitar múltiples billeteras." }
-                        div { class: "flex gap-2",
-                            Link { class: "flex-1 bg-primary text-on-primary rounded-xl px-4 py-2 text-sm text-center font-medium", to: Route::ConfigPage {}, "Ir a Config > Wallet" }
-                            button { class: "bg-bg border border-border rounded-xl px-4 py-2 text-sm", r#type: "button", onclick: move |_| show_wallet_modal.set(false), "Cerrar" }
-                        }
-                    }
+            } else if !is_guest {
+                div { class: "bg-surface border border-dashed border-border rounded-2xl p-6 text-center space-y-3",
+                    p { class: "text-sm text-muted", "Necesitás billetera para crear jobs, firmar y liberar escrow." }
+                    Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium", to: Route::ConfigPage {}, "Crear mi billetera en Config" }
                 }
             }
         }
@@ -123,10 +115,27 @@ pub fn ClientDashboard() -> Element {
 
 #[component]
 pub fn FreelancerDashboard() -> Element {
+    let auth = use_auth();
+    let is_guest = auth.user.read().as_ref().map(|u| u.is_guest).unwrap_or(true);
+    let has_wallet = auth.user.read().as_ref().and_then(|u| u.wallet_pubkey.clone()).is_some();
+    let can_act = !is_guest && has_wallet;
     rsx! {
         div { class: "space-y-6",
+            if is_guest {
+                div { class: "bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex items-center justify-between",
+                    span { class: "text-sm text-amber-700 dark:text-amber-300", "Modo invitado · Solo lectura" }
+                    Link { class: "text-sm text-primary underline", to: Route::LoginPage {}, "Iniciar sesión" }
+                }
+            }
+            if !is_guest && !has_wallet {
+                div { class: "bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3",
+                    span { class: "text-sm text-amber-700 dark:text-amber-300", "Conectá tu billetera en Config > Wallet para habilitar acciones" }
+                    Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-4 py-2 text-sm font-medium", to: Route::ConfigPage {}, "Ir a Config > Wallet" }
+                }
+            }
             h1 { class: "text-3xl font-bold text-primary", "Dashboard Freelancer" }
             p { class: "text-muted", "Jobs disponibles en devnet 7a2Y... y tus postulaciones." }
+            // Listing — always visible read-only
             div { class: "bg-surface border border-border rounded-2xl p-6 space-y-3",
                 div { class: "flex justify-between items-center",
                     span { class: "font-medium", "Job #0 — Landing Trust Work" }
@@ -145,6 +154,25 @@ pub fn FreelancerDashboard() -> Element {
                     }
                 }
                 a { class: "inline-flex bg-primary text-on-primary rounded-xl px-4 py-2 text-sm font-medium", href: "https://explorer.solana.com/tx/3FDyPuuwEni6KqtafBcNrKDdAhY6vRJf53abFusdbLsHFo5i8wCXvBGeJeEA1mPCNXyTSyNNhNy3mWYLPtU3weRo?cluster=devnet", target: "_blank", "Ver Tx Apply 3FDy..." }
+                // Postular CTA — gated by wallet
+                if can_act {
+                    button { class: "mt-3 w-full bg-primary text-on-primary rounded-xl px-4 py-2.5 font-medium hover:opacity-90", r#type: "button",
+                        "Postular a este Job"
+                    }
+                } else {
+                    div { class: "mt-3 space-y-2",
+                        button { class: "w-full bg-bg border border-border rounded-xl px-4 py-2.5 font-medium opacity-50 cursor-not-allowed", r#type: "button", disabled: true, "Postular (requiere billetera)" }
+                        if !is_guest {
+                            p { class: "text-xs text-amber-600 text-center", "Conectá tu billetera en Config > Wallet para postularte" }
+                        }
+                    }
+                }
+            }
+            if !can_act && !is_guest {
+                div { class: "bg-surface border border-dashed border-border rounded-2xl p-6 text-center space-y-3",
+                    p { class: "text-sm text-muted", "Sin billetera no podés firmar la postulación on-chain." }
+                    Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium", to: Route::ConfigPage {}, "Crear mi billetera en Config" }
+                }
             }
         }
     }
@@ -180,7 +208,3 @@ pub fn AdminDashboard() -> Element {
         }
     }
 }
-
-pub use ClientLayout as ClientLayoutComponent;
-pub use FreelancerLayout as FreelancerLayoutComponent;
-pub use AdminLayout as AdminLayoutComponent;

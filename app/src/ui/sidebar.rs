@@ -10,23 +10,23 @@ pub enum DashboardRole {
 
 #[component]
 pub fn Sidebar(role: DashboardRole) -> Element {
+    // Only routes that actually exist — no broken /create, /escrow/*, /applications etc.
+    // Single sidebar instance is rendered by DashboardLayout for all /dashboard/* routes.
     let links = match role {
         DashboardRole::Client => vec![
             ("/dashboard/client", "Mis Jobs"),
-            ("/dashboard/client/create", "Crear Job"),
-            ("/dashboard/client/escrow/JCR9", "Escrow 0.1 SOL"),
             ("/dashboard/config", "Config · Wallet"),
         ],
         DashboardRole::Freelancer => vec![
             ("/dashboard/freelancer", "Jobs disponibles"),
-            ("/dashboard/freelancer/applications", "Mis postulaciones"),
             ("/dashboard/config", "Config · Wallet"),
         ],
-        DashboardRole::Arbiter => vec![("/dashboard/arbiter", "Disputas")],
+        DashboardRole::Arbiter => vec![
+            ("/dashboard/config", "Config · Wallet"),
+        ],
         DashboardRole::Admin => vec![
             ("/dashboard/admin", "Métricas"),
-            ("/dashboard/admin/treasury", "Treasury 6KSy..."),
-            ("/dashboard/admin/custody", "Custody"),
+            ("/dashboard/config", "Config · Wallet"),
         ],
     };
 

@@ -52,12 +52,13 @@ pub fn LandingPage() -> Element {
     });
 
     rsx! {
+        // SEO: landing is the only indexable page — dashboard uses noindex via DashboardLayout
         Reveal { Hero {} }
         Reveal { HowItWorks {} }
         Reveal { Features {} }
         Reveal { Stats {} }
         Reveal { ForWhom {} }
         Reveal { Cta {} }
-        Reveal { Footer {} }
+        // Footer is rendered by MarketingLayout, not here — avoids duplication inside (marketing) group
     }
 }
