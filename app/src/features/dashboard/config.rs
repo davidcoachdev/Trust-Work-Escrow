@@ -38,6 +38,8 @@ pub fn ConfigPage() -> Element {
         current_pubkey.clone()
     };
     let has_display_wallet = !display_pubkey.is_empty();
+    // Clone for button closure (avoid nested rsx! which breaks onclick)
+    let display_pubkey_for_copy = display_pubkey.clone();
 
     rsx! {
         div { class: "space-y-6 max-w-2xl",
@@ -53,24 +55,19 @@ pub fn ConfigPage() -> Element {
                         div { class: "text-xs text-muted", "Tu billetera" }
                         div { class: "font-mono text-sm break-all text-primary", "{display_pubkey.clone()}" }
                         div { class: "flex flex-wrap gap-2",
-                            {
-                                let dp = display_pubkey.clone();
-                                rsx! {
-                                    button {
-                                        class: "bg-bg border border-border rounded-xl px-3 py-2 text-sm hover:border-primary",
-                                        r#type: "button",
-                                        onclick: move |_| {
-                                            #[cfg(target_arch = "wasm32")]
-                                            {
-                                                if let Some(win) = web_sys::window() {
-                                                    let _ = win.navigator().clipboard().write_text(&dp);
-                                                }
-                                            }
-                                            msg.set("Copiado".to_string());
-                                        },
-                                        "Copiar"
+                            button {
+                                class: "bg-bg border border-border rounded-xl px-3 py-2 text-sm hover:border-primary",
+                                r#type: "button",
+                                onclick: move |_| {
+                                    #[cfg(target_arch = "wasm32")]
+                                    {
+                                        if let Some(win) = web_sys::window() {
+                                            let _ = win.navigator().clipboard().write_text(&display_pubkey_for_copy);
+                                        }
                                     }
-                                }
+                                    msg.set("Copiado".to_string());
+                                },
+                                "Copiar"
                             }
                             a {
                                 class: "inline-flex bg-primary text-on-primary rounded-xl px-3 py-2 text-sm font-medium",
