@@ -51,21 +51,26 @@ pub fn ConfigPage() -> Element {
                 if has_display_wallet {
                     div { class: "bg-bg border border-border rounded-xl p-4 space-y-3",
                         div { class: "text-xs text-muted", "Tu billetera" }
-                        div { class: "font-mono text-sm break-all text-primary", "{display_pubkey}" }
+                        div { class: "font-mono text-sm break-all text-primary", "{display_pubkey.clone()}" }
                         div { class: "flex flex-wrap gap-2",
-                            button {
-                                class: "bg-bg border border-border rounded-xl px-3 py-2 text-sm hover:border-primary",
-                                r#type: "button",
-                                onclick: move |_| {
-                                    #[cfg(target_arch = "wasm32")]
-                                    {
-                                        if let Some(win) = web_sys::window() {
-                                            let _ = win.navigator().clipboard().write_text(&display_pubkey);
-                                        }
+                            {
+                                let dp = display_pubkey.clone();
+                                rsx! {
+                                    button {
+                                        class: "bg-bg border border-border rounded-xl px-3 py-2 text-sm hover:border-primary",
+                                        r#type: "button",
+                                        onclick: move |_| {
+                                            #[cfg(target_arch = "wasm32")]
+                                            {
+                                                if let Some(win) = web_sys::window() {
+                                                    let _ = win.navigator().clipboard().write_text(&dp);
+                                                }
+                                            }
+                                            msg.set("Copiado".to_string());
+                                        },
+                                        "Copiar"
                                     }
-                                    msg.set("Copiado".to_string());
-                                },
-                                "Copiar"
+                                }
                             }
                             a {
                                 class: "inline-flex bg-primary text-on-primary rounded-xl px-3 py-2 text-sm font-medium",
@@ -75,8 +80,8 @@ pub fn ConfigPage() -> Element {
                             }
                             a {
                                 class: "inline-flex bg-bg border border-border rounded-xl px-3 py-2 text-sm",
-                                href: format!("solana:{}", display_pubkey),
-                                "Deep link solana:{display_pubkey}"
+                                href: format!("solana:{}", display_pubkey.clone()),
+                                "Deep link solana:{display_pubkey.clone()}"
                             }
                         }
                         // Export / reveal private key (requires OTP + checkbox)
