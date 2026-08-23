@@ -98,4 +98,10 @@ pub enum ErrorCode {
     AuthorityTimelockNotExpired,
     #[msg("Invalid new authority")]
     InvalidNewAuthority,
+    #[msg("Authority proposal already pending — cancel first")]
+    AlreadyPending,
+    #[msg("Invalid authority")]
+    InvalidAuthority,
+    #[msg("Program is globally paused")]
+    Paused,
 }

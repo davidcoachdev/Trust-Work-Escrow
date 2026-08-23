@@ -3,8 +3,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer, ID as SYSTEM_PROGRAM_ID};
 use crate::errors::ErrorCode;
 use crate::state::*;
-use crate::{ARBITER_FEE_BPS_PER_PARTY, AUTO_APPROVAL_DELAY, BASIS_POINTS, DISPUTE_ACCEPT_GRACE, INITIAL_AUTHORITY, MAX_APPLICATIONS, MAX_ARBITERS, MAX_EVIDENCE_COUNT, MAX_MILESTONES, MAX_PAUSE_DURATION, MIN_JOB_AMOUNT};
-use crate::{check_not_paused, cleanup_job_applications, close_evidence_account, compute_fee, compute_shortfall, transfer_job_lamports, validate_treasury_destination};
+use crate::{ARBITER_FEE_BPS_PER_PARTY, AUTO_APPROVAL_DELAY, BASIS_POINTS, DISPUTE_ACCEPT_GRACE, INITIAL_AUTHORITY, MAX_APPLICATIONS, MAX_ARBITERS, MAX_EVIDENCE_COUNT, MAX_MILESTONES, MAX_PAUSE_DURATION, MIN_JOB_AMOUNT, RemainingAccounts};
+use crate::{assert_not_paused, check_not_paused, cleanup_job_applications, close_evidence_account, compute_fee, compute_shortfall, transfer_from_pda, transfer_job_lamports, validate_treasury_destination};
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
@@ -21,6 +21,8 @@ pub struct RaiseDispute<'info> {
     pub dispute: Account<'info, Dispute>,
     #[account(init, payer = raiser, space = ArbitrationEscrow::INIT_SPACE + 8, seeds = [b"arb_fee", job.key().as_ref()], bump)]
     pub escrow: Account<'info, ArbitrationEscrow>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -37,6 +39,8 @@ pub struct AcceptDispute<'info> {
     pub dispute: Account<'info, Dispute>,
     #[account(mut, seeds = [b"arb_fee", job.key().as_ref()], bump = escrow.bump)]
     pub escrow: Account<'info, ArbitrationEscrow>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -59,6 +63,8 @@ pub struct SubmitEvidence<'info> {
         bump
     )]
     pub evidence: Account<'info, Evidence>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -94,6 +100,8 @@ pub struct ResolveDispute<'info> {
     pub job: Account<'info, Job>,
     #[account(mut, seeds = [b"dispute", job.key().as_ref()], bump = dispute.bump)]
     pub dispute: Account<'info, Dispute>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
@@ -120,6 +128,8 @@ pub struct RequestPlatformIntervention<'info> {
     pub job: Account<'info, Job>,
     #[account(mut, seeds = [b"dispute", job.key().as_ref()], bump = dispute.bump)]
     pub dispute: Account<'info, Dispute>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
@@ -141,14 +151,16 @@ pub struct OpenSupportTicket<'info> {
         bump
     )]
     pub ticket: Account<'info, SupportTicket>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, remaining_metas: RemainingAccounts)]
 pub struct ResolveSupportTicket<'info> {
     pub advisor: Signer<'info>,
-    /// CHECK: client validado por el PDA del job.
+    /// CHECK: client validado por el PDA del job (es job.client, a quien se reembolsa).
     #[account(constraint = client.owner == &SYSTEM_PROGRAM_ID @ ErrorCode::NotAuthorized)]
     pub client: UncheckedAccount<'info>,
     #[account(
@@ -174,7 +186,7 @@ pub struct ResolveSupportTicket<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, remaining_metas: RemainingAccounts)]
 pub struct FinalizeDisputePayouts<'info> {
     pub resolver: Signer<'info>,
     /// CHECK: client validado por el PDA del job.
@@ -223,7 +235,7 @@ pub struct FinalizeDisputePayouts<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, remaining_metas: RemainingAccounts)]
 pub struct CleanupDisputeEvidence<'info> {
     pub resolver: Signer<'info>,
     /// CHECK: client validado por el PDA del job y debe ser una cuenta System.
@@ -235,9 +247,11 @@ pub struct CleanupDisputeEvidence<'info> {
     pub dispute: Account<'info, Dispute>,
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
+    pub system_program: Program<'info, System>,
 }
 
 pub fn raise_dispute(ctx: Context<RaiseDispute>, _job_id: u64) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     require!(
         ctx.accounts.job.status == JobStatus::Submitted
             || ctx.accounts.job.status == JobStatus::InProgress,
@@ -304,6 +318,7 @@ pub fn raise_dispute(ctx: Context<RaiseDispute>, _job_id: u64) -> Result<()> {
 }
 
 pub fn accept_dispute(ctx: Context<AcceptDispute>, _job_id: u64) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let dispute = &mut ctx.accounts.dispute;
     require!(
         dispute.status == DisputeStatus::Open,
@@ -364,6 +379,7 @@ pub fn submit_evidence(
     index: u8,
     content_hash: [u8; 32],
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let dispute = &mut ctx.accounts.dispute;
     require!(
         dispute.status != DisputeStatus::Resolved && dispute.status != DisputeStatus::Expired,
@@ -401,10 +417,11 @@ pub fn submit_evidence(
 }
 
 pub fn assign_arbiter(ctx: Context<AssignArbiter>, _job_id: u64) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let pool = &ctx.accounts.pool;
     require!(
         pool.authority == ctx.accounts.config.authority,
-        ErrorCode::NotAuthorized
+        ErrorCode::InvalidAuthority
     );
     require!(
         pool.arbiters.contains(&ctx.accounts.arbiter.key()),
@@ -434,6 +451,7 @@ pub fn resolve_dispute(
     _job_id: u64,
     client_payout_percent: u8,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let dispute = &mut ctx.accounts.dispute;
     require!(
         dispute.arbiter == Some(ctx.accounts.arbiter.key()),
@@ -462,6 +480,7 @@ pub fn resolve_platform_case(
     _job_id: u64,
     client_payout_percent: u8,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let config = &ctx.accounts.config;
     require!(
         config.advisor == ctx.accounts.advisor.key(),
@@ -502,6 +521,7 @@ pub fn request_platform_intervention(
     ctx: Context<RequestPlatformIntervention>,
     _job_id: u64,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let dispute = &mut ctx.accounts.dispute;
     require!(
         dispute.status == DisputeStatus::Open,
@@ -522,6 +542,7 @@ pub fn request_platform_intervention(
 }
 
 pub fn open_support_ticket(ctx: Context<OpenSupportTicket>, _job_id: u64) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &ctx.accounts.job;
     require!(
         job.status == JobStatus::InProgress || job.status == JobStatus::Submitted,
@@ -546,7 +567,8 @@ pub fn open_support_ticket(ctx: Context<OpenSupportTicket>, _job_id: u64) -> Res
     Ok(())
 }
 
-pub fn resolve_support_ticket(ctx: Context<ResolveSupportTicket>, _job_id: u64) -> Result<()> {
+pub fn resolve_support_ticket(ctx: Context<ResolveSupportTicket>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let config = &ctx.accounts.config;
     require!(
         config.advisor == ctx.accounts.advisor.key(),
@@ -575,9 +597,10 @@ pub fn resolve_support_ticket(ctx: Context<ResolveSupportTicket>, _job_id: u64) 
         ErrorCode::InvalidJobStatus
     );
 
-    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx
     if !ctx.remaining_accounts.is_empty() {
-        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, &remaining_metas, false, true)?;
+    } else {
+        require!(remaining_metas.metas.is_empty(), ErrorCode::InvalidApplicationCleanupAccounts);
     }
 
     let remaining_principal = job
@@ -587,11 +610,12 @@ pub fn resolve_support_ticket(ctx: Context<ResolveSupportTicket>, _job_id: u64) 
     let refund = remaining_principal
         .checked_add(job.fee_amount)
         .ok_or(ErrorCode::MathOverflow)?;
-    transfer_job_lamports(
+    let job_seeds: &[&[u8]] = &[b"job", job.client.as_ref(), &_job_id.to_le_bytes(), &[job.bump]];
+    transfer_from_pda(
         &job.to_account_info(),
         &ctx.accounts.client.to_account_info(),
         refund,
-    )?;
+        job_seeds)?;
 
     job.status = JobStatus::Cancelled;
     ticket.status = SupportTicketStatus::Resolved;
@@ -600,10 +624,12 @@ pub fn resolve_support_ticket(ctx: Context<ResolveSupportTicket>, _job_id: u64) 
     Ok(())
 }
 
-pub fn finalize_dispute_payouts(
-    ctx: Context<FinalizeDisputePayouts>,
+pub fn finalize_dispute_payouts<'info>(
+    ctx: Context<'_, '_, '_, 'info, FinalizeDisputePayouts<'info>>,
     _job_id: u64,
+    remaining_metas: RemainingAccounts,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let dispute = &ctx.accounts.dispute;
     require!(
         dispute.status == DisputeStatus::Resolved,
@@ -625,24 +651,26 @@ pub fn finalize_dispute_payouts(
         .evidence_count
         .checked_sub(dispute.evidence_cleanup_cursor)
         .ok_or(ErrorCode::InvalidEvidenceCleanupAccounts)?;
-    // V3-PERF-011: paginación 10 por tx para evidence y applications.
-    // Si hay más de 10 evidencias pendientes, el caller debe paginar vía
-    // `cleanup_dispute_evidence` antes de `finalize`. Aquí solo se permite
-    // hasta MAX_EVIDENCE_CLEANUP_BATCH por tx.
     require!(
         ctx.remaining_accounts.len() >= expected_evidence as usize,
         ErrorCode::InvalidEvidenceCleanupAccounts
     );
     let (evidence_accounts, application_accounts) =
         ctx.remaining_accounts.split_at(expected_evidence as usize);
-    // Validar paginación tipada para ambos slices
     require!(
         evidence_accounts.len() <= crate::MAX_EVIDENCE_CLEANUP_BATCH,
         ErrorCode::InvalidEvidenceCleanupAccounts
     );
-    crate::validate_evidence_remaining(evidence_accounts)?;
+    // P0-1: validate metas split accordingly
+    let evidence_metas_len = evidence_accounts.len();
+    let _app_metas_len = application_accounts.len();
+    // Validate overall metas length matches remaining_accounts
+    remaining_metas.validate_infos(ctx.remaining_accounts)?;
+    let evidence_metas = RemainingAccounts { metas: remaining_metas.metas[..evidence_metas_len].to_vec() };
+    let app_metas = RemainingAccounts { metas: remaining_metas.metas[evidence_metas_len..].to_vec() };
+    crate::validate_evidence_remaining(&evidence_metas, evidence_accounts)?;
     if !application_accounts.is_empty() {
-        cleanup_job_applications(job, &job.key(), 0, application_accounts, false, true)?;
+        cleanup_job_applications(job, &job.key(), 0, application_accounts, &app_metas, false, true)?;
     }
 
     let amount = job
@@ -664,36 +692,37 @@ pub fn finalize_dispute_payouts(
         .checked_sub(shortfall)
         .ok_or(ErrorCode::MathOverflow)?;
 
-    transfer_job_lamports(
+    let job_seeds: &[&[u8]] = &[b"job", job.client.as_ref(), &_job_id.to_le_bytes(), &[job.bump]];
+    transfer_from_pda(
         &job.to_account_info(),
         &ctx.accounts.treasury.to_account_info(),
         fee_amount,
-    )?;
+        job_seeds)?;
 
     let client_net = (to_parties as u128 * client_pct as u128 / 100) as u64;
     if client_net > 0 {
-        transfer_job_lamports(
+        transfer_from_pda(
             &job.to_account_info(),
             &ctx.accounts.client.to_account_info(),
             client_net,
-        )?;
+            job_seeds)?;
     }
 
     let freelancer_net = (to_parties as u128 * freelancer_pct as u128 / 100) as u64;
     if freelancer_net > 0 {
-        transfer_job_lamports(
+        transfer_from_pda(
             &job.to_account_info(),
             &ctx.accounts.freelancer.to_account_info(),
             freelancer_net,
-        )?;
+            job_seeds)?;
     }
 
     if shortfall > 0 {
-        transfer_job_lamports(
+        transfer_from_pda(
             &job.to_account_info(),
             &ctx.accounts.arbitration_treasury.to_account_info(),
             shortfall,
-        )?;
+            job_seeds)?;
     }
 
     require!(
@@ -706,7 +735,7 @@ pub fn finalize_dispute_payouts(
             evidence,
             &ctx.accounts.client.to_account_info(),
             &dispute.key(),
-            index,
+            index
         )?;
     }
 
@@ -714,10 +743,12 @@ pub fn finalize_dispute_payouts(
     Ok(())
 }
 
-pub fn cleanup_dispute_evidence(
-    ctx: Context<CleanupDisputeEvidence>,
+pub fn cleanup_dispute_evidence<'info>(
+    ctx: Context<'_, '_, '_, 'info, CleanupDisputeEvidence<'info>>,
     _job_id: u64,
+    remaining_metas: RemainingAccounts,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let dispute = &mut ctx.accounts.dispute;
     require!(
         dispute.status == DisputeStatus::Resolved || dispute.status == DisputeStatus::Expired,
@@ -741,19 +772,19 @@ pub fn cleanup_dispute_evidence(
         ctx.remaining_accounts.len() <= remaining as usize,
         ErrorCode::InvalidEvidenceCleanupAccounts
     );
-    // V3-PERF-011: paginación obligatoria 10 por tx + RemainingAccounts tipado
     require!(
         ctx.remaining_accounts.len() <= crate::MAX_EVIDENCE_CLEANUP_BATCH,
         ErrorCode::InvalidEvidenceCleanupAccounts
     );
-    crate::validate_evidence_remaining(ctx.remaining_accounts)?;
+    remaining_metas.validate_infos(ctx.remaining_accounts)?;
+    crate::validate_evidence_remaining(&remaining_metas, ctx.remaining_accounts)?;
     for (offset, evidence) in ctx.remaining_accounts.iter().enumerate() {
         let index = dispute.evidence_cleanup_cursor + offset as u8;
         close_evidence_account(
             evidence,
             &ctx.accounts.client.to_account_info(),
             &dispute.key(),
-            index,
+            index
         )?;
     }
     dispute.evidence_cleanup_cursor = dispute
@@ -762,4 +793,3 @@ pub fn cleanup_dispute_evidence(
         .ok_or(ErrorCode::MathOverflow)?;
     Ok(())
 }
-

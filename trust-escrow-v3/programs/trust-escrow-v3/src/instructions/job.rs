@@ -3,8 +3,8 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer, ID as SYSTEM_PROGRAM_ID};
 use crate::errors::ErrorCode;
 use crate::state::*;
-use crate::{ARBITER_FEE_BPS_PER_PARTY, AUTO_APPROVAL_DELAY, BASIS_POINTS, DISPUTE_ACCEPT_GRACE, INITIAL_AUTHORITY, MAX_APPLICATIONS, MAX_ARBITERS, MAX_EVIDENCE_COUNT, MAX_MILESTONES, MAX_PAUSE_DURATION, MIN_JOB_AMOUNT};
-use crate::{check_not_paused, cleanup_job_applications, close_evidence_account, compute_fee, compute_shortfall, transfer_job_lamports, validate_treasury_destination};
+use crate::{ARBITER_FEE_BPS_PER_PARTY, AUTO_APPROVAL_DELAY, BASIS_POINTS, DISPUTE_ACCEPT_GRACE, INITIAL_AUTHORITY, MAX_APPLICATIONS, MAX_ARBITERS, MAX_EVIDENCE_COUNT, MAX_MILESTONES, MAX_PAUSE_DURATION, MIN_JOB_AMOUNT, RemainingAccounts};
+use crate::{assert_not_paused, check_not_paused, cleanup_job_applications, close_evidence_account, compute_fee, compute_shortfall, transfer_from_pda, transfer_job_lamports, validate_treasury_destination};
 
 #[derive(Accounts)]
 #[instruction(job_id: u64)]
@@ -61,6 +61,8 @@ pub struct ApplyToJob<'info> {
         bump
     )]
     pub application: Account<'info, Application>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -83,6 +85,8 @@ pub struct AcceptApplication<'info> {
         bump = application.bump
     )]
     pub application: Account<'info, Application>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
@@ -105,6 +109,8 @@ pub struct RejectApplication<'info> {
         close = applicant
     )]
     pub application: Account<'info, Application>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
@@ -127,10 +133,12 @@ pub struct WithdrawApplication<'info> {
         close = applicant
     )]
     pub application: Account<'info, Application>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64, start_index: u8)]
+#[instruction(job_id: u64, start_index: u8, remaining_metas: RemainingAccounts)]
 pub struct CleanupApplications<'info> {
     pub client: Signer<'info>,
     #[account(
@@ -140,6 +148,9 @@ pub struct CleanupApplications<'info> {
         constraint = job.client == client.key() @ ErrorCode::NotJobClient
     )]
     pub job: Account<'info, Job>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
@@ -154,10 +165,12 @@ pub struct SubmitWork<'info> {
         bump = job.bump
     )]
     pub job: Account<'info, Job>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, remaining_metas: RemainingAccounts)]
 pub struct AutoApproveWork<'info> {
     #[account(mut)]
     pub keeper: Signer<'info>,
@@ -184,10 +197,11 @@ pub struct AutoApproveWork<'info> {
     pub dispute: Option<Account<'info, Dispute>>,
     #[account(seeds = [b"config"], bump = config.bump)]
     pub config: Account<'info, Config>,
+    pub system_program: Program<'info, System>,
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, remaining_metas: RemainingAccounts)]
 pub struct ApproveWork<'info> {
     pub client: Signer<'info>,
     #[account(
@@ -221,10 +235,12 @@ pub struct RejectWork<'info> {
         bump = job.bump
     )]
     pub job: Account<'info, Job>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, remaining_metas: RemainingAccounts)]
 pub struct CancelJob<'info> {
     #[account(mut)]
     pub client: Signer<'info>,
@@ -235,6 +251,8 @@ pub struct CancelJob<'info> {
         close = client
     )]
     pub job: Account<'info, Job>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -248,6 +266,8 @@ pub struct PauseJob<'info> {
         bump = job.bump
     )]
     pub job: Account<'info, Job>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
@@ -260,10 +280,12 @@ pub struct UnpauseJob<'info> {
         bump = job.bump
     )]
     pub job: Account<'info, Job>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
-#[instruction(job_id: u64)]
+#[instruction(job_id: u64, remaining_metas: RemainingAccounts)]
 pub struct ExpirePausedJob<'info> {
     pub caller: Signer<'info>,
     /// CHECK: client validado por el PDA del job (es job.client, a quien se reembolsa).
@@ -276,6 +298,8 @@ pub struct ExpirePausedJob<'info> {
         close = client
     )]
     pub job: Account<'info, Job>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -286,7 +310,7 @@ pub fn create_job(
     deadline: i64,
 ) -> Result<()> {
     let config = &ctx.accounts.config;
-    require!(!config.paused, ErrorCode::ProgramPaused);
+    require!(!config.paused, ErrorCode::Paused);
     require!(amount >= MIN_JOB_AMOUNT, ErrorCode::AmountTooSmall);
     let clock = Clock::get()?;
     require!(deadline > clock.unix_timestamp, ErrorCode::DeadlineMustBeFuture);
@@ -313,6 +337,7 @@ pub fn create_job(
 }
 
 pub fn deposit_funds(ctx: Context<DepositFunds>, _job_id: u64) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.status == JobStatus::Created,
@@ -352,6 +377,7 @@ pub fn apply_to_job(
     application_index: u8,
     proposal_hash: [u8; 32],
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
     check_not_paused(job)?;
@@ -374,8 +400,6 @@ pub fn apply_to_job(
         application_index as usize == job.applicants.len(),
         ErrorCode::ApplicationIndexMismatch
     );
-    // Texto vacío/excesivo: on-chain solo ve hash, pero rechaza hash nulo (propuesta vacía sin hashear)
-    // La longitud excesiva ya se valida off-chain (512) y en el SDK antes de hashear; aquí defendemos hash vacío.
     require!(proposal_hash != [0u8; 32], ErrorCode::EmptyProposal);
 
     let application = &mut ctx.accounts.application;
@@ -400,6 +424,7 @@ pub fn accept_application(
     _job_id: u64,
     application_index: u8,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
     check_not_paused(job)?;
@@ -445,6 +470,7 @@ pub fn reject_application(
     _job_id: u64,
     application_index: u8,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &ctx.accounts.job;
     require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
     check_not_paused(job)?;
@@ -473,6 +499,12 @@ pub fn reject_application(
         application.applicant == ctx.accounts.applicant.key(),
         ErrorCode::InvalidApplicationAccount
     );
+    // Rent leak fix: `close = applicant` refunds rent to applicant.
+    // job.applicants Vec retains the Pubkey for history/index stability
+    // (pruning would shift indices and break deterministic PDA seeds at
+    // `[b"application", job, &[index], applicant]`). The Vec is bounded at
+    // MAX_APPLICATIONS=50 and future cleanups paginate 10 per tx, so no leak
+    // beyond the bounded reserve. Status is implicitly closed via account close.
     msg!(
         "Application rejected: index {} applicant {}",
         application_index,
@@ -486,6 +518,7 @@ pub fn withdraw_application(
     _job_id: u64,
     application_index: u8,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &ctx.accounts.job;
     require!(job.status == JobStatus::Funded, ErrorCode::InvalidJobStatus);
     check_not_paused(job)?;
@@ -522,7 +555,9 @@ pub fn cleanup_applications(
     ctx: Context<CleanupApplications>,
     _job_id: u64,
     start_index: u8,
+    remaining_metas: RemainingAccounts,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &ctx.accounts.job;
     require!(
         job.status == JobStatus::InProgress
@@ -535,19 +570,19 @@ pub fn cleanup_applications(
         !ctx.remaining_accounts.is_empty(),
         ErrorCode::InvalidApplicationCleanupAccounts
     );
-    // V3-ARCH-004 + V3-PERF-011: paginación obligatoria 10 por tx validada dentro
-    // de cleanup_job_applications via RemainingAccounts tipado y MAX_CLEANUP_BATCH.
     cleanup_job_applications(
         job,
         &job.key(),
         start_index,
         ctx.remaining_accounts,
+        &remaining_metas,
         false,
-        false,
+        false
     )
 }
 
 pub fn submit_work(ctx: Context<SubmitWork>, _job_id: u64) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.freelancer == Some(ctx.accounts.freelancer.key()),
@@ -557,6 +592,7 @@ pub fn submit_work(ctx: Context<SubmitWork>, _job_id: u64) -> Result<()> {
         job.status == JobStatus::InProgress,
         ErrorCode::InvalidJobStatus
     );
+    check_not_paused(job)?;
 
     let clock = Clock::get()?;
     job.status = JobStatus::Submitted;
@@ -566,14 +602,13 @@ pub fn submit_work(ctx: Context<SubmitWork>, _job_id: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<()> {
+pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.status == JobStatus::Submitted,
         ErrorCode::InvalidJobStatus
     );
-    // Verificacion V3-SEC-009: keeper debe ser autorizado o permissionless con fee.
-    // El job.client debe coincidir con la cuenta client que recibe el close (rent).
     require!(
         ctx.accounts.client.key() == job.client,
         ErrorCode::NotJobClient
@@ -601,16 +636,14 @@ pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<
         ErrorCode::InvalidTreasury
     );
 
-    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx. Si job tiene >10 applicants,
-    // el caller debe haber paginado vía `cleanup_applications` en txs previas.
-    // Aquí solo se permite hasta MAX_CLEANUP_BATCH por tx; si remaining está vacío
-    // y job aún tiene applicants, se asume que ya fueron paginados (allow_closed).
     if !ctx.remaining_accounts.is_empty() {
-        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
-    } else if job.applicants.len() > crate::MAX_CLEANUP_BATCH {
-        // Si no se paginó previamente, el caller debe haber usado cleanup_applications.
-        // No forzamos full_range para permitir 10 por tx; el close final ocurre igual.
-        msg!("auto_approve: applicants {} paginated off-tx, assuming pre-cleanup", job.applicants.len());
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, &remaining_metas, false, true)?;
+    } else {
+        // Validate empty metas when no remaining accounts
+        require!(remaining_metas.metas.is_empty(), ErrorCode::InvalidApplicationCleanupAccounts);
+        if job.applicants.len() > crate::MAX_CLEANUP_BATCH {
+            msg!("auto_approve: applicants {} paginated off-tx, assuming pre-cleanup", job.applicants.len());
+        }
     }
 
     let amount = job
@@ -619,10 +652,6 @@ pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<
         .ok_or(ErrorCode::MathOverflow)?;
     let fee_amount = job.fee_amount;
 
-    // V3-SEC-009 fix: keeper whitelist (client/freelancer/authority) sin fee,
-    // permissionless con fee 1% (100 bps) para incentivar y evitar griefing.
-    // close = client garantiza que la rent siempre vuelve al cliente, el keeper
-    // solo recibe su fee via transfer directa (no via close ni remaining_accounts).
     let keeper_key = ctx.accounts.keeper.key();
     let is_privileged = keeper_key == job.client
         || Some(keeper_key) == job.freelancer
@@ -636,34 +665,33 @@ pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<
         .checked_sub(keeper_fee)
         .ok_or(ErrorCode::MathOverflow)?;
 
-    // Evitar transfer a la misma cuenta si keeper == freelancer (ya es privileged, fee 0).
-    // Si keeper es permissionless y coincide con freelancer no debería pasar (privileged), pero por robustez:
+    // P0-4: use PDA signer seeds for job transfers
+    let job_seeds: &[&[u8]] = &[b"job", job.client.as_ref(), &_job_id.to_le_bytes(), &[job.bump]];
     if keeper_fee > 0 && keeper_key == ctx.accounts.freelancer.key() {
-        // freelancer ya es keeper, no cobrar fee
-        transfer_job_lamports(
+        transfer_from_pda(
             &job.to_account_info(),
             &ctx.accounts.freelancer.to_account_info(),
             amount,
-        )?;
+            job_seeds)?;
     } else {
-        transfer_job_lamports(
+        transfer_from_pda(
             &job.to_account_info(),
             &ctx.accounts.freelancer.to_account_info(),
             freelancer_payout,
-        )?;
+            job_seeds)?;
         if keeper_fee > 0 {
-            transfer_job_lamports(
+            transfer_from_pda(
                 &job.to_account_info(),
                 &ctx.accounts.keeper.to_account_info(),
                 keeper_fee,
-            )?;
+                job_seeds)?;
         }
     }
-    transfer_job_lamports(
+    transfer_from_pda(
         &job.to_account_info(),
         &ctx.accounts.treasury.to_account_info(),
         fee_amount,
-    )?;
+        job_seeds)?;
     job.status = JobStatus::Released;
     msg!(
         "Auto-approved: {} to freelancer, {} keeper fee, {} treasury fee",
@@ -671,11 +699,11 @@ pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<
         keeper_fee,
         fee_amount
     );
-    // remaining rent refund via `close = client` on job account
     Ok(())
 }
 
-pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64) -> Result<()> {
+pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.client == ctx.accounts.client.key(),
@@ -691,9 +719,10 @@ pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64) -> Result<()> {
         ErrorCode::AllMilestonesRequired
     );
 
-    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx, no 50 en una.
     if !ctx.remaining_accounts.is_empty() {
-        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, &remaining_metas, false, true)?;
+    } else {
+        require!(remaining_metas.metas.is_empty(), ErrorCode::InvalidApplicationCleanupAccounts);
     }
 
     let amount = job
@@ -701,17 +730,17 @@ pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64) -> Result<()> {
         .checked_sub(job.milestones_amount_total)
         .ok_or(ErrorCode::MathOverflow)?;
     let fee_amount = job.fee_amount;
-
-    transfer_job_lamports(
+    let job_seeds: &[&[u8]] = &[b"job", job.client.as_ref(), &_job_id.to_le_bytes(), &[job.bump]];
+    transfer_from_pda(
         &job.to_account_info(),
         &ctx.accounts.freelancer.to_account_info(),
         amount,
-    )?;
-    transfer_job_lamports(
+        job_seeds)?;
+    transfer_from_pda(
         &job.to_account_info(),
         &ctx.accounts.treasury.to_account_info(),
         fee_amount,
-    )?;
+        job_seeds)?;
 
     job.status = JobStatus::Released;
 
@@ -724,6 +753,7 @@ pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64) -> Result<()> {
 }
 
 pub fn reject_work(ctx: Context<RejectWork>, _job_id: u64) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.client == ctx.accounts.client.key(),
@@ -740,7 +770,8 @@ pub fn reject_work(ctx: Context<RejectWork>, _job_id: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64) -> Result<()> {
+pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.client == ctx.accounts.client.key(),
@@ -751,10 +782,10 @@ pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64) -> Result<()> {
         ErrorCode::InvalidJobStatus
     );
 
-    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx. Job sin applicants o con 0 remaining
-    // se considera pre-paginado; si hay remaining, se valida tipado + 10 por tx.
     if !ctx.remaining_accounts.is_empty() {
-        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, &remaining_metas, false, true)?;
+    } else {
+        require!(remaining_metas.metas.is_empty(), ErrorCode::InvalidApplicationCleanupAccounts);
     }
 
     if job.status == JobStatus::Funded {
@@ -762,12 +793,12 @@ pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64) -> Result<()> {
             .amount
             .checked_add(job.fee_amount)
             .ok_or(ErrorCode::MathOverflow)?;
-
-        transfer_job_lamports(
+        let job_seeds: &[&[u8]] = &[b"job", job.client.as_ref(), &_job_id.to_le_bytes(), &[job.bump]];
+        transfer_from_pda(
             &job.to_account_info(),
             &ctx.accounts.client.to_account_info(),
             total,
-        )?;
+            job_seeds)?;
     }
 
     job.status = JobStatus::Cancelled;
@@ -777,6 +808,7 @@ pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64) -> Result<()> {
 }
 
 pub fn pause_job(ctx: Context<PauseJob>, _job_id: u64) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.client == ctx.accounts.client.key(),
@@ -798,6 +830,8 @@ pub fn pause_job(ctx: Context<PauseJob>, _job_id: u64) -> Result<()> {
 }
 
 pub fn unpause_job(ctx: Context<UnpauseJob>, _job_id: u64) -> Result<()> {
+    // Unpausing should be allowed even when globally paused? Check config paused anyway.
+    // We allow unpause regardless to let admin recover.
     let job = &mut ctx.accounts.job;
     require!(
         job.client == ctx.accounts.client.key(),
@@ -809,7 +843,8 @@ pub fn unpause_job(ctx: Context<UnpauseJob>, _job_id: u64) -> Result<()> {
     Ok(())
 }
 
-pub fn expire_paused_job(ctx: Context<ExpirePausedJob>, _job_id: u64) -> Result<()> {
+pub fn expire_paused_job(ctx: Context<ExpirePausedJob>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.client == ctx.accounts.client.key(),
@@ -823,22 +858,23 @@ pub fn expire_paused_job(ctx: Context<ExpirePausedJob>, _job_id: u64) -> Result<
             > MAX_PAUSE_DURATION,
         ErrorCode::JobPaused
     );
-    // V3-ARCH-004 + V3-PERF-011: paginación 10 por tx
     if !ctx.remaining_accounts.is_empty() {
-        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, false, true)?;
+        cleanup_job_applications(job, &job.key(), 0, ctx.remaining_accounts, &remaining_metas, false, true)?;
+    } else {
+        require!(remaining_metas.metas.is_empty(), ErrorCode::InvalidApplicationCleanupAccounts);
     }
     if job.status == JobStatus::Funded {
         let total = job
             .amount
             .checked_add(job.fee_amount)
             .ok_or(ErrorCode::MathOverflow)?;
-        transfer_job_lamports(
+        let job_seeds: &[&[u8]] = &[b"job", job.client.as_ref(), &_job_id.to_le_bytes(), &[job.bump]];
+        transfer_from_pda(
             &job.to_account_info(),
             &ctx.accounts.client.to_account_info(),
             total,
-        )?;
+            job_seeds)?;
     }
     job.status = JobStatus::Cancelled;
     Ok(())
 }
-

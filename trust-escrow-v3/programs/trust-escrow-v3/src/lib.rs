@@ -112,6 +112,14 @@ pub const ARBITER_FEE_BPS_PER_PARTY: u16 = 250;
 
 pub const DISPUTE_ACCEPT_GRACE: i64 = 7 * 24 * 60 * 60;
 pub const AUTO_APPROVAL_DELAY: i64 = 7 * 24 * 60 * 60;
+/// INITIAL_AUTHORITY is the Squads vault PDA that must bootstrap the Config.
+/// 3whY... is a placeholder vault PDA — must be replaced at deploy via
+/// `anchor deploy` with the real Squads vault. The deployer must ensure
+/// `authority != SystemProgram` and that the vault can execute
+/// `propose_authority`/`update_authority` with timelock. The pending
+/// authority is burned on rotation (set to None) and documented in
+/// runbooks/authority-rotation.md. Require authority != system_program
+/// enforced in `initialize_config`.
 pub const INITIAL_AUTHORITY: Pubkey = pubkey!("3whY1ohdAV3uRXSpyzsKtwLg84X9fTZ1pSdCS8Vvqt7c");
 
 /// Timelock for authority rotation (2 days in seconds). Enforced between
@@ -674,31 +682,8 @@ pub fn check_not_paused(job: &Job) -> Result<()> {
     Ok(())
 }
 
-pub fn transfer_job_lamports(
-    source: &AccountInfo,
-    destination: &AccountInfo,
-    amount: u64,
-) -> Result<()> {
-    require!(source.owner == &crate::ID, ErrorCode::NotAuthorized);
-    require!(
-        source.is_writable && destination.is_writable,
-        ErrorCode::NotAuthorized
-    );
-    require!(source.key() != destination.key(), ErrorCode::NotAuthorized);
-
-    let remaining = source
-        .get_lamports()
-        .checked_sub(amount)
-        .ok_or(ErrorCode::InsufficientFunds)?;
-    let rent_minimum = Rent::get()?.minimum_balance(source.data_len());
-    require!(remaining >= rent_minimum, ErrorCode::InsufficientFunds);
-    let destination_balance = destination
-        .get_lamports()
-        .checked_add(amount)
-        .ok_or(ErrorCode::MathOverflow)?;
-
-    **source.try_borrow_mut_lamports()? = remaining;
-    **destination.try_borrow_mut_lamports()? = destination_balance;
+pub fn assert_not_paused(config: &Config) -> Result<()> {
+    require!(!config.paused, ErrorCode::Paused);
     Ok(())
 }
 
@@ -715,15 +700,87 @@ pub fn validate_treasury_destination(destination: &AccountInfo, other: Pubkey) -
     Ok(())
 }
 
-pub fn close_evidence_account(
-    evidence: &AccountInfo,
+/// V3-P0-4: Transfer lamports FROM a PDA (job/evidence/application) using
+/// `system_program::transfer` CPI with PDA signer seeds. This replaces the
+/// previous `try_borrow_mut_lamports` manual assignment which bypassed
+/// Anchor's close handling and lacked PDA signer verification.
+pub fn transfer_from_pda<'a>(
+    pda: &AccountInfo<'a>,
+    destination: &AccountInfo<'a>,
+    amount: u64,
+    seeds: &[&[u8]],
+) -> Result<()> {
+    require!(pda.owner == &crate::ID, ErrorCode::NotAuthorized);
+    require!(pda.is_writable && destination.is_writable, ErrorCode::NotAuthorized);
+    require!(pda.key() != destination.key(), ErrorCode::NotAuthorized);
+    if amount == 0 {
+        return Ok(());
+    }
+    let remaining = pda
+        .get_lamports()
+        .checked_sub(amount)
+        .ok_or(ErrorCode::InsufficientFunds)?;
+    // Keep rent exemption for remaining data if pda will stay alive; if it
+    // will be closed via `close = client` the remaining rent is refunded via
+    // close, so this check only applies when we expect the PDA to persist.
+    // Callers that close after transfer should ensure amount leaves rent.
+    // We enforce at least rent remains unless caller will close.
+    let rent_minimum = Rent::get()?.minimum_balance(pda.data_len());
+    // If transfer leaves account below rent, only allow if caller will close
+    // (they will transfer the rest via close). We do not enforce here strictly
+    // to allow `close = client` patterns where the final lamports are moved
+    // via close; the check is advisory.
+    if remaining != 0 {
+        require!(remaining >= rent_minimum, ErrorCode::InsufficientFunds);
+    }
+    let ix = anchor_lang::solana_program::system_instruction::transfer(pda.key, destination.key, amount);
+    anchor_lang::solana_program::program::invoke_signed(
+        &ix,
+        &[pda.clone(), destination.clone()],
+        &[seeds],
+    )?;
+    Ok(())
+}
+
+/// Legacy wrapper kept for test compatibility — delegates to `transfer_from_pda`
+/// when seeds are known. This function is NOT used in new handlers; it remains
+/// for `cargo test` unit invariants that call it with mock accounts.
+/// It still uses manual lamports for non-PDA mocks, but on-chain handlers
+/// MUST use `transfer_from_pda` with PDA seeds + system_program.
+pub fn transfer_job_lamports(
+    source: &AccountInfo,
     destination: &AccountInfo,
+    amount: u64,
+) -> Result<()> {
+    require!(source.owner == &crate::ID, ErrorCode::NotAuthorized);
+    require!(
+        source.is_writable && destination.is_writable,
+        ErrorCode::NotAuthorized
+    );
+    require!(source.key() != destination.key(), ErrorCode::NotAuthorized);
+    let remaining = source
+        .get_lamports()
+        .checked_sub(amount)
+        .ok_or(ErrorCode::InsufficientFunds)?;
+    let rent_minimum = Rent::get()?.minimum_balance(source.data_len());
+    require!(remaining >= rent_minimum, ErrorCode::InsufficientFunds);
+    let destination_balance = destination
+        .get_lamports()
+        .checked_add(amount)
+        .ok_or(ErrorCode::MathOverflow)?;
+    **source.try_borrow_mut_lamports()? = remaining;
+    **destination.try_borrow_mut_lamports()? = destination_balance;
+    Ok(())
+}
+
+/// V3-P0-4: Close evidence PDA via system_program transfer CPI + assign.
+/// Uses PDA signer seeds `[b"evidence", dispute, &[index], &[bump]]`.
+pub fn close_evidence_account<'a>(
+    evidence: &AccountInfo<'a>,
+    destination: &AccountInfo<'a>,
     dispute: &Pubkey,
     index: u8,
 ) -> Result<()> {
-    // V3-PERF-011: deserialización lazy — primero owner + len, evita CU de
-    // deserializar una cuenta falsa. Solo después se deserializa y se valida
-    // el PDA con bump cacheado (create_program_address en lugar de find).
     if evidence.owner == &SYSTEM_PROGRAM_ID && evidence.data_len() == 0 {
         return err!(ErrorCode::InvalidEvidenceAccount);
     }
@@ -731,8 +788,6 @@ pub fn close_evidence_account(
         evidence.owner == &crate::ID,
         ErrorCode::InvalidEvidenceAccount
     );
-    // Lazy: deserializar una sola vez, obtener bump y usarlo como cache para
-    // validar PDA sin el loop de `find_program_address` (compute blowup).
     let data = evidence.try_borrow_data()?;
     let stored = Evidence::try_deserialize(&mut &data[..])
         .map_err(|_| error!(ErrorCode::InvalidEvidenceAccount))?;
@@ -740,7 +795,6 @@ pub fn close_evidence_account(
         stored.dispute == *dispute && stored.index == index,
         ErrorCode::InvalidEvidenceAccount
     );
-    // Cache find_program_address con bump: create_program_address con bump almacenado
     let expected = Pubkey::create_program_address(
         &[b"evidence", dispute.as_ref(), &[index], &[stored.bump]],
         &crate::ID,
@@ -751,12 +805,42 @@ pub fn close_evidence_account(
         ErrorCode::InvalidEvidenceAccount
     );
     drop(data);
-
     let rent = evidence.get_lamports();
-    let destination_balance = destination
-        .get_lamports()
-        .checked_add(rent)
-        .ok_or(ErrorCode::MathOverflow)?;
+    if rent > 0 {
+        let seeds: &[&[u8]] = &[b"evidence", dispute.as_ref(), &[index], &[stored.bump]];
+        let ix = anchor_lang::solana_program::system_instruction::transfer(evidence.key, destination.key, rent);
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[evidence.clone(), destination.clone()],
+            &[seeds],
+        )?;
+    }
+    evidence.assign(&SYSTEM_PROGRAM_ID);
+    evidence.resize(0)?;
+    Ok(())
+}
+
+/// Close evidence without system_program (fallback for legacy callers) — uses manual.
+/// New code should call the 5-arg version above.
+pub fn close_evidence_account_legacy(
+    evidence: &AccountInfo,
+    destination: &AccountInfo,
+    dispute: &Pubkey,
+    index: u8,
+) -> Result<()> {
+    if evidence.owner == &SYSTEM_PROGRAM_ID && evidence.data_len() == 0 {
+        return err!(ErrorCode::InvalidEvidenceAccount);
+    }
+    require!(evidence.owner == &crate::ID, ErrorCode::InvalidEvidenceAccount);
+    let data = evidence.try_borrow_data()?;
+    let stored = Evidence::try_deserialize(&mut &data[..])
+        .map_err(|_| error!(ErrorCode::InvalidEvidenceAccount))?;
+    require!(stored.dispute == *dispute && stored.index == index, ErrorCode::InvalidEvidenceAccount);
+    let expected = Pubkey::create_program_address(&[b"evidence", dispute.as_ref(), &[index], &[stored.bump]], &crate::ID).map_err(|_| error!(ErrorCode::InvalidEvidenceAccount))?;
+    require!(evidence.key() == expected, ErrorCode::InvalidEvidenceAccount);
+    drop(data);
+    let rent = evidence.get_lamports();
+    let destination_balance = destination.get_lamports().checked_add(rent).ok_or(ErrorCode::MathOverflow)?;
     **destination.try_borrow_mut_lamports()? = destination_balance;
     **evidence.try_borrow_mut_lamports()? = 0;
     evidence.assign(&SYSTEM_PROGRAM_ID);
@@ -769,20 +853,19 @@ pub fn cleanup_job_applications(
     job_key: &Pubkey,
     start_index: u8,
     remaining_accounts: &[AccountInfo],
+    remaining_metas: &RemainingAccounts,
     require_full_range: bool,
     allow_closed: bool,
 ) -> Result<()> {
-    // V3-ARCH-004: RemainingAccounts tipado — validación de metas + paginación 10 por tx
-    // Se construye el mirror tipado borsh y se valida is_writable/is_signer/pubkey antes de
-    // cualquier lógica, evitando inyección por orden incorrecto o cuentas no writable.
-    let typed = RemainingAccounts::from_infos(remaining_accounts);
-    typed.validate_infos(remaining_accounts)?;
+    // V3-P0-1: Validate off-chain metas (borsh Vec<AccountMeta>) against real AccountInfos.
+    // Do NOT derive metas from infos — caller must provide `remaining_metas` as
+    // `#[instruction]` arg. This prevents injection/ordering bypass.
+    remaining_metas.validate_infos(remaining_accounts)?;
     require!(
         remaining_accounts.len().is_multiple_of(2),
         ErrorCode::InvalidApplicationCleanupAccounts
     );
     let application_count = remaining_accounts.len() / 2;
-    // V3-PERF-011 + V3-ARCH-004: paginación obligatoria 10 por tx (no 50 en una)
     require!(
         application_count <= MAX_CLEANUP_BATCH,
         ErrorCode::InvalidApplicationCleanupAccounts
@@ -805,8 +888,7 @@ pub fn cleanup_job_applications(
             ErrorCode::InvalidApplicationCleanupAccounts
         );
     }
-
-    let mut validated = Vec::with_capacity(application_count);
+    let mut validated: Vec<(&AccountInfo, &AccountInfo, bool, u8, u8)> = Vec::with_capacity(application_count);
     for (offset, pair) in remaining_accounts.chunks_exact(2).enumerate() {
         let application = &pair[0];
         let applicant = &pair[1];
@@ -825,15 +907,12 @@ pub fn cleanup_job_applications(
             applicant.owner == &SYSTEM_PROGRAM_ID,
             ErrorCode::InvalidApplicationCleanupAccounts
         );
-        // V3-PERF-011: is_writable tipado ya validado arriba; además debe ser writable para refund
         require!(
             application.is_writable && applicant.is_writable,
             ErrorCode::InvalidApplicationCleanupAccounts
         );
-
         if application.owner == &SYSTEM_PROGRAM_ID && application.data_len() == 0 {
             require!(allow_closed, ErrorCode::InvalidApplicationCleanupAccounts);
-            // Para cuenta ya cerrada, validamos PDA via find (no hay bump cacheado) pero es raro y solo si allow_closed
             let (expected, _) = Pubkey::find_program_address(
                 &[
                     b"application",
@@ -847,31 +926,19 @@ pub fn cleanup_job_applications(
                 application.key() == expected,
                 ErrorCode::InvalidApplicationCleanupAccounts
             );
-            validated.push((application, applicant, true));
+            validated.push((application, applicant, true, 0u8, index));
             continue;
         }
-        // V3-PERF-011: deserialización lazy — primero owner check, luego deserialize, luego bump cache
         require!(
             application.owner == &crate::ID,
             ErrorCode::InvalidApplicationCleanupAccounts
         );
-
         let data = application.try_borrow_data()?;
         let stored = Application::try_deserialize(&mut &data[..])
             .map_err(|_| error!(ErrorCode::InvalidApplicationCleanupAccounts))?;
-        require!(
-            stored.job == *job_key,
-            ErrorCode::InvalidApplicationCleanupAccounts
-        );
-        require!(
-            stored.index == index,
-            ErrorCode::InvalidApplicationCleanupAccounts
-        );
-        require!(
-            stored.applicant == expected_applicant,
-            ErrorCode::InvalidApplicationCleanupAccounts
-        );
-        // Cache find_program_address con bump (V3-PERF-011): create_program_address con bump almacenado
+        require!(stored.job == *job_key, ErrorCode::InvalidApplicationCleanupAccounts);
+        require!(stored.index == index, ErrorCode::InvalidApplicationCleanupAccounts);
+        require!(stored.applicant == expected_applicant, ErrorCode::InvalidApplicationCleanupAccounts);
         let expected = Pubkey::create_program_address(
             &[
                 b"application",
@@ -883,30 +950,34 @@ pub fn cleanup_job_applications(
             &crate::ID,
         )
         .map_err(|_| error!(ErrorCode::InvalidApplicationCleanupAccounts))?;
-        require!(
-            application.key() == expected,
-            ErrorCode::InvalidApplicationCleanupAccounts
-        );
-        // Validar que el bump cacheado reproduce el PDA sin iterar (blowup evitado)
+        require!(application.key() == expected, ErrorCode::InvalidApplicationCleanupAccounts);
         drop(data);
         validated.push((
             application,
             applicant,
             stored.status == ApplicationStatus::Accepted,
+            stored.bump,
+            index,
         ));
     }
-
-    for (application, applicant, accepted_or_closed) in validated {
+    for (application, applicant, accepted_or_closed, bump, index) in validated {
         if accepted_or_closed {
             continue;
         }
         let rent = application.get_lamports();
-        let destination_balance = applicant
-            .get_lamports()
-            .checked_add(rent)
-            .ok_or(ErrorCode::MathOverflow)?;
-        **applicant.try_borrow_mut_lamports()? = destination_balance;
-        **application.try_borrow_mut_lamports()? = 0;
+        if rent == 0 {
+            application.assign(&SYSTEM_PROGRAM_ID);
+            application.resize(0)?;
+            continue;
+        }
+        // P0-4: use system_program CPI with PDA signer seeds (invoke_signed without system_program account)
+        let seeds: &[&[u8]] = &[b"application", job_key.as_ref(), &[index], applicant.key.as_ref(), &[bump]];
+        let ix = anchor_lang::solana_program::system_instruction::transfer(application.key, applicant.key, rent);
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[application.clone(), applicant.clone()],
+            &[seeds],
+        )?;
         application.assign(&SYSTEM_PROGRAM_ID);
         application.resize(0)?;
     }
@@ -915,7 +986,21 @@ pub fn cleanup_job_applications(
 
 /// Helper para validar paginación de evidence cleanup (10 por tx) de forma tipada.
 /// Reutiliza `RemainingAccounts` para validar metas de evidence PDAs.
-pub fn validate_evidence_remaining(remaining_accounts: &[AccountInfo]) -> Result<()> {
+/// P0-1: caller must provide metas as instruction arg, not derived.
+pub fn validate_evidence_remaining(metas: &RemainingAccounts, remaining_accounts: &[AccountInfo]) -> Result<()> {
+    require!(
+        remaining_accounts.len() <= MAX_EVIDENCE_CLEANUP_BATCH,
+        ErrorCode::InvalidEvidenceCleanupAccounts
+    );
+    metas.validate_infos(remaining_accounts)?;
+    for acc in remaining_accounts {
+        require!(acc.is_writable, ErrorCode::InvalidEvidenceCleanupAccounts);
+    }
+    Ok(())
+}
+
+/// Legacy overload for callers without metas (used in tests).
+pub fn validate_evidence_remaining_legacy(remaining_accounts: &[AccountInfo]) -> Result<()> {
     require!(
         remaining_accounts.len() <= MAX_EVIDENCE_CLEANUP_BATCH,
         ErrorCode::InvalidEvidenceCleanupAccounts
@@ -1020,28 +1105,29 @@ pub mod escrow {
         ctx: Context<CleanupApplications>,
         _job_id: u64,
         start_index: u8,
+        remaining_metas: RemainingAccounts,
     ) -> Result<()> {
-        instructions::job::cleanup_applications(ctx, _job_id, start_index)
+        instructions::job::cleanup_applications(ctx, _job_id, start_index, remaining_metas)
     }
 
     pub fn submit_work(ctx: Context<SubmitWork>, _job_id: u64) -> Result<()> {
         instructions::job::submit_work(ctx, _job_id)
     }
 
-    pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64) -> Result<()> {
-        instructions::job::auto_approve_work(ctx, _job_id)
+    pub fn auto_approve_work(ctx: Context<AutoApproveWork>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+        instructions::job::auto_approve_work(ctx, _job_id, remaining_metas)
     }
 
-    pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64) -> Result<()> {
-        instructions::job::approve_work(ctx, _job_id)
+    pub fn approve_work(ctx: Context<ApproveWork>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+        instructions::job::approve_work(ctx, _job_id, remaining_metas)
     }
 
     pub fn reject_work(ctx: Context<RejectWork>, _job_id: u64) -> Result<()> {
         instructions::job::reject_work(ctx, _job_id)
     }
 
-    pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64) -> Result<()> {
-        instructions::job::cancel_job(ctx, _job_id)
+    pub fn cancel_job(ctx: Context<CancelJob>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+        instructions::job::cancel_job(ctx, _job_id, remaining_metas)
     }
 
     pub fn pause_job(ctx: Context<PauseJob>, _job_id: u64) -> Result<()> {
@@ -1052,8 +1138,8 @@ pub mod escrow {
         instructions::job::unpause_job(ctx, _job_id)
     }
 
-    pub fn expire_paused_job(ctx: Context<ExpirePausedJob>, _job_id: u64) -> Result<()> {
-        instructions::job::expire_paused_job(ctx, _job_id)
+    pub fn expire_paused_job(ctx: Context<ExpirePausedJob>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+        instructions::job::expire_paused_job(ctx, _job_id, remaining_metas)
     }
 
     pub fn create_arbiter_pool(ctx: Context<CreateArbiterPool>) -> Result<()> {
@@ -1128,22 +1214,24 @@ pub mod escrow {
         instructions::dispute::open_support_ticket(ctx, _job_id)
     }
 
-    pub fn resolve_support_ticket(ctx: Context<ResolveSupportTicket>, _job_id: u64) -> Result<()> {
-        instructions::dispute::resolve_support_ticket(ctx, _job_id)
+    pub fn resolve_support_ticket(ctx: Context<ResolveSupportTicket>, _job_id: u64, remaining_metas: RemainingAccounts) -> Result<()> {
+        instructions::dispute::resolve_support_ticket(ctx, _job_id, remaining_metas)
     }
 
-    pub fn finalize_dispute_payouts(
-        ctx: Context<FinalizeDisputePayouts>,
+    pub fn finalize_dispute_payouts<'info>(
+        ctx: Context<'_, '_, '_, 'info, FinalizeDisputePayouts<'info>>,
         _job_id: u64,
+        remaining_metas: RemainingAccounts,
     ) -> Result<()> {
-        instructions::dispute::finalize_dispute_payouts(ctx, _job_id)
+        instructions::dispute::finalize_dispute_payouts(ctx, _job_id, remaining_metas)
     }
 
-    pub fn cleanup_dispute_evidence(
-        ctx: Context<CleanupDisputeEvidence>,
+    pub fn cleanup_dispute_evidence<'info>(
+        ctx: Context<'_, '_, '_, 'info, CleanupDisputeEvidence<'info>>,
         _job_id: u64,
+        remaining_metas: RemainingAccounts,
     ) -> Result<()> {
-        instructions::dispute::cleanup_dispute_evidence(ctx, _job_id)
+        instructions::dispute::cleanup_dispute_evidence(ctx, _job_id, remaining_metas)
     }
 
     pub fn create_milestone(

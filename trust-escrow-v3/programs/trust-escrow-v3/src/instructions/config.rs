@@ -159,6 +159,8 @@ pub fn initialize_config(
     arbitration_treasury: Pubkey,
     fee_bps: u16,
 ) -> Result<()> {
+    // INITIAL_AUTHORITY must be the Squads vault PDA (see lib.rs comment). Enforce not system.
+    require!(ctx.accounts.authority.key() != SYSTEM_PROGRAM_ID, ErrorCode::InvalidBootstrapAuthority);
     require!(
         ctx.accounts.authority.key() == INITIAL_AUTHORITY,
         ErrorCode::InvalidBootstrapAuthority
@@ -283,6 +285,8 @@ pub fn withdraw_arbitration(ctx: Context<WithdrawArbitration>, amount: u64) -> R
 }
 
 pub fn create_arbiter_pool(ctx: Context<CreateArbiterPool>) -> Result<()> {
+    // P1-8 + P0-3: ensure authority != system_program (hardcode check) and pool authority syncs with config
+    require!(ctx.accounts.authority.key() != SYSTEM_PROGRAM_ID, ErrorCode::InvalidNewAuthority);
     let pool = &mut ctx.accounts.pool;
     pool.authority = ctx.accounts.authority.key();
     pool.arbiters = Vec::new();
@@ -291,6 +295,8 @@ pub fn create_arbiter_pool(ctx: Context<CreateArbiterPool>) -> Result<()> {
 }
 
 pub fn add_arbiter(ctx: Context<AddArbiter>, new_arbiter: Pubkey) -> Result<()> {
+    // P1-8: validate pool.authority syncs with config.authority — config is source of truth
+    require!(ctx.accounts.pool.authority == ctx.accounts.config.authority, ErrorCode::InvalidAuthority);
     let pool = &mut ctx.accounts.pool;
     require!(
         !pool.arbiters.contains(&new_arbiter),
@@ -305,6 +311,7 @@ pub fn add_arbiter(ctx: Context<AddArbiter>, new_arbiter: Pubkey) -> Result<()> 
 }
 
 pub fn remove_arbiter(ctx: Context<RemoveArbiter>, arbiter: Pubkey) -> Result<()> {
+    require!(ctx.accounts.pool.authority == ctx.accounts.config.authority, ErrorCode::InvalidAuthority);
     let pool = &mut ctx.accounts.pool;
     let idx = pool
         .arbiters
@@ -337,6 +344,14 @@ pub struct UpdateAuthority<'info> {
         bump = config.bump,
     )]
     pub config: Account<'info, Config>,
+    /// Arbiter pool to sync authority — optional if not yet created.
+    /// When present, its authority is rotated atomically with config.
+    #[account(
+        mut,
+        seeds = [b"arbiter_pool"],
+        bump
+    )]
+    pub pool: Option<Account<'info, ArbiterPool>>,
 }
 
 #[derive(Accounts)]
@@ -358,10 +373,13 @@ pub struct CancelAuthorityProposal<'info> {
 /// (update_authority) can only succeed after AUTHORITY_TIMELOCK.
 pub fn propose_authority(ctx: Context<ProposeAuthority>, new_authority: Pubkey) -> Result<()> {
     require!(new_authority != Pubkey::default(), ErrorCode::InvalidNewAuthority);
+    require!(new_authority != SYSTEM_PROGRAM_ID, ErrorCode::InvalidNewAuthority);
     require!(
         new_authority != ctx.accounts.config.authority,
         ErrorCode::InvalidNewAuthority
     );
+    // P0-3: prevent front-run overwrite — must cancel before new propose
+    require!(ctx.accounts.config.pending_authority.is_none(), ErrorCode::AlreadyPending);
     let clock = Clock::get()?;
     ctx.accounts.config.pending_authority = Some(new_authority);
     ctx.accounts.config.pending_authority_at = clock.unix_timestamp;
@@ -379,6 +397,7 @@ pub fn propose_authority(ctx: Context<ProposeAuthority>, new_authority: Pubkey) 
 /// after AUTHORITY_TIMELOCK (2 days). This is the second signature in the
 /// 2-step flow; when combined with Squads multisig as current authority,
 /// it yields multisig + timelock + new-key acceptance.
+/// P1-8: atomically syncs ArbiterPool.authority if pool exists to avoid orphan.
 pub fn update_authority(ctx: Context<UpdateAuthority>) -> Result<()> {
     let pending = ctx
         .accounts
@@ -389,6 +408,7 @@ pub fn update_authority(ctx: Context<UpdateAuthority>) -> Result<()> {
         ctx.accounts.pending_authority.key() == pending,
         ErrorCode::NotAuthorized
     );
+    require!(pending != SYSTEM_PROGRAM_ID, ErrorCode::InvalidNewAuthority);
     let clock = Clock::get()?;
     let elapsed = clock
         .unix_timestamp
@@ -402,6 +422,11 @@ pub fn update_authority(ctx: Context<UpdateAuthority>) -> Result<()> {
     ctx.accounts.config.authority = pending;
     ctx.accounts.config.pending_authority = None;
     ctx.accounts.config.pending_authority_at = 0;
+    // P1-8: sync arbiter pool authority if initialized
+    if let Some(pool) = &mut ctx.accounts.pool {
+        pool.authority = pending;
+        msg!("ArbiterPool authority synced: {} -> {}", old, pending);
+    }
     msg!("Authority rotated: {} -> {}", old, pending);
     Ok(())
 }

@@ -11,6 +11,8 @@ on:
     branches: [main, develop, "feature/**"]
     paths:
       - "backend/**"
+      - "trust-escrow-v3/**"
+      - "app/**"
       - ".github/workflows/ci.yml"
       - "scripts/final-gate.sh"
       - "scripts/secret-scan.sh"
@@ -19,6 +21,8 @@ on:
     branches: [main, develop]
     paths:
       - "backend/**"
+      - "trust-escrow-v3/**"
+      - "app/**"
       - ".github/workflows/ci.yml"
       - "scripts/**"
   workflow_dispatch:
@@ -89,6 +93,17 @@ jobs:
           chmod +x scripts/check-permissions.sh || true
           ./scripts/check-permissions.sh --ci
 
+      - name: Cargo audit (supply-chain)
+        run: |
+          # P0: supply-chain audit — strict deny warnings once baseline is clean.
+          # cargo audit --deny warnings (requires cargo-audit + RustSec DB)
+          if command -v cargo-audit >/dev/null 2>&1; then
+            cargo audit --deny warnings || echo "::warning::cargo audit found advisories — triage in TECH_DEBT_AUDIT.md"
+          else
+            cargo install cargo-audit --locked || echo "::warning::cargo-audit install failed — skipping audit"
+            cargo audit --deny warnings || echo "::warning::cargo audit not enforced — see TECH_DEBT_AUDIT.md"
+          fi
+
       - name: Final gate (validator + CI + coverage)
         env:
           CI: "true"
@@ -130,12 +145,14 @@ jobs:
 
   # ──────────────────────────────────────────────────────────
   # Job 2: Validator smoke (only when validator available)
-  # Se ejecuta condicionalmente; no bloquea el gate si no hay validator
+  # Disabled by default: requires solana-test-validator toolchain (heavy setup).
+  # Enable via workflow_dispatch or when runner image caches validator.
+  # Se mantiene como best-effort y no bloquea el gate.
   # ──────────────────────────────────────────────────────────
   validator-smoke:
     name: Validator 7a2Y smoke (localnet)
     runs-on: ubuntu-24.04
-    if: false # habilitable manualmente: validator efímero requiere toolchain solana
+    if: false # disabled: ephemeral validator requires solana-test-validator — remove to enable or use `github.event_name == 'workflow_dispatch'`
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -151,3 +168,9 @@ jobs:
             -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}' \
             http://127.0.0.1:8899 || echo "validator no disponible (expected in CI sin solana-test-validator)"
           solana program show 7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh --url http://127.0.0.1:8899 || echo "program no verificado (sin validator)"
+
+      - name: Anchor verify (reproducible build)
+        run: |
+          # anchor verify / cargo audit — enable when toolchain is cached
+          # anchor verify 7a2YhCd7iivXfyySkp1pf5jjijGqpjNqwQCUS912q5Vh --provider.cluster localnet || echo "::warning::anchor verify skipped (no validator)"
+          echo "anchor verify: pending — enable with validator toolchain (see docs/DEPLOYMENT_V3.md)"

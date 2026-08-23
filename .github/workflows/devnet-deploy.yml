@@ -11,7 +11,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "programs/**"
+      - "trust-escrow-v3/**"
       - "Anchor.toml"
       - "Cargo.toml"
       - "Cargo.lock"
@@ -116,7 +116,9 @@ jobs:
       - name: Configure Solana for devnet
         run: |
           solana config set --url devnet
-          echo "${{ secrets.DEVNET_DEPLOY_KEYPAIR }}" > /tmp/deploy-keypair.json
+          printf '%s' "${{ secrets.DEVNET_DEPLOY_KEYPAIR }}" | install -m 600 /dev/stdin /tmp/deploy-keypair.json
+          chmod 600 /tmp/deploy-keypair.json
+          trap 'shred -u /tmp/deploy-keypair.json 2>/dev/null || rm -f /tmp/deploy-keypair.json' EXIT
           solana config set --keypair /tmp/deploy-keypair.json
 
       - name: Check balance
@@ -129,19 +131,48 @@ jobs:
           fi
 
       - name: Deploy to devnet
+        id: deploy
         run: |
-          anchor deploy --provider.cluster devnet
+          anchor deploy --provider.cluster devnet -- --max-len 700000
+          PROGRAM_ID=$(anchor keys list | head -1 | awk '{print $2}')
+          echo "program_id=${PROGRAM_ID}" >> $GITHUB_OUTPUT
           echo "## Deploy Results" >> $GITHUB_STEP_SUMMARY
           echo "- **Cluster:** devnet" >> $GITHUB_STEP_SUMMARY
-          echo "- **Program ID:** $(anchor keys list | head -1)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Program ID:** ${PROGRAM_ID}" >> $GITHUB_STEP_SUMMARY
           echo "- **Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Date:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+          SO_FILE=$(find target/deploy -name "*.so" | head -1 || true)
+          if [ -n "$SO_FILE" ] && [ -f "$SO_FILE" ]; then
+            echo "- **SHA256:** $(sha256sum "$SO_FILE" | awk '{print $1}')" >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Cleanup keypair
         if: always()
-        run: rm -f /tmp/deploy-keypair.json
+        run: shred -u /tmp/deploy-keypair.json 2>/dev/null || rm -f /tmp/deploy-keypair.json
 
       - name: Verify deployment
         run: |
-          PROGRAM_ID=$(anchor keys list | head -1 | awk '{print $2}')
+          PROGRAM_ID="${{ steps.deploy.outputs.program_id }}"
+          if [ -z "$PROGRAM_ID" ]; then
+            PROGRAM_ID=$(anchor keys list | head -1 | awk '{print $2}')
+          fi
+          echo "Verifying program: ${PROGRAM_ID}"
           solana program show "$PROGRAM_ID"
+          # Hash verify — compare local .so vs on-chain dump (pattern from mainnet-deploy.yml)
+          DUMP_FILE="/tmp/onchain-verify.so"
+          solana program dump "$PROGRAM_ID" "$DUMP_FILE" || echo "::warning::program dump failed — skipping hash check"
+          if [ -f "$DUMP_FILE" ]; then
+            LOCAL_SO=$(find target/deploy -name "*.so" | head -1 || true)
+            if [ -n "$LOCAL_SO" ] && [ -f "$LOCAL_SO" ]; then
+              LOCAL_HASH=$(sha256sum "$LOCAL_SO" | awk '{print $1}')
+              ONCHAIN_HASH=$(sha256sum "$DUMP_FILE" | awk '{print $1}')
+              echo "Local hash:   ${LOCAL_HASH}"
+              echo "On-chain hash: ${ONCHAIN_HASH}"
+              if [ "$LOCAL_HASH" = "$ONCHAIN_HASH" ]; then
+                echo "✅ Binary verification PASSED"
+              else
+                echo "::warning::Binary hash mismatch — local vs on-chain differ (may be expected if program was redeployed)"
+              fi
+            fi
+            rm -f "$DUMP_FILE"
+          fi

@@ -4,7 +4,7 @@ use anchor_lang::system_program::{transfer, Transfer, ID as SYSTEM_PROGRAM_ID};
 use crate::errors::ErrorCode;
 use crate::state::*;
 use crate::{ARBITER_FEE_BPS_PER_PARTY, AUTO_APPROVAL_DELAY, BASIS_POINTS, DISPUTE_ACCEPT_GRACE, INITIAL_AUTHORITY, MAX_APPLICATIONS, MAX_ARBITERS, MAX_EVIDENCE_COUNT, MAX_MILESTONES, MAX_PAUSE_DURATION, MIN_JOB_AMOUNT};
-use crate::{check_not_paused, cleanup_job_applications, close_evidence_account, compute_fee, compute_shortfall, transfer_job_lamports, validate_treasury_destination};
+use crate::{assert_not_paused, check_not_paused, cleanup_job_applications, close_evidence_account, compute_fee, compute_shortfall, transfer_from_pda, transfer_job_lamports, validate_treasury_destination};
 
 #[derive(Accounts)]
 #[instruction(job_id: u64, index: u8)]
@@ -15,6 +15,8 @@ pub struct CreateMilestone<'info> {
     pub job: Account<'info, Job>,
     #[account(init, payer = client, space = Milestone::INIT_SPACE + 8, seeds = [b"milestone", job.key().as_ref(), &[index]], bump)]
     pub milestone: Account<'info, Milestone>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -28,6 +30,8 @@ pub struct SubmitMilestone<'info> {
     pub job: Account<'info, Job>,
     #[account(mut, seeds = [b"milestone", job.key().as_ref(), &[milestone_index]], bump = milestone.bump)]
     pub milestone: Account<'info, Milestone>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 #[derive(Accounts)]
@@ -40,6 +44,8 @@ pub struct ApproveMilestone<'info> {
     pub milestone: Account<'info, Milestone>,
     #[account(mut, constraint = job.freelancer == Some(freelancer.key()) @ ErrorCode::NotJobFreelancer)]
     pub freelancer: SystemAccount<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
     pub system_program: Program<'info, System>,
 }
 
@@ -51,6 +57,8 @@ pub struct RejectMilestone<'info> {
     pub job: Account<'info, Job>,
     #[account(mut, seeds = [b"milestone", job.key().as_ref(), &[milestone_index]], bump = milestone.bump)]
     pub milestone: Account<'info, Milestone>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
 }
 
 pub fn create_milestone(
@@ -59,6 +67,7 @@ pub fn create_milestone(
     index: u8,
     amount: u64,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.status == JobStatus::InProgress,
@@ -103,6 +112,7 @@ pub fn submit_milestone(
     _job_id: u64,
     _milestone_index: u8,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &ctx.accounts.job;
     let milestone = &mut ctx.accounts.milestone;
     require!(
@@ -129,6 +139,7 @@ pub fn approve_milestone(
     _job_id: u64,
     _milestone_index: u8,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &mut ctx.accounts.job;
     require!(
         job.client == ctx.accounts.client.key(),
@@ -145,12 +156,12 @@ pub fn approve_milestone(
     );
 
     let amount = milestone.amount;
-
-    transfer_job_lamports(
+    let job_seeds: &[&[u8]] = &[b"job", job.client.as_ref(), &_job_id.to_le_bytes(), &[job.bump]];
+    transfer_from_pda(
         &job.to_account_info(),
         &ctx.accounts.freelancer.to_account_info(),
         amount,
-    )?;
+        job_seeds)?;
 
     job.milestones_approved = job
         .milestones_approved
@@ -166,6 +177,7 @@ pub fn reject_milestone(
     _job_id: u64,
     _milestone_index: u8,
 ) -> Result<()> {
+    assert_not_paused(&ctx.accounts.config)?;
     let job = &ctx.accounts.job;
     let milestone = &mut ctx.accounts.milestone;
     require!(
@@ -184,4 +196,3 @@ pub fn reject_milestone(
     milestone.status = MilestoneStatus::Rejected;
     Ok(())
 }
-
