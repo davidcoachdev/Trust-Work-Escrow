@@ -41,6 +41,7 @@ pub fn ConfigPage() -> Element {
     };
     let has_display_wallet = !display_pubkey.is_empty();
     // Clone for button closure (avoid nested rsx! which breaks onclick)
+    #[allow(unused_variables)]
     let display_pubkey_for_copy = display_pubkey.clone();
 
     rsx! {
