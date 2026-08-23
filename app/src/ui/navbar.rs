@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use crate::i18n::{tr, use_i18n};
-use crate::theme::{use_mode, Mode};
+use crate::theme::{apply_mode, use_mode, Mode};
 use crate::route::Route;
 use crate::ui::{LanguageSwitcher, ThemeSwitcher};
 use crate::server::auth::guest::use_auth_opt;
@@ -8,11 +8,12 @@ use crate::server::auth::guest::use_auth_opt;
 #[component]
 pub fn Navbar() -> Element {
     let lang = use_i18n().lang;
-    let mut mode = use_mode().mode;
+    let mut mode_ctx = use_mode();
     let l = *lang.read();
-    let m = *mode.read();
+    let m = *mode_ctx.mode.read();
     let auth_opt = use_auth_opt();
     let user_opt = auth_opt.as_ref().and_then(|a| a.user.read().clone());
+    let label = tr(l, if m == Mode::Dark { "switcher.light" } else { "switcher.dark" });
 
     rsx! {
         header { class: "sticky top-0 z-10 bg-bg/80 backdrop-blur border-b border-border",
@@ -33,26 +34,58 @@ pub fn Navbar() -> Element {
                         }
                         Link { class: "text-sm text-primary underline", to: Route::ConfigPage {}, "Config" }
                     } else {
-                        Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::LoginPage {}, {tr(l, "nav.login")} }
+                        Link { class: "inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-medium border border-primary text-primary bg-transparent hover:bg-primary/10 transition", to: Route::LoginPage {}, {tr(l, "nav.login")} }
                         Link {
-                            class: "inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-base font-medium bg-primary text-on-primary transition hover:-translate-y-0.5",
+                            class: "inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-medium bg-primary text-on-primary hover:opacity-90 transition hover:-translate-y-0.5",
                             to: Route::SignupPage {},
                             {tr(l, "nav.signup")}
                         }
                         span { class: "text-xs bg-surface border border-border rounded-full px-2 py-1 text-muted", "Invitado" }
                     }
                 }
-                div { class: "flex items-center gap-3",
+                div { class: "flex items-center gap-2",
                     LanguageSwitcher {}
                     ThemeSwitcher {}
                     button {
-                        class: "text-sm text-fg cursor-pointer font-inherit bg-transparent border-none",
+                        class: "relative z-50 inline-flex items-center justify-center w-9 h-9 rounded-full border border-border bg-surface text-fg cursor-pointer select-none transition-transform duration-150 hover:scale-105 active:scale-95",
                         r#type: "button",
+                        aria_label: label,
+                        title: label,
                         onclick: move |_| {
-                            let next = match *mode.read() { Mode::Dark => Mode::Light, Mode::Light => Mode::Dark };
-                            mode.set(next);
+                            let next = if *mode_ctx.mode.read() == Mode::Dark { Mode::Light } else { Mode::Dark };
+                            apply_mode(next);
+                            *mode_ctx.mode.write() = next;
                         },
-                        { tr(l, if m == Mode::Dark { "switcher.light" } else { "switcher.dark" }) }
+                        if m == Mode::Dark {
+                            svg {
+                                xmlns: "http://www.w3.org/2000/svg",
+                                width: "16",
+                                height: "16",
+                                view_box: "0 0 24 24",
+                                fill: "none",
+                                stroke: "currentColor",
+                                stroke_width: "1.5",
+                                stroke_linecap: "round",
+                                stroke_linejoin: "round",
+                                class: "w-4 h-4",
+                                circle { cx: "12", cy: "12", r: "4" }
+                                path { d: "M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" }
+                            }
+                        } else {
+                            svg {
+                                xmlns: "http://www.w3.org/2000/svg",
+                                width: "16",
+                                height: "16",
+                                view_box: "0 0 24 24",
+                                fill: "none",
+                                stroke: "currentColor",
+                                stroke_width: "1.5",
+                                stroke_linecap: "round",
+                                stroke_linejoin: "round",
+                                class: "w-4 h-4",
+                                path { d: "M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" }
+                            }
+                        }
                     }
                 }
             }
