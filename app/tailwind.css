@@ -145,6 +145,31 @@
   to { opacity: 1; }
 }
 
+@keyframes hero-in {
+  from { opacity: 0; transform: scale(0.97) translateY(16px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fade-scale {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes nav-in {
+  from { opacity: 0; transform: translateY(-100%); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes page-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* Scroll reveal for landing sections (class toggled by IntersectionObserver) */
 .reveal {
   opacity: 0;
@@ -159,8 +184,35 @@
   transform: none;
 }
 
+/* Reveal variants */
+.reveal--fade { transform: none; }
+.reveal--left { transform: translateX(-32px); }
+.reveal--right { transform: translateX(32px); }
+.reveal--scale { transform: scale(0.96); }
+.reveal--scale.is-visible { transform: scale(1); }
+
+/* Entrance utilities */
+.animate-nav-in {
+  animation: nav-in 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-hero-in {
+  animation: hero-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.page-enter {
+  animation: page-in 0.4s ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .reveal { opacity: 1; transform: none; transition: none; }
+  .reveal,
+  .reveal--fade,
+  .reveal--left,
+  .reveal--right,
+  .reveal--scale { opacity: 1; transform: none; transition: none; animation: none; }
+  .animate-nav-in,
+  .animate-hero-in,
+  .page-enter { animation: none; }
 }
 
 /* ---------- Themed scrollbar (follows active skin) ---------- */

@@ -26,7 +26,7 @@ pub fn DashboardLayout() -> Element {
         div { class: "flex min-h-screen bg-bg text-fg",
             Sidebar { role: role }
             div { class: "flex-1 flex flex-col min-w-0",
-                header { class: "sticky top-0 z-10 bg-surface/80 backdrop-blur border-b border-border px-6 py-3 flex items-center justify-between gap-4",
+                header { class: "sticky top-0 z-10 bg-surface/80 backdrop-blur border-b border-border px-6 py-3 flex items-center justify-between gap-4 animate-nav-in",
                     div { class: "flex items-center gap-3 text-sm flex-wrap",
                         if let Some(u) = user_opt.clone() {
                             span { class: "font-medium truncate max-w-[180px]", "{u.email}" }
@@ -46,7 +46,7 @@ pub fn DashboardLayout() -> Element {
                         Link { class: "text-sm text-primary underline", to: Route::LandingPage {}, "← Landing" }
                     }
                 }
-                div { class: "flex-1 p-8",
+                div { class: "flex-1 p-8 page-enter",
                     Outlet::<Route> {}
                 }
             }

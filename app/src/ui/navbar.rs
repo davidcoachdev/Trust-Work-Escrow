@@ -20,7 +20,7 @@ pub fn Navbar() -> Element {
     let label = tr(l, if m == Mode::Dark { "switcher.light" } else { "switcher.dark" });
 
     rsx! {
-        header { class: "sticky top-0 z-10 bg-bg/80 backdrop-blur border-b border-border",
+        header { class: "sticky top-0 z-10 bg-bg/80 backdrop-blur border-b border-border animate-nav-in",
             div { class: "wrap flex items-center justify-between py-4",
                 Link { class: "font-bold text-lg tracking-tight", to: Route::LandingPage {}, {tr(l, "brand")} }
                 nav { class: "hidden md:flex items-center gap-6",

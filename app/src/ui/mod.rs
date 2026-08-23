@@ -8,7 +8,7 @@ pub mod dashboard_layout;
 
 pub use language_switcher::LanguageSwitcher;
 pub use navbar::Navbar;
-pub use reveal::Reveal;
+pub use reveal::{Reveal, RevealVariant};
 pub use sidebar::{DashboardRole, Sidebar};
 pub use theme_switcher::ThemeSwitcher;
 pub use marketing_layout::MarketingLayout;

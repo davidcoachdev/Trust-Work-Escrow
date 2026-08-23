@@ -10,7 +10,7 @@ use crate::features::landing::Footer;
 pub fn MarketingLayout() -> Element {
     rsx! {
         Navbar {}
-        main { class: "min-h-[calc(100vh-64px)]",
+        main { class: "min-h-[calc(100vh-64px)] page-enter",
             Outlet::<Route> {}
         }
         Footer {}

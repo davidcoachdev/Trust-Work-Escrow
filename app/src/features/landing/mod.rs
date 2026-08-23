@@ -15,7 +15,7 @@ pub use cta::Cta;
 pub use footer::Footer;
 
 use dioxus::prelude::*;
-use crate::ui::Reveal;
+use crate::ui::{Reveal, RevealVariant};
 
 /// Sets up a cross-browser scroll reveal: every `.reveal` element gets an
 /// `IntersectionObserver` that adds `is-visible` (triggering the CSS transition)
@@ -53,12 +53,13 @@ pub fn LandingPage() -> Element {
 
     rsx! {
         // SEO: landing is the only indexable page — dashboard uses noindex via DashboardLayout
-        Reveal { Hero {} }
+        // Hero has its own internal stagger, so outer is just FadeIn
+        Reveal { variant: RevealVariant::FadeIn, Hero {} }
         Reveal { HowItWorks {} }
         Reveal { Features {} }
         Reveal { Stats {} }
         Reveal { ForWhom {} }
-        Reveal { Cta {} }
+        Reveal { variant: RevealVariant::Scale, Cta {} }
         // Footer is rendered by MarketingLayout, not here — avoids duplication inside (marketing) group
     }
 }
