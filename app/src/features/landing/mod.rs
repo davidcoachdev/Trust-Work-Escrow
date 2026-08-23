@@ -5,6 +5,8 @@ mod stats;
 mod who;
 mod cta;
 mod footer;
+mod faq;
+mod schema;
 
 pub use hero::Hero;
 pub use features::Features;
@@ -13,6 +15,7 @@ pub use stats::Stats;
 pub use who::ForWhom;
 pub use cta::Cta;
 pub use footer::Footer;
+pub use faq::Faq;
 
 use dioxus::prelude::*;
 use crate::ui::{Reveal, RevealVariant};
@@ -59,6 +62,7 @@ pub fn LandingPage() -> Element {
         Reveal { Features {} }
         Reveal { Stats {} }
         Reveal { ForWhom {} }
+        Reveal { Faq {} }
         Reveal { variant: RevealVariant::Scale, Cta {} }
         // Footer is rendered by MarketingLayout, not here — avoids duplication inside (marketing) group
     }

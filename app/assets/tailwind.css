@@ -1755,3 +1755,37 @@ html {
     }
   }
 }
+
+/* a11y: sr-only utilities — not auto-generated in Tailwind v4 build */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+.focus\:not-sr-only:focus {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+.focus\:absolute:focus { position: absolute; }
+.focus\:top-2:focus { top: 0.5rem; }
+.focus\:left-2:focus { left: 0.5rem; }
+.focus\:z-50:focus { z-index: 50; }
+.focus\:bg-bg:focus { background-color: var(--bg); }
+.focus\:text-fg:focus { color: var(--fg); }
+.focus\:border:focus { border-style: solid; border-width: 1px; }
+.focus\:border-border:focus { border-color: var(--border); }
+.focus\:rounded-lg:focus { border-radius: 0.5rem; }
+.focus\:px-4:focus { padding-left: 1rem; padding-right: 1rem; }
+.focus\:py-2:focus { padding-top: 0.5rem; padding-bottom: 0.5rem; }

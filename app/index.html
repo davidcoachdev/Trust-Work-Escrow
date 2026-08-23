@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
 
     <title>Trust Work Escrow — Escrow descentralizado en Solana</title>
     <meta
@@ -27,7 +28,11 @@
       content="Pagos seguros entre empleadores y freelancers, liquidados on-chain con Solana."
     />
     <meta property="og:url" content="https://trustworkescrow.com/" />
-    <meta property="og:image" content="https://trustworkescrow.com/og-image.svg" />
+    <meta property="og:image" content="https://trustworkescrow.com/assets/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:alt" content="Trust Work Escrow — Escrow descentralizado en Solana" />
     <meta property="og:locale" content="es_ES" />
     <meta property="og:locale:alternate" content="en_US" />
 
@@ -38,14 +43,15 @@
       name="twitter:description"
       content="Pagos seguros entre empleadores y freelancers, liquidados on-chain con Solana."
     />
-    <meta name="twitter:image" content="https://trustworkescrow.com/og-image.svg" />
+    <meta name="twitter:image" content="https://trustworkescrow.com/assets/og-image.png" />
+    <meta name="twitter:image:alt" content="Trust Work Escrow — Escrow descentralizado en Solana" />
 
-    <!-- Hreflang (i18n) -->
+    <!-- Hreflang (i18n) — TODO: /en requiere ruta real con contenido traducido; mantener x-default/es hasta implementar SSR por idioma -->
     <link rel="alternate" hreflang="es" href="https://trustworkescrow.com/" />
     <link rel="alternate" hreflang="en" href="https://trustworkescrow.com/en" />
     <link rel="alternate" hreflang="x-default" href="https://trustworkescrow.com/" />
 
-    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+    <link rel="icon" type="image/svg+xml" href="/assets/favicon.svg" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -53,6 +59,86 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+
+    <!-- Structured Data — Organization + WebSite (estático SSR-friendly, SPA WASM sin SSR) -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        "name": "Trust Work Escrow",
+        "url": "https://trustworkescrow.com",
+        "logo": "https://trustworkescrow.com/assets/favicon.svg",
+        "description": "Escrow descentralizado en Solana para pagos seguros entre empleadores y freelancers.",
+        "sameAs": ["https://github.com/trust-work-escrow"]
+      }
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        "name": "Trust Work Escrow",
+        "url": "https://trustworkescrow.com",
+        "inLanguage": ["es", "en"],
+        "description": "Pagos seguros entre empleadores y freelancers, liquidados on-chain con Solana."
+      }
+    </script>
+    <!-- FAQPage structured data — 6 Q&A GEO/AEO -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "¿Qué es escrow en Solana?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Un contrato que bloquea fondos en un programa de Solana hasta que empleador y freelancer cumplen las condiciones acordadas. Sin intermediario custodial."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "¿Cómo se liberan los fondos?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Por hitos: el empleador aprueba cada entrega y el programa libera SOL/USDC automáticamente. Si ambas partes acuerdan, el saldo se liquida al cierre."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "¿Qué fees cobra Trust Work Escrow?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Comisión mínima sobre el monto liberado, muy por debajo del escrow tradicional, más el fee base de red de Solana."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "¿Qué pasa si hay disputa?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Cualquiera puede abrir disputa; los fondos quedan bloqueados hasta resolución. El historial on-chain sirve como prueba."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "¿Cómo funciona el arbitraje?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "Un árbitro neutral revisa evidencias y vota la liberación parcial o total. La decisión se ejecuta on-chain y es auditable."
+            }
+          },
+          {
+            "@type": "Question",
+            "name": "¿Es seguro y no custodial?",
+            "acceptedAnswer": {
+              "@type": "Answer",
+              "text": "No custodial: los fondos viven en el programa, no en nuestra billetera. Código auditable en devnet y claves solo en poder de las partes + árbitro."
+            }
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <!-- Dioxus monta la app aquí (root por defecto: #main) -->

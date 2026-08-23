@@ -6,7 +6,7 @@ use crate::ui::{Reveal, RevealVariant};
 pub fn ForWhom() -> Element {
     let l = *use_i18n().lang.read();
     rsx! {
-        section { class: "py-24 bg-surface",
+        section { id: "who", class: "py-24 bg-surface",
             div { class: "wrap",
                 Reveal {
                     h2 { class: "text-3xl font-bold tracking-tight text-center mb-12", {tr(l, "who.title")} }

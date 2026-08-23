@@ -19,25 +19,27 @@ pub fn ContactPage() -> Element {
                         log::info!("contact submit: {}/{}", name.read(), email.read());
                     },
                     div { class: "grid gap-1.5",
-                        label { class: "text-sm text-muted", {tr(l, "auth.name")} }
+                        label { class: "text-sm text-muted", r#for: "contact-name", {tr(l, "auth.name")} }
                         input { class: "bg-bg border border-border rounded-xl px-3.5 py-3 text-fg font-inherit outline-none focus:border-primary transition-colors",
+                            id: "contact-name", autocomplete: "name",
                             r#type: "text", name: "name", required: true,
                             value: "{name.read()}",
                             oninput: move |e| name.set(e.value()),
                         }
                     }
                     div { class: "grid gap-1.5",
-                        label { class: "text-sm text-muted", {tr(l, "auth.email")} }
+                        label { class: "text-sm text-muted", r#for: "contact-email", {tr(l, "auth.email")} }
                         input { class: "bg-bg border border-border rounded-xl px-3.5 py-3 text-fg font-inherit outline-none focus:border-primary transition-colors",
+                            id: "contact-email", autocomplete: "email",
                             r#type: "email", name: "email", required: true,
                             value: "{email.read()}",
                             oninput: move |e| email.set(e.value()),
                         }
                     }
                     div { class: "grid gap-1.5",
-                        label { class: "text-sm text-muted", {tr(l, "auth.message")} }
+                        label { class: "text-sm text-muted", r#for: "contact-message", {tr(l, "auth.message")} }
                         textarea { class: "bg-bg border border-border rounded-xl px-3.5 py-3 text-fg font-inherit outline-none focus:border-primary transition-colors resize-y",
-                            name: "message", rows: 5, required: true,
+                            id: "contact-message", name: "message", rows: 5, required: true,
                             value: "{message.read()}",
                             oninput: move |e| message.set(e.value()),
                         }

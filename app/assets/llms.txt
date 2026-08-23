@@ -1,0 +1,30 @@
+# Trust Work Escrow
+
+> Escrow descentralizado en Solana: pagos seguros entre empleadores y freelancers, liquidados on-chain sin intermediario custodial.
+
+## Descripción
+Trust Work Escrow bloquea fondos (SOL/USDC) en un programa de Solana hasta que ambas partes acuerdan la liberación por hitos. Incluye disputas y arbitraje on-chain, fees mínimos y prueba transparente.
+
+## URLs canónicas
+- https://trustworkescrow.com/ — Landing
+- https://trustworkescrow.com/login — Ingreso OTP
+- https://trustworkescrow.com/signup — Registro
+- https://trustworkescrow.com/contact — Contacto
+- https://trustworkescrow.com/dashboard/client — Dashboard cliente
+- https://trustworkescrow.com/dashboard/freelancer — Dashboard freelancer
+- https://trustworkescrow.com/dashboard/admin — Dashboard admin
+- https://trustworkescrow.com/sitemap.xml — Sitemap
+- https://trustworkescrow.com/assets/og-image.png — OG image 1200x630
+
+## Secciones ancla
+- /#how — Cómo funciona (3 pasos)
+- /#features — Por qué Trust Work Escrow (6 beneficios)
+- /#who — Para quién (freelancers / empleadores)
+- /#cta — Llamada a la acción
+- /#faq — Preguntas frecuentes (FAQPage schema)
+
+## Stack
+Dioxus 0.7 WASM fullstack, Solana program (devnet), lettre/JWT OTP, Tailwind CSS.
+
+## Contacto
+Via /contact o trustworkescrow.com

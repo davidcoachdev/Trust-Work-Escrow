@@ -20,10 +20,16 @@ pub fn Navbar() -> Element {
     let label = tr(l, if m == Mode::Dark { "switcher.light" } else { "switcher.dark" });
 
     rsx! {
+        // a11y: skip link for keyboard users — targets MarketingLayout main#main-content
+        a {
+            class: "sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-bg focus:text-fg focus:border focus:border-border focus:rounded-lg focus:px-4 focus:py-2",
+            href: "#main-content",
+            "Saltar al contenido"
+        }
         header { class: "sticky top-0 z-10 bg-bg/80 backdrop-blur border-b border-border animate-nav-in",
             div { class: "wrap flex items-center justify-between py-4",
                 Link { class: "font-bold text-lg tracking-tight", to: Route::LandingPage {}, {tr(l, "brand")} }
-                nav { class: "hidden md:flex items-center gap-6",
+                nav { class: "hidden md:flex items-center gap-6", aria_label: "Principal",
                     Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::LandingPage {}, {tr(l, "nav.home")} }
                     Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::DocsPage {}, {tr(l, "nav.jobs")} }
                     Link { class: "text-muted text-[15px] hover:text-fg transition-colors", to: Route::DocsPage {}, {tr(l, "nav.docs")} }

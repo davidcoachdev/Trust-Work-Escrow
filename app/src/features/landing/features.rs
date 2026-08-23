@@ -14,7 +14,7 @@ pub fn Features() -> Element {
         ("features.noncustodial.title", "features.noncustodial.body", 400u64),
     ];
     rsx! {
-        section { class: "py-24",
+        section { id: "features", class: "py-24",
             div { class: "wrap",
                 Reveal {
                     h2 { class: "text-3xl font-bold tracking-tight text-center mb-12", {tr(l, "features.title")} }
