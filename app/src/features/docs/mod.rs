@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::ui::{Reveal, RevealVariant};
+use dioxus::prelude::*;
 
 /// DocsPage — mimics docs.rs / Rust documentation style for Trust Work Escrow.
 /// Header #2a2a2a, sidebar with modules, main with sections, code blocks with font-mono.
@@ -216,7 +216,7 @@ pub fn DocsPage() -> Element {
                             span { class: "w-1 h-5 bg-primary rounded-full" }
                             "SDK Docs — backend/sdk"
                         }
-                        p { class: "text-sm text-muted mt-2", "Crate trust-escrow-sdk (features = [solana]). Construye instrucciones para 7a2Y." }
+                        p { class: "text-sm text-muted mt-2", "El backend usa trust-escrow-sdk (features = [solana]) para construir instrucciones para 7a2Y; el navegador solo solicita, firma con Phantom y retransmite." }
                         div { class: "mt-3 bg-[#2a2a2a] text-zinc-100 rounded-lg p-3 overflow-x-auto",
                             pre { class: "font-mono text-xs leading-relaxed",
                                 code {
@@ -225,12 +225,12 @@ pub fn DocsPage() -> Element {
                                     "    &client_pubkey, &pda_job, amount_lamports,\n"
                                     "    &program_id // 7a2Y…\n"
                                     ");\n"
-                                    "// firmá con HMAC-derived key (ver Config > Wallet)"
+                                    "// el backend devuelve unsigned tx; Phantom firma en el navegador"
                                 }
                             }
                         }
                         div { class: "mt-3 bg-[#f5f5f5] dark:bg-zinc-800 border border-border rounded-lg p-3",
-                            p { class: "font-mono text-xs", "Wallet determinística: HMAC-SHA256(secret, email) → ed25519. Recuperable vía OTP. Solo se crea en Config." }
+                            p { class: "font-mono text-xs", "Wallet no custodial: la clave privada permanece en Phantom y nunca se genera ni se expone en Trust Work." }
                         }
                     }
                 }

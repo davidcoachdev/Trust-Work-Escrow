@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::i18n::{tr, use_i18n};
 use crate::ui::{Reveal, RevealVariant};
+use dioxus::prelude::*;
 
 #[component]
 pub fn HowItWorks() -> Element {

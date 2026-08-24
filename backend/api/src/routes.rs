@@ -2,11 +2,14 @@
 
 use axum::{
     extract::{Path, State},
+    http::HeaderMap,
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{delete, get, post},
     Json, Router,
 };
+#[cfg(feature = "solana")]
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 use std::sync::atomic::Ordering;
 
@@ -96,6 +99,15 @@ pub fn api_router() -> Router<AppState> {
         .route("/config", get(get_config))
         .route("/auth/verify", post(verify_auth))
         .route("/jobs", get(list_jobs).post(create_job))
+        .route(
+            "/jobs/transactions/create-unsigned",
+            post(request_create_job_transaction),
+        )
+        .route("/jobs/transactions/relay", post(relay_signed_transaction))
+        .route(
+            "/jobs/:job_id/deposit-unsigned",
+            post(request_deposit_transaction),
+        )
         .route("/jobs/:job_id", get(get_job))
         .route("/jobs/:job_id/deposit", post(deposit_funds))
         .route("/jobs/:job_id/apply", post(apply_to_job))
@@ -194,6 +206,9 @@ async fn list_jobs(State(state): State<AppState>) -> Result<impl IntoResponse, A
                 status: job_status_to_dto(&j.status),
                 deadline: j.deadline,
                 applicants_count: 0,
+                transaction_signature: None,
+                job_pda: Some(j.pda_address.clone()),
+                on_chain_status: Some("off_chain_only".into()),
             }
         })
         .collect();
@@ -202,22 +217,38 @@ async fn list_jobs(State(state): State<AppState>) -> Result<impl IntoResponse, A
 
 #[utoipa::path(post, path = "/jobs", tag = "Jobs", request_body = CreateJobRequest, responses((status = 201, description = "Job created", body = JobResponse)))]
 async fn create_job(
-    auth: crate::auth::AuthenticatedUser,
+    headers: HeaderMap,
     State(state): State<AppState>,
     Json(req): Json<CreateJobRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     validation::validate_create_job(&req)?;
+    let service_ok = state
+        .config
+        .service_token
+        .as_deref()
+        .is_some_and(|expected| {
+            headers.get("x-service-token").and_then(|v| v.to_str().ok()) == Some(expected)
+        });
+    let caller = if service_ok {
+        None
+    } else {
+        Some(crate::auth::AuthenticatedUser::from_headers(&headers)?)
+    };
     if state.next_job_id.load(Ordering::SeqCst) == 0 {
         let count = state.repo.list_jobs().await?.len() as u64;
         if count > 0 {
-            let _ = state
-                .next_job_id
-                .compare_exchange(0, count, Ordering::SeqCst, Ordering::SeqCst);
+            let _ =
+                state
+                    .next_job_id
+                    .compare_exchange(0, count, Ordering::SeqCst, Ordering::SeqCst);
         }
     }
     let job_id = state.next_job_id.fetch_add(1, Ordering::SeqCst);
     let pda = job_pda(job_id);
     let fee = fee_amount(req.amount);
+    let client = caller
+        .map(|a| a.pubkey)
+        .unwrap_or_else(|| placeholder_pubkey("Service"));
     let meta = JobMetadata::new(
         pda.clone(),
         req.title.clone(),
@@ -225,12 +256,12 @@ async fn create_job(
         req.amount,
         fee,
         req.deadline,
-        auth.pubkey.clone(),
+        client.clone(),
     )?;
     state.repo.create_job(meta).await.map_err(ApiError::from)?;
     let resp = JobResponse {
         job_id,
-        client: auth.pubkey,
+        client,
         freelancer: None,
         title: req.title,
         description: req.description,
@@ -239,8 +270,161 @@ async fn create_job(
         status: JobStatusDto::Created,
         deadline: req.deadline,
         applicants_count: 0,
+        transaction_signature: None,
+        job_pda: Some(pda.clone()),
+        on_chain_status: Some("off_chain_only".into()),
     };
     Ok((StatusCode::CREATED, Json(resp)))
+}
+
+/// Build an unsigned wallet transaction. Phantom signs it in the browser;
+/// this endpoint never receives or creates a user keypair.
+#[utoipa::path(post, path = "/jobs/transactions/create-unsigned", tag = "Transactions", request_body = UnsignedTransactionRequest, responses((status = 200, body = UnsignedTransactionResponse)))]
+pub async fn request_create_job_transaction(
+    auth: crate::auth::AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(req): Json<UnsignedTransactionRequest>,
+) -> Result<Response, ApiError> {
+    if auth.pubkey != req.signer {
+        return Err(ApiError::Forbidden);
+    }
+    if req.amount == 0 || req.deadline <= 0 {
+        return Err(ApiError::bad_request(
+            "amount and deadline must be positive",
+        ));
+    }
+    #[cfg(feature = "solana")]
+    {
+        let signer = req
+            .signer
+            .parse::<solana_sdk::pubkey::Pubkey>()
+            .map_err(|_| ApiError::bad_request("invalid signer pubkey"))?;
+        let cluster = trust_escrow_sdk::cluster::parse_cluster(&state.config.cluster)
+            .map_err(|e| ApiError::bad_request(format!("invalid cluster: {e}")))?;
+        let client = trust_escrow_sdk::client::TrustEscrowClient::readonly(cluster)
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        let job_id = state.next_job_id.fetch_add(1, Ordering::SeqCst);
+        let unsigned = client
+            .build_unsigned_create_job(&signer, job_id, req.amount, req.deadline)
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        let bytes = unsigned
+            .to_bytes()
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        let (job_pda, _) = trust_escrow_sdk::pda::get_job_pda(&signer, job_id)
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        return Ok((
+            StatusCode::OK,
+            Json(UnsignedTransactionResponse {
+                job_id,
+                signer: req.signer,
+                transaction: STANDARD.encode(bytes),
+                job_pda: job_pda.to_string(),
+                cluster: state.config.cluster.clone(),
+            }),
+        )
+            .into_response());
+    }
+    #[cfg(not(feature = "solana"))]
+    {
+        let _ = state;
+        Err(ApiError::ServiceUnavailable(
+            "Solana support is not enabled".into(),
+        ))
+    }
+}
+
+/// Validate and retransmit a transaction signed by Phantom.
+#[utoipa::path(post, path = "/jobs/transactions/relay", tag = "Transactions", request_body = SignedTransactionRequest, responses((status = 200, body = RelayedTransactionResponse)))]
+pub async fn relay_signed_transaction(
+    auth: crate::auth::AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(req): Json<SignedTransactionRequest>,
+) -> Result<Response, ApiError> {
+    if auth.pubkey != req.signer {
+        return Err(ApiError::Forbidden);
+    }
+    #[cfg(feature = "solana")]
+    {
+        let signer = req
+            .signer
+            .parse::<solana_sdk::pubkey::Pubkey>()
+            .map_err(|_| ApiError::bad_request("invalid signer pubkey"))?;
+        let bytes = STANDARD
+            .decode(req.transaction.trim())
+            .map_err(|_| ApiError::bad_request("transaction must be base64"))?;
+        let cluster = trust_escrow_sdk::cluster::parse_cluster(&state.config.cluster)
+            .map_err(|e| ApiError::bad_request(format!("invalid cluster: {e}")))?;
+        let client = trust_escrow_sdk::client::TrustEscrowClient::readonly(cluster)
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        let signature = client
+            .relay_signed_transaction(&bytes, &signer, &state.config.cluster)
+            .map_err(|e| ApiError::bad_request(e.to_string()))?;
+        return Ok((
+            StatusCode::OK,
+            Json(RelayedTransactionResponse {
+                signature: signature.to_string(),
+                cluster: state.config.cluster.clone(),
+            }),
+        )
+            .into_response());
+    }
+    #[cfg(not(feature = "solana"))]
+    {
+        let _ = state;
+        Err(ApiError::ServiceUnavailable(
+            "Solana support is not enabled".into(),
+        ))
+    }
+}
+
+/// Build an unsigned deposit transaction for the wallet that owns the job.
+#[utoipa::path(post, path = "/jobs/{job_id}/deposit-unsigned", tag = "Transactions", request_body = DepositTransactionRequest, responses((status = 200, body = UnsignedTransactionResponse)))]
+pub async fn request_deposit_transaction(
+    auth: crate::auth::AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(job_id): Path<u64>,
+    Json(req): Json<DepositTransactionRequest>,
+) -> Result<Response, ApiError> {
+    if auth.pubkey != req.signer {
+        return Err(ApiError::Forbidden);
+    }
+    #[cfg(feature = "solana")]
+    {
+        let signer = req
+            .signer
+            .parse::<solana_sdk::pubkey::Pubkey>()
+            .map_err(|_| ApiError::bad_request("invalid signer pubkey"))?;
+        let cluster = trust_escrow_sdk::cluster::parse_cluster(&state.config.cluster)
+            .map_err(|e| ApiError::bad_request(format!("invalid cluster: {e}")))?;
+        let client = trust_escrow_sdk::client::TrustEscrowClient::readonly(cluster)
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        let unsigned = client
+            .build_unsigned_deposit_funds(&signer, job_id)
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        let bytes = unsigned
+            .to_bytes()
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        let (job_pda, _) = trust_escrow_sdk::pda::get_job_pda(&signer, job_id)
+            .map_err(|e| ApiError::Internal(e.to_string()))?;
+        return Ok((
+            StatusCode::OK,
+            Json(UnsignedTransactionResponse {
+                job_id,
+                signer: req.signer,
+                transaction: STANDARD.encode(bytes),
+                job_pda: job_pda.to_string(),
+                cluster: state.config.cluster.clone(),
+            }),
+        )
+            .into_response());
+    }
+    #[cfg(not(feature = "solana"))]
+    {
+        let _ = state;
+        Err(ApiError::ServiceUnavailable(
+            "Solana support is not enabled".into(),
+        ))
+    }
 }
 
 #[utoipa::path(get, path = "/jobs/:job_id", tag = "Jobs", responses((status = 200, description = "Job details", body = JobResponse)))]
@@ -276,6 +460,9 @@ async fn get_job(
         status: job_status_to_dto(&job.status),
         deadline: job.deadline,
         applicants_count: app_count,
+        transaction_signature: None,
+        job_pda: Some(pda),
+        on_chain_status: Some("off_chain_only".into()),
     };
     Ok((StatusCode::OK, Json(resp)))
 }
@@ -1028,7 +1215,8 @@ mod routes_tests {
         use ed25519_dalek::{Signer, SigningKey};
         let sk = SigningKey::from_bytes(&[seed; 32]);
         let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
-        let sig = base64::engine::general_purpose::STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
+        let sig =
+            base64::engine::general_purpose::STANDARD.encode(sk.sign(msg.as_bytes()).to_bytes());
         (pk, sig, msg.to_string())
     }
     fn add_auth(req: Request<Body>, seed: u8) -> Request<Body> {
@@ -1049,6 +1237,35 @@ mod routes_tests {
             .unwrap();
         assert_eq!(r.status(), StatusCode::OK);
         assert!(body_json(r).await.get("fee_bps").is_some());
+    }
+
+    #[tokio::test]
+    async fn unsigned_transaction_rejects_signer_mismatch() {
+        let app = test_app();
+        let (pk, sig, msg) = auth_headers(7, "create-job-tx");
+        let other = auth_headers(8, "other").0;
+        let r = app
+            .oneshot(
+                Request::builder()
+                    .uri("/jobs/transactions/create-unsigned")
+                    .method(Method::POST)
+                    .header("content-type", "application/json")
+                    .header("x-pubkey", pk)
+                    .header("x-signature", sig)
+                    .header("x-message", msg)
+                    .body(Body::from(
+                        serde_json::json!({
+                            "signer": other,
+                            "amount": 1000,
+                            "deadline": 9999999999i64
+                        })
+                        .to_string(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::FORBIDDEN);
     }
     #[tokio::test]
     async fn jobs_crud_and_validation() {

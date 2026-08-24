@@ -1,6 +1,6 @@
+use crate::i18n::{tr, use_i18n};
 use dioxus::prelude::*;
 use std::string::String;
-use crate::i18n::{tr, use_i18n};
 
 #[component]
 pub fn ContactPage() -> Element {

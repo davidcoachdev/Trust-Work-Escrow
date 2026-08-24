@@ -41,7 +41,8 @@ pub struct Claims {
 
 #[cfg(feature = "server")]
 pub fn verify_jwt(token: &str) -> Result<Claims, String> {
-    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev-jwt-secret-change-me".to_string());
+    let secret =
+        std::env::var("JWT_SECRET").unwrap_or_else(|_| "dev-jwt-secret-change-me".to_string());
     let key = jsonwebtoken::DecodingKey::from_secret(secret.as_bytes());
     let validation = jsonwebtoken::Validation::default();
     jsonwebtoken::decode::<Claims>(token, &key, &validation)

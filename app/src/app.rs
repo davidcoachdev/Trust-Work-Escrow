@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
-use crate::theme::{apply_mode, apply_theme, load_mode, load_theme, ModeContext, ThemeContext};
 use crate::i18n::{apply_lang, load_lang, I18nContext};
 use crate::route::Route;
 use crate::server::auth::guest::{AuthContext, User};
+use crate::theme::{apply_mode, apply_theme, load_mode, load_theme, ModeContext, ThemeContext};
+use dioxus::prelude::*;
 
 const MAIN_CSS: Asset = asset!("/assets/tailwind.css");
 

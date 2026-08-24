@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::i18n::{tr, use_i18n};
 use crate::route::Route;
 use crate::ui::{Reveal, RevealVariant};
+use dioxus::prelude::*;
 
 #[component]
 pub fn Footer() -> Element {

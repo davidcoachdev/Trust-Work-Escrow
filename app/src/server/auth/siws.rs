@@ -3,6 +3,33 @@
 
 #[cfg(feature = "server")]
 use ed25519_dalek::{Signature, VerifyingKey};
+#[cfg(feature = "server")]
+use std::collections::HashMap;
+#[cfg(feature = "server")]
+use std::sync::{Mutex, OnceLock};
+
+#[cfg(feature = "server")]
+static SIWS_CHALLENGES: OnceLock<Mutex<HashMap<String, (String, u64)>>> = OnceLock::new();
+
+#[cfg(feature = "server")]
+fn siws_challenges() -> &'static Mutex<HashMap<String, (String, u64)>> {
+    SIWS_CHALLENGES.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+#[cfg(feature = "server")]
+fn valid_pubkey(pubkey: &str) -> bool {
+    bs58::decode(pubkey)
+        .into_vec()
+        .map(|bytes| bytes.len() == 32)
+        .unwrap_or(false)
+}
+
+#[cfg(feature = "server")]
+fn challenge_message(pubkey: &str, nonce: &str) -> String {
+    format!(
+        "Trust Work Escrow SIWS challenge\nWallet: {pubkey}\nNonce: {nonce}\nPurpose: authenticate"
+    )
+}
 
 #[cfg(feature = "server")]
 pub fn verify_siws(pubkey_b58: &str, message: &str, signature_b58: &str) -> Result<bool, String> {
@@ -33,6 +60,33 @@ pub fn verify_siws(pubkey_b58: &str, message: &str, signature_b58: &str) -> Resu
 use dioxus::prelude::*;
 
 #[server]
+pub async fn request_siws_challenge(pubkey: String) -> Result<String, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        if !valid_pubkey(&pubkey) {
+            return Err(ServerFnError::new("pubkey inválida"));
+        }
+        let nonce = format!("{:032x}", rand::random::<u128>());
+        let message = challenge_message(&pubkey, &nonce);
+        let expires = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| ServerFnError::new("reloj del servidor inválido"))?
+            .as_secs()
+            + 300;
+        siws_challenges()
+            .lock()
+            .map_err(|_| ServerFnError::new("lock poisoned"))?
+            .insert(pubkey, (message.clone(), expires));
+        Ok(message)
+    }
+    #[cfg(not(feature = "server"))]
+    {
+        let _ = pubkey;
+        Err(ServerFnError::new("server only"))
+    }
+}
+
+#[server]
 pub async fn verify_siws_server(
     pubkey: String,
     message: String,
@@ -41,6 +95,18 @@ pub async fn verify_siws_server(
     // En server, verificar con ed25519
     #[cfg(feature = "server")]
     {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| ServerFnError::new("reloj del servidor inválido"))?
+            .as_secs();
+        let expected = siws_challenges()
+            .lock()
+            .map_err(|_| ServerFnError::new("lock poisoned"))?
+            .remove(&pubkey)
+            .ok_or_else(|| ServerFnError::new("SIWS challenge missing or already used"))?;
+        if expected.0 != message || expected.1 < now {
+            return Err(ServerFnError::new("SIWS challenge inválido o expirado"));
+        }
         match verify_siws(&pubkey, &message, &signature) {
             Ok(true) => Ok("verified".to_string()),
             Ok(false) => Err(ServerFnError::new("firma inválida".to_string())),
@@ -56,13 +122,11 @@ pub async fn verify_siws_server(
 #[cfg(all(test, feature = "server"))]
 mod tests {
     use super::*;
-    use ed25519_dalek::{SigningKey, Signer};
-    use rand::rngs::OsRng;
+    use ed25519_dalek::{Signer, SigningKey};
 
     #[test]
     fn siws_verify_ok() {
-        let mut csprng = OsRng;
-        let sk = SigningKey::generate(&mut csprng);
+        let sk = SigningKey::from_bytes(&[3u8; 32]);
         let vk = sk.verifying_key();
         let msg = "Link wallet to guest 123";
         let sig = sk.sign(msg.as_bytes());
@@ -73,12 +137,19 @@ mod tests {
 
     #[test]
     fn siws_verify_wrong_msg() {
-        let mut csprng = OsRng;
-        let sk = SigningKey::generate(&mut csprng);
+        let sk = SigningKey::from_bytes(&[4u8; 32]);
         let vk = sk.verifying_key();
         let sig = sk.sign(b"hello");
         let pubkey_b58 = bs58::encode(vk.to_bytes()).into_string();
         let sig_b58 = bs58::encode(sig.to_bytes()).into_string();
         assert!(!verify_siws(&pubkey_b58, "wrong", &sig_b58).unwrap());
+    }
+
+    #[test]
+    fn challenge_message_binds_wallet_and_purpose() {
+        let message = challenge_message("wallet", "nonce");
+        assert!(message.contains("Wallet: wallet"));
+        assert!(message.contains("Nonce: nonce"));
+        assert!(message.ends_with("Purpose: authenticate"));
     }
 }

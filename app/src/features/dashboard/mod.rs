@@ -1,10 +1,13 @@
 pub mod config;
 pub use config::ConfigPage;
 
-use dioxus::prelude::*;
 use crate::route::Route;
 use crate::server::auth::guest::use_auth;
+use crate::server::auth::siws::{request_siws_challenge, verify_siws_server};
+use crate::server::jobs::{relay_signed_job_transaction, request_create_job_transaction};
+use crate::solana::phantom;
 use crate::ui::{DashboardLayout, Reveal};
+use dioxus::prelude::*;
 
 // Re-export single DashboardLayout aliases for backward compat — old layouts were separate and caused 5 sidebars
 #[allow(unused_imports)]
@@ -34,9 +37,18 @@ pub fn ClientDashboard() -> Element {
     let mut amount_sol = use_signal(|| "0.1".to_string());
     let mut msg = use_signal(|| String::new());
     let auth = use_auth();
-    let is_guest = auth.user.read().as_ref().map(|u| u.is_guest).unwrap_or(true);
-    let has_wallet = auth.user.read().as_ref().and_then(|u| u.wallet_pubkey.clone()).is_some();
-    let can_act = !is_guest && has_wallet;
+    let is_guest = auth
+        .user
+        .read()
+        .as_ref()
+        .map(|u| u.is_guest)
+        .unwrap_or(true);
+    let wallet = auth
+        .user
+        .read()
+        .as_ref()
+        .and_then(|u| u.wallet_pubkey.clone());
+    let can_act = !is_guest && wallet.is_some();
     rsx! {
         div { class: "space-y-6",
             if is_guest {
@@ -47,20 +59,11 @@ pub fn ClientDashboard() -> Element {
                     }
                 }
             }
-            // Wallet gate banner — shown when authenticated but no wallet
-            if !is_guest && !has_wallet {
-                Reveal { delay: 80,
-                    div { class: "bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-3",
-                        span { class: "text-sm text-amber-700 dark:text-amber-300", "Conectá tu billetera en Config > Wallet para habilitar acciones" }
-                        Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-4 py-2 text-sm font-medium", to: Route::ConfigPage {}, "Ir a Config > Wallet" }
-                    }
-                }
-            }
             Reveal {
                 h1 { class: "text-3xl font-bold text-primary", "Dashboard Cliente" }
             }
             Reveal { delay: 80,
-                p { class: "text-muted", "Crea jobs on-chain devnet 7a2Y... y ve tu escrow congelado." }
+                p { class: "text-muted", "Phantom firma en tu navegador; el backend SDK construye y retransmite la transacción." }
             }
             // Job listing — always visible, read-only
             Reveal { delay: 120,
@@ -84,7 +87,7 @@ pub fn ClientDashboard() -> Element {
                     p { class: "text-xs text-muted", "Fix aplicado: GET /jobs ya devuelve amount real (no 1_000_000 hardcode)" }
                 }
             }
-            // Only show create form when wallet present; otherwise show CTA
+            // Request an unsigned transaction; signing must happen in Phantom, never on the server.
             if can_act {
                 Reveal { delay: 180,
                     div { class: "bg-surface border border-border rounded-2xl p-6 space-y-4",
@@ -92,11 +95,40 @@ pub fn ClientDashboard() -> Element {
                         form { class: "grid gap-3",
                             onsubmit: move |evt| {
                                 evt.prevent_default();
-                                let t = title.read().clone();
-                                let amt = amount_sol.read().clone();
-                                spawn(async move {
-                                    msg.set(format!("Creando '{}' por {} SOL en devnet 7a2Y... (usa SDK devnet)", t, amt));
-                                });
+                                 let t = title.read().clone();
+                                 let amt = amount_sol.read().parse::<f64>().unwrap_or(0.0);
+                                 let _title = t.clone();
+                                 let signer = wallet.clone().unwrap_or_default();
+                                 spawn(async move {
+                                     if signer.is_empty() {
+                                         msg.set("Conectá Phantom antes de crear un Job.".to_string());
+                                         return;
+                                     }
+                                     let lamports = (amt * 1_000_000_000.0) as u64;
+                                     let deadline = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64 + 2_592_000).unwrap_or(2_592_000);
+                                     match request_siws_challenge(signer.clone()).await {
+                                         Ok(auth_message) => match phantom::sign_message(&auth_message).await {
+                                         Ok(auth_signature) => match verify_siws_server(signer.clone(), auth_message.clone(), auth_signature.clone()).await {
+                                                     Ok(_) => match request_create_job_transaction(signer.clone(), auth_signature.clone(), auth_message.clone(), lamports, deadline).await {
+                                                 Ok(tx) => match phantom::sign_transaction(&tx.transaction).await {
+                                                     Ok(signed) => match phantom::validate_signed_transaction(&signed) {
+                                                         Ok(signed) => match relay_signed_job_transaction(signer, auth_signature, auth_message, signed).await {
+                                                             Ok(relayed) => msg.set(format!("Job #{} creado · PDA: {} · Tx: {} · estado: {}", tx.job_id, tx.job_pda, relayed.signature, relayed.cluster)),
+                                                             Err(err) => msg.set(format!("No se pudo retransmitir la transacción: {err}")),
+                                                         },
+                                                         Err(err) => msg.set(err),
+                                                     },
+                                                     Err(err) => msg.set(err),
+                                                 },
+                                                 Err(err) => msg.set(format!("No se pudo solicitar la transacción: {err}")),
+                                             },
+                                             Err(_) => msg.set("Phantom firmó, pero la autenticación fue rechazada.".to_string()),
+                                         },
+                                         Err(err) => msg.set(err),
+                                         },
+                                         Err(_) => msg.set("No se pudo obtener un challenge SIWS del backend.".to_string()),
+                                     }
+                                 });
                             },
                             input { class: "bg-bg border border-border rounded-xl px-3 py-2 text-fg",
                                 placeholder: "Título (ej: Landing Trust Work)",
@@ -108,7 +140,7 @@ pub fn ClientDashboard() -> Element {
                                 value: "{amount_sol.read()}",
                                 oninput: move |e| amount_sol.set(e.value()),
                             }
-                            button { class: "bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium hover:opacity-90 transition hover:-translate-y-0.5 active:scale-[0.98]", r#type: "submit", "Crear Job (usa 3whY... en devnet)" }
+                             button { class: "bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium hover:opacity-90 transition hover:-translate-y-0.5 active:scale-[0.98]", r#type: "submit", "Firmar y crear Job con Phantom" }
                             if !msg.read().is_empty() {
                                 p { class: "text-sm text-primary", "{msg.read()}" }
                             }
@@ -118,11 +150,11 @@ pub fn ClientDashboard() -> Element {
             } else {
                 Reveal { delay: 180,
                     div { class: "bg-surface border border-dashed border-border rounded-2xl p-6 text-center space-y-3",
-                        p { class: "text-sm text-muted", "Necesitás billetera para crear jobs, firmar y liberar escrow." }
+                        p { class: "text-sm text-muted", "Necesitás conectar Phantom para crear Jobs y firmar transacciones." }
                         if is_guest {
                             Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::LoginPage {}, "Iniciar sesión" }
                         } else {
-                            Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::ConfigPage {}, "Crear mi billetera en Config" }
+                            Link { class: "inline-flex bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium transition hover:-translate-y-0.5", to: Route::ConfigPage {}, "Conectar Phantom en Config" }
                         }
                     }
                 }
@@ -134,8 +166,18 @@ pub fn ClientDashboard() -> Element {
 #[component]
 pub fn FreelancerDashboard() -> Element {
     let auth = use_auth();
-    let is_guest = auth.user.read().as_ref().map(|u| u.is_guest).unwrap_or(true);
-    let has_wallet = auth.user.read().as_ref().and_then(|u| u.wallet_pubkey.clone()).is_some();
+    let is_guest = auth
+        .user
+        .read()
+        .as_ref()
+        .map(|u| u.is_guest)
+        .unwrap_or(true);
+    let has_wallet = auth
+        .user
+        .read()
+        .as_ref()
+        .and_then(|u| u.wallet_pubkey.clone())
+        .is_some();
     let can_act = !is_guest && has_wallet;
     let mut apply_msg = use_signal(|| String::new());
     rsx! {

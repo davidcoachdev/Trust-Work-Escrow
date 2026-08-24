@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
+use crate::features::landing::Footer;
 use crate::route::Route;
 use crate::ui::Navbar;
-use crate::features::landing::Footer;
+use dioxus::prelude::*;
 
 /// Marketing group layout — Next.js `(marketing)` equivalent.
 /// Wraps "/", "/login", "/signup", "/contact" with Navbar + Footer.

@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::theme::{use_theme, Theme};
+use dioxus::prelude::*;
 
 /// Theme (skin) switcher — pill button (36x36) showing a swatch of the active
 /// theme's primary colors. Opens a themed dropdown listing every skin with its

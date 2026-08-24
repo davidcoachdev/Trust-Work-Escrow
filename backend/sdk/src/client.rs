@@ -13,6 +13,10 @@ mod inner {
     };
     use crate::error::{BackendError, ErrorCode, Result};
     use crate::pda;
+    use crate::relay::{
+        build_create_job_instruction, build_deposit_funds_instruction, build_unsigned_transaction,
+        relay_signed_transaction, validate_signed_transaction, UnsignedTransaction,
+    };
     use crate::types::*;
 
     use std::sync::Arc;
@@ -85,6 +89,48 @@ mod inner {
             Ok(Self { program, payer })
         }
 
+        /// Build an RPC client without a custodial signing key. The ephemeral
+        /// payer is never used to sign user transactions.
+        pub fn readonly(cluster: Cluster) -> Result<Self> {
+            Self::new(cluster, Keypair::new())
+        }
+
+        /// Build, but never sign, a wallet-owned create-job transaction.
+        pub fn build_unsigned_create_job(
+            &self,
+            signer: &Pubkey,
+            job_id: u64,
+            amount: u64,
+            deadline: i64,
+        ) -> Result<UnsignedTransaction> {
+            let ix = build_create_job_instruction(signer, job_id, amount, deadline)?;
+            build_unsigned_transaction(&self.program.rpc(), signer, vec![ix])
+        }
+
+        /// Build, but never sign, a wallet-owned deposit transaction.
+        pub fn build_unsigned_deposit_funds(
+            &self,
+            signer: &Pubkey,
+            job_id: u64,
+        ) -> Result<UnsignedTransaction> {
+            let ix = build_deposit_funds_instruction(signer, job_id)?;
+            build_unsigned_transaction(&self.program.rpc(), signer, vec![ix])
+        }
+
+        /// Validate and relay bytes signed by the wallet; the backend never
+        /// adds a signature or receives a private key.
+        pub fn relay_signed_transaction(
+            &self,
+            bytes: &[u8],
+            expected_signer: &Pubkey,
+            cluster: &str,
+        ) -> Result<Signature> {
+            let signed = bincode::deserialize(bytes)
+                .map_err(|e| BackendError::serialization_error(e.to_string()))?;
+            validate_signed_transaction(&signed, expected_signer, cluster)?;
+            relay_signed_transaction(&self.program.rpc(), &signed)
+        }
+
         /// Build a client loading the keypair from a filesystem path.
         ///
         /// Validates file permissions (`0600` or stricter `0400`) before reading,
@@ -111,6 +157,12 @@ mod inner {
             let path = std::env::var("KEYPAIR_PATH")
                 .map_err(|_| BackendError::config_error("KEYPAIR_PATH not set"))?;
             Self::from_keypair_path(cluster, &path)
+        }
+
+        /// Public key of the backend-owned payer. The browser never receives
+        /// or supplies this keypair; it only receives the public address.
+        pub fn payer_pubkey(&self) -> Pubkey {
+            self.payer.pubkey()
         }
 
         /// Fetch raw account bytes, mapping "account not found" to `None`.

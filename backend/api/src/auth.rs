@@ -141,8 +141,12 @@ where
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let headers = &parts.headers;
+        Self::from_headers(&parts.headers)
+    }
+}
 
+impl AuthenticatedUser {
+    pub fn from_headers(headers: &axum::http::HeaderMap) -> Result<Self, ApiError> {
         let pubkey = headers
             .get("x-pubkey")
             .and_then(|v| v.to_str().ok())

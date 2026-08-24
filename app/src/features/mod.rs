@@ -1,7 +1,7 @@
-pub mod landing;
+pub mod arbitration;
 pub mod auth;
 pub mod contact;
 pub mod dashboard;
-pub mod escrow;
-pub mod arbitration;
 pub mod docs;
+pub mod escrow;
+pub mod landing;

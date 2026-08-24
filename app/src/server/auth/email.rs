@@ -2,11 +2,11 @@
 //! OTP 6 dígitos hasheado, expira 10m, rate-limit 5 intentos.
 
 #[cfg(feature = "server")]
+use rand::Rng;
+#[cfg(feature = "server")]
 use std::collections::HashMap;
 #[cfg(feature = "server")]
 use std::sync::{Mutex, OnceLock};
-#[cfg(feature = "server")]
-use rand::Rng;
 
 #[cfg(feature = "server")]
 static OTP_STORE: OnceLock<Mutex<HashMap<String, OtpEntry>>> = OnceLock::new();

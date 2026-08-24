@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::route::Route;
-use crate::ui::{DashboardRole, Sidebar};
 use crate::server::auth::guest::use_auth;
+use crate::ui::{DashboardRole, Sidebar};
+use dioxus::prelude::*;
 
 /// Dashboard group layout — Next.js `(dashboard)` equivalent.
 /// Single sidebar instance, role-aware. All /dashboard/* nests under this ONE layout

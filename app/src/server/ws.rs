@@ -2,7 +2,8 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use tokio::sync::broadcast;
 
-static WS_TX: once_cell::sync::OnceCell<broadcast::Sender<String>> = once_cell::sync::OnceCell::new();
+static WS_TX: once_cell::sync::OnceCell<broadcast::Sender<String>> =
+    once_cell::sync::OnceCell::new();
 
 fn tx() -> &'static broadcast::Sender<String> {
     WS_TX.get_or_init(|| broadcast::channel(100).0)

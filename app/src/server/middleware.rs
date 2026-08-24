@@ -34,7 +34,8 @@ pub async fn auth_middleware(
     // For now keep read-only open, but gate POST to need wallet (checked in UI + server fns).
     if is_mutating && !has_jwt {
         // Allow POST to /api/auth/* (OTP, siws) without JWT, but block other POST
-        let is_auth_post = uri.starts_with("/api/auth") || uri.contains("send_otp") || uri.contains("verify_otp");
+        let is_auth_post =
+            uri.starts_with("/api/auth") || uri.contains("send_otp") || uri.contains("verify_otp");
         if !is_auth_post {
             // Return 401-ish for API mutating without JWT; UI will show "Necesitás billetera → Config"
             // Don't block strictly yet — keep read-only but signal via header if needed.

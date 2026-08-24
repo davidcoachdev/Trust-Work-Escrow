@@ -139,6 +139,13 @@
         ]
       }
     </script>
+    <!--
+      Wallet boundary adapter only: this fixed legacy web3.js build supplies
+      Transaction.from/serialize for Phantom. It never creates instructions,
+      derives PDAs, or performs RPC. If the CDN fails, the bridge reports an
+      explicit adapter-unavailable error instead of attempting a raw request.
+    -->
+    <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"></script>
   </head>
   <body>
     <!-- Dioxus monta la app aquí (root por defecto: #main) -->

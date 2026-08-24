@@ -217,6 +217,8 @@ mod tests {
             cors_allowed_origins: Vec::new(),
             rate_limit_requests: 100,
             rate_limit_window_secs: 60,
+            cluster: "localnet".into(),
+            service_token: None,
         };
         AppState::with_config_and_repository(cfg, Arc::new(InMemoryMetadataRepository::new()))
     }

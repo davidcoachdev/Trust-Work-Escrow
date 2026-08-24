@@ -1,9 +1,9 @@
-use dioxus::prelude::*;
 use crate::i18n::{tr, use_i18n};
-use crate::theme::{apply_mode, use_mode, Mode};
 use crate::route::Route;
-use crate::ui::{LanguageSwitcher, ThemeSwitcher};
 use crate::server::auth::guest::use_auth_opt;
+use crate::theme::{apply_mode, use_mode, Mode};
+use crate::ui::{LanguageSwitcher, ThemeSwitcher};
+use dioxus::prelude::*;
 
 /// Marketing Navbar — only for (marketing) group.
 /// Contains: brand + nav.home/jobs/docs/contact + Language/Theme + sun/moon + Login/Signup + Invitado.
@@ -17,7 +17,14 @@ pub fn Navbar() -> Element {
     let auth_opt = use_auth_opt();
     let user_opt = auth_opt.as_ref().and_then(|a| a.user.read().clone());
     let is_guest = user_opt.as_ref().map(|u| u.is_guest).unwrap_or(true);
-    let label = tr(l, if m == Mode::Dark { "switcher.light" } else { "switcher.dark" });
+    let label = tr(
+        l,
+        if m == Mode::Dark {
+            "switcher.light"
+        } else {
+            "switcher.dark"
+        },
+    );
 
     rsx! {
         // a11y: skip link for keyboard users — targets MarketingLayout main#main-content

@@ -1,11 +1,13 @@
 use dioxus::prelude::*;
 
-use crate::features::landing::LandingPage;
+use crate::features::arbitration::{ArbitrationScreens, WebRtcPage};
 use crate::features::auth::{LoginPage, SignupPage};
 use crate::features::contact::ContactPage;
-use crate::features::dashboard::{AdminDashboard, ClientDashboard, ConfigPage, FreelancerDashboard};
-use crate::features::arbitration::{ArbitrationScreens, WebRtcPage};
+use crate::features::dashboard::{
+    AdminDashboard, ClientDashboard, ConfigPage, FreelancerDashboard,
+};
 use crate::features::docs::DocsPage;
+use crate::features::landing::LandingPage;
 use crate::ui::{DashboardLayout, MarketingLayout};
 
 /// App routes — Next.js App Router pattern via Dioxus nested layouts:
@@ -16,34 +18,32 @@ use crate::ui::{DashboardLayout, MarketingLayout};
 pub enum Route {
     // ── (marketing) ──
     #[nest("")]
-        #[layout(MarketingLayout)]
-            #[route("/")]
-            LandingPage {},
-            #[route("/docs")]
-            DocsPage {},
-            #[route("/login")]
-            LoginPage {},
-            #[route("/signup")]
-            SignupPage {},
-            #[route("/contact")]
-            ContactPage {},
-        #[end_layout]
+    #[layout(MarketingLayout)]
+    #[route("/")]
+    LandingPage {},
+    #[route("/docs")]
+    DocsPage {},
+    #[route("/login")]
+    LoginPage {},
+    #[route("/signup")]
+    SignupPage {},
+    #[route("/contact")]
+    ContactPage {},
+    #[end_layout]
     #[end_nest]
-
     // ── (dashboard) — single sidebar, role-aware ──
     #[nest("/dashboard")]
-        #[layout(DashboardLayout)]
-            #[route("/client")]
-            ClientDashboard {},
-            #[route("/freelancer")]
-            FreelancerDashboard {},
-            #[route("/admin")]
-            AdminDashboard {},
-            #[route("/config")]
-            ConfigPage {},
-        #[end_layout]
+    #[layout(DashboardLayout)]
+    #[route("/client")]
+    ClientDashboard {},
+    #[route("/freelancer")]
+    FreelancerDashboard {},
+    #[route("/admin")]
+    AdminDashboard {},
+    #[route("/config")]
+    ConfigPage {},
+    #[end_layout]
     #[end_nest]
-
     // ── arbitration (outside groups, no layout wrapper) ──
     #[route("/arbitration/webrtc")]
     WebRtcPage {},

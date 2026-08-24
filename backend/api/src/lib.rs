@@ -53,6 +53,9 @@ use crate::state::AppState;
         routes::get_config,
         routes::list_jobs,
         routes::create_job,
+        routes::request_create_job_transaction,
+        routes::relay_signed_transaction,
+        routes::request_deposit_transaction,
         routes::get_job,
         routes::deposit_funds,
         routes::apply_to_job,
@@ -109,6 +112,11 @@ use crate::state::AppState;
         ConfigResponse,
         ArbiterPoolResponse,
         AddArbiterRequest,
+        UnsignedTransactionRequest,
+        SignedTransactionRequest,
+        UnsignedTransactionResponse,
+        RelayedTransactionResponse,
+        DepositTransactionRequest,
     ))
 )]
 pub struct ApiDoc;
@@ -149,6 +157,10 @@ pub fn app_with_state(state: AppState) -> Router {
         .route("/metrics", get(metrics::metrics))
         .route("/metrics/json", get(metrics::metrics_json))
         .merge(routes::api_router())
+        // Keep `/jobs` as the canonical internal path and expose the same
+        // router under `/api` for browser/reference clients; never duplicate
+        // handler implementations or SDK calls between prefixes.
+        .nest("/api", routes::api_router())
         .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
         .fallback(not_found)
         .layer(cors)

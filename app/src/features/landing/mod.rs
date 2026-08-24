@@ -1,24 +1,24 @@
-mod hero;
+mod cta;
+mod faq;
 mod features;
+mod footer;
+mod hero;
 mod how;
+mod schema;
 mod stats;
 mod who;
-mod cta;
-mod footer;
-mod faq;
-mod schema;
 
-pub use hero::Hero;
+pub use cta::Cta;
+pub use faq::Faq;
 pub use features::Features;
+pub use footer::Footer;
+pub use hero::Hero;
 pub use how::HowItWorks;
 pub use stats::Stats;
 pub use who::ForWhom;
-pub use cta::Cta;
-pub use footer::Footer;
-pub use faq::Faq;
 
-use dioxus::prelude::*;
 use crate::ui::{Reveal, RevealVariant};
+use dioxus::prelude::*;
 
 /// Sets up a cross-browser scroll reveal: every `.reveal` element gets an
 /// `IntersectionObserver` that adds `is-visible` (triggering the CSS transition)

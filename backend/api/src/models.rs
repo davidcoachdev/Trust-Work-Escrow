@@ -87,6 +87,42 @@ pub struct CreateJobRequest {
     pub deadline: i64,
 }
 
+/// Request for a wallet-signed transaction template.
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct UnsignedTransactionRequest {
+    pub signer: String,
+    pub amount: u64,
+    pub deadline: i64,
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct DepositTransactionRequest {
+    pub signer: String,
+}
+
+/// Request containing bytes already signed by Phantom.
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct SignedTransactionRequest {
+    pub signer: String,
+    /// Base64-encoded bincode `solana_sdk::transaction::Transaction`.
+    pub transaction: String,
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct UnsignedTransactionResponse {
+    pub job_id: u64,
+    pub signer: String,
+    pub transaction: String,
+    pub job_pda: String,
+    pub cluster: String,
+}
+
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct RelayedTransactionResponse {
+    pub signature: String,
+    pub cluster: String,
+}
+
 /// Response: job summary.
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct JobResponse {
@@ -100,6 +136,15 @@ pub struct JobResponse {
     pub status: JobStatusDto,
     pub deadline: i64,
     pub applicants_count: u32,
+    /// Confirmed transaction returned by the relay after wallet signing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_signature: Option<String>,
+    /// Real PDA derived from the SDK for this backend-owned client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_pda: Option<String>,
+    /// On-chain confirmation state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_chain_status: Option<String>,
 }
 
 /// Request: apply to a funded job.

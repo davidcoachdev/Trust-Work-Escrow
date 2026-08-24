@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::i18n::{use_i18n, Lang};
+use dioxus::prelude::*;
 
 /// Language switcher — pill button (36x36) showing the current language code
 /// (ES / EN). Opens a themed dropdown (no native `<select>`, so it follows the

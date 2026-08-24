@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::i18n::{tr, use_i18n};
 use crate::ui::Reveal;
+use dioxus::prelude::*;
 
 // Per-character roulette: each char cycles through its charset (A-Z, 0-9, symbols) then lands
 fn charset_for(c: char) -> Vec<char> {
@@ -12,7 +12,9 @@ fn charset_for(c: char) -> Vec<char> {
         ('a'..='z').collect()
     } else {
         // symbols: include target char plus common symbols for roulette
-        let mut v: Vec<char> = vec!['$', '.', '+', '%', '#', '*', '&', '!', '?', '@', '-', '/', 'M', 'k'];
+        let mut v: Vec<char> = vec![
+            '$', '.', '+', '%', '#', '*', '&', '!', '?', '@', '-', '/', 'M', 'k',
+        ];
         if !v.contains(&c) {
             v.push(c);
         }
@@ -64,7 +66,8 @@ fn Counter(value: String, delay: u64) -> Element {
                             if step == total_steps - 1 {
                                 target_char
                             } else {
-                                charset[(target_pos + charset.len() - (total_steps - step)) % charset.len()]
+                                charset[(target_pos + charset.len() - (total_steps - step))
+                                    % charset.len()]
                             }
                         } else {
                             charset[idx]

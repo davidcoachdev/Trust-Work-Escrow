@@ -21,9 +21,7 @@ pub fn Sidebar(role: DashboardRole) -> Element {
             ("/dashboard/freelancer", "Jobs disponibles"),
             ("/dashboard/config", "Config · Wallet"),
         ],
-        DashboardRole::Arbiter => vec![
-            ("/dashboard/config", "Config · Wallet"),
-        ],
+        DashboardRole::Arbiter => vec![("/dashboard/config", "Config · Wallet")],
         DashboardRole::Admin => vec![
             ("/dashboard/admin", "Métricas"),
             ("/dashboard/config", "Config · Wallet"),

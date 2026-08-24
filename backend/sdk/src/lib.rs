@@ -15,6 +15,8 @@ pub mod cluster;
 pub mod error;
 pub mod events;
 pub mod pda;
+#[cfg(feature = "solana")]
+pub mod relay;
 pub mod types;
 pub mod utils;
 

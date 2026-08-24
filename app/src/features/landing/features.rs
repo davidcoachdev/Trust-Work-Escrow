@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::i18n::{tr, use_i18n};
 use crate::ui::Reveal;
+use dioxus::prelude::*;
 
 #[component]
 pub fn Features() -> Element {
@@ -9,9 +9,17 @@ pub fn Features() -> Element {
         ("features.secure.title", "features.secure.body", 0u64),
         ("features.proof.title", "features.proof.body", 80u64),
         ("features.fees.title", "features.fees.body", 160u64),
-        ("features.transparent.title", "features.transparent.body", 240u64),
+        (
+            "features.transparent.title",
+            "features.transparent.body",
+            240u64,
+        ),
         ("features.instant.title", "features.instant.body", 320u64),
-        ("features.noncustodial.title", "features.noncustodial.body", 400u64),
+        (
+            "features.noncustodial.title",
+            "features.noncustodial.body",
+            400u64,
+        ),
     ];
     rsx! {
         section { id: "features", class: "py-24",

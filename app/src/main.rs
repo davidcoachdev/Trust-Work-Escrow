@@ -1,10 +1,11 @@
 mod app;
-mod route;
-mod theme;
-mod i18n;
-mod ui;
 mod features;
+mod i18n;
+mod route;
 mod server;
+mod solana;
+mod theme;
+mod ui;
 
 #[cfg(feature = "server")]
 #[tokio::main]

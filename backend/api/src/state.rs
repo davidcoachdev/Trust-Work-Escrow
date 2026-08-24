@@ -89,6 +89,10 @@ pub struct ApiConfig {
     pub rate_limit_requests: usize,
     /// Rate limit window in seconds.
     pub rate_limit_window_secs: u64,
+    /// `localnet`, `devnet`, or an explicitly configured custom RPC cluster.
+    pub cluster: String,
+    /// Optional secret shared only by the app server and API server.
+    pub service_token: Option<String>,
 }
 
 impl ApiConfig {
@@ -129,6 +133,12 @@ impl ApiConfig {
         let cors_allowed_origins = crate::config::parse_cors_origins()?;
         let rate_limit_requests = crate::config::parse_rate_limit_requests()?.unwrap_or(100);
         let rate_limit_window_secs = crate::config::parse_rate_limit_window_secs()?.unwrap_or(60);
+        let cluster = std::env::var("CLUSTER")
+            .or_else(|_| std::env::var("RPC_CLUSTER"))
+            .unwrap_or_else(|_| "localnet".to_string());
+        let service_token = std::env::var("API_SERVICE_TOKEN")
+            .ok()
+            .filter(|v| !v.trim().is_empty());
 
         Ok(Self {
             port,
@@ -140,6 +150,8 @@ impl ApiConfig {
             cors_allowed_origins,
             rate_limit_requests,
             rate_limit_window_secs,
+            cluster,
+            service_token,
         })
     }
 
@@ -163,6 +175,8 @@ impl Default for ApiConfig {
             cors_allowed_origins: Vec::new(),
             rate_limit_requests: 100,
             rate_limit_window_secs: 60,
+            cluster: "localnet".to_string(),
+            service_token: None,
         }
     }
 }
@@ -280,6 +294,8 @@ mod tests {
             cors_allowed_origins: Vec::new(),
             rate_limit_requests: 100,
             rate_limit_window_secs: 60,
+            cluster: "localnet".to_string(),
+            service_token: None,
         };
         assert_eq!(cfg.port, 3000);
         assert!(!cfg.rpc_url.is_empty());

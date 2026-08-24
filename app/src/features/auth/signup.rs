@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
-use std::string::String;
 use crate::i18n::{tr, use_i18n};
 use crate::route::Route;
+use dioxus::prelude::*;
+use std::string::String;
 
 #[component]
 pub fn SignupPage() -> Element {

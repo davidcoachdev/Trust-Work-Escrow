@@ -171,7 +171,9 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
         "nav.signup" => "Sign up",
         "nav.contact" => "Contact",
         "hero.title" => "Decentralized escrow for real work",
-        "hero.subtitle" => "Secure payments between employers and freelancers, settled on-chain with Solana.",
+        "hero.subtitle" => {
+            "Secure payments between employers and freelancers, settled on-chain with Solana."
+        }
         "hero.cta" => "Get started",
         "hero.ctaSecondary" => "View docs",
         "features.title" => "Why Trust Work Escrow",
@@ -203,9 +205,13 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
         "hero.trust" => "No middlemen. Funds are released only when both parties agree.",
         "how.title" => "How it works",
         "how.step1.title" => "Create the escrow",
-        "how.step1.body" => "The employer deposits funds into a Solana program. They stay locked and safe.",
+        "how.step1.body" => {
+            "The employer deposits funds into a Solana program. They stay locked and safe."
+        }
         "how.step2.title" => "Deliver in milestones",
-        "how.step2.body" => "The freelancer progresses and marks each milestone complete for review.",
+        "how.step2.body" => {
+            "The freelancer progresses and marks each milestone complete for review."
+        }
         "how.step3.title" => "Release and get paid",
         "how.step3.body" => "Both approve and funds settle on-chain instantly.",
         "stats.title" => "Trust you can verify",
@@ -215,15 +221,23 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
         "stats.chain" => "Network",
         "who.title" => "Who it's for",
         "who.freelancers.title" => "Freelancers",
-        "who.freelancers.body" => "Get paid without fear of non-payment. Escrow guarantees your work from day one.",
+        "who.freelancers.body" => {
+            "Get paid without fear of non-payment. Escrow guarantees your work from day one."
+        }
         "who.employers.title" => "Employers",
-        "who.employers.body" => "Pay only when the work is done. Full milestone control, no surprises.",
+        "who.employers.body" => {
+            "Pay only when the work is done. Full milestone control, no surprises."
+        }
         "features.transparent.title" => "Full transparency",
-        "features.transparent.body" => "Everything is recorded on-chain, auditable by anyone at any time.",
+        "features.transparent.body" => {
+            "Everything is recorded on-chain, auditable by anyone at any time."
+        }
         "features.instant.title" => "Instant settlement",
         "features.instant.body" => "No bank waits: funds arrive instantly once approved.",
         "features.noncustodial.title" => "Non-custodial",
-        "features.noncustodial.body" => "Your money never passes through us; it lives in the program until released.",
+        "features.noncustodial.body" => {
+            "Your money never passes through us; it lives in the program until released."
+        }
         _ => "",
     };
     match lang {

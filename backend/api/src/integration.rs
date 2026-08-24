@@ -115,9 +115,10 @@ pub async fn create_job_integration(
     if state.next_job_id.load(Ordering::SeqCst) == 0 {
         let count = state.repo.list_jobs().await?.len() as u64;
         if count > 0 {
-            let _ = state
-                .next_job_id
-                .compare_exchange(0, count, Ordering::SeqCst, Ordering::SeqCst);
+            let _ =
+                state
+                    .next_job_id
+                    .compare_exchange(0, count, Ordering::SeqCst, Ordering::SeqCst);
         }
     }
     let job_id = state.next_job_id.fetch_add(1, Ordering::SeqCst);
@@ -148,6 +149,9 @@ pub async fn create_job_integration(
         status: JobStatusDto::Created,
         deadline: req.deadline,
         applicants_count: 0,
+        transaction_signature: None,
+        job_pda: Some(pda),
+        on_chain_status: Some("off_chain_only".into()),
     })
 }
 
@@ -186,6 +190,9 @@ pub async fn get_job_enriched(state: &AppState, job_id: u64) -> Result<JobRespon
         status: job_status_to_dto(&job.status),
         deadline: job.deadline,
         applicants_count: app_count,
+        transaction_signature: None,
+        job_pda: Some(pda),
+        on_chain_status: Some("off_chain_only".into()),
     })
 }
 
@@ -214,6 +221,9 @@ pub async fn list_jobs_enriched(state: &AppState) -> Result<Vec<JobResponse>, Ap
                 status: job_status_to_dto(&j.status),
                 deadline: j.deadline,
                 applicants_count: 0,
+                transaction_signature: None,
+                job_pda: Some(j.pda_address.clone()),
+                on_chain_status: Some("off_chain_only".into()),
             }
         })
         .collect();
@@ -260,10 +270,30 @@ pub async fn create_job_full_flow(
     //    To keep GET stable, we store **both** keys: the deterministic one
     //    (so `get_job_enriched` works) and, when solana is active, the real
     //    address is also discoverable via `derive_job_pda_via_sdk`.
-    let pda = derive_job_pda_string(job_id);
-    let client = placeholder_pubkey("Client");
-    let meta = JobMetadata::new(pda.clone(), req.title.clone(), req.description.clone(), req.amount, fee_amount(req.amount), req.deadline, client.clone())?;
+    let payer = client.payer_pubkey();
+    let (pda, _) = derive_job_pda_via_sdk(&payer, job_id)?;
+    let client_pubkey = payer.to_string();
+    let meta = JobMetadata::new(
+        pda.clone(),
+        req.title.clone(),
+        req.description.clone(),
+        req.amount,
+        fee_amount(req.amount),
+        req.deadline,
+        client_pubkey.clone(),
+    )?;
     // `AlreadyExists` is idempotent for retries against a reused validator.
+    // Read the account after confirmation: a confirmed RPC response alone is
+    // not enough evidence that the expected PDA was created.
+    let on_chain_job = client
+        .get_job(&payer, job_id)
+        .map_err(|e| ApiError::Internal(format!("on-chain confirmation read failed: {e}")))?
+        .ok_or_else(|| ApiError::Internal("confirmed transaction did not create job PDA".into()))?;
+    if on_chain_job.amount != req.amount || on_chain_job.deadline != req.deadline {
+        return Err(ApiError::Internal(
+            "on-chain job does not match request".into(),
+        ));
+    }
     match state.repo.create_job(meta).await {
         Ok(_) => {}
         Err(crate::repository::RepositoryError::AlreadyExists(_)) => {}
@@ -272,7 +302,7 @@ pub async fn create_job_full_flow(
 
     let resp = JobResponse {
         job_id,
-        client,
+        client: client_pubkey,
         freelancer: None,
         title: req.title,
         description: req.description,
@@ -281,6 +311,9 @@ pub async fn create_job_full_flow(
         status: JobStatusDto::Created,
         deadline: req.deadline,
         applicants_count: 0,
+        transaction_signature: Some(sig.to_string()),
+        job_pda: Some(pda),
+        on_chain_status: Some("confirmed".into()),
     };
     Ok((sig, resp))
 }
@@ -328,6 +361,9 @@ pub async fn list_jobs_full_flow(
                 status: job_status_to_dto(&j.status),
                 deadline: j.deadline,
                 applicants_count: 0,
+                transaction_signature: None,
+                job_pda: Some(j.pda_address.clone()),
+                on_chain_status: Some("off_chain_only".into()),
             });
         }
         // If repo is empty but chain has jobs, surface chain jobs with placeholder titles.
@@ -344,6 +380,9 @@ pub async fn list_jobs_full_flow(
                     status: JobStatusDto::Created,
                     deadline: chrono::Utc::now().timestamp() + 86400,
                     applicants_count: 0,
+                    transaction_signature: None,
+                    job_pda: Some(_pda.to_string()),
+                    on_chain_status: Some("confirmed".into()),
                 });
             }
         }
@@ -492,7 +531,8 @@ mod tests {
             let sk = SigningKey::from_bytes(&[7u8; 32]);
             let pk = bs58::encode(sk.verifying_key().to_bytes()).into_string();
             let m = "integration-http";
-            let s = base64::engine::general_purpose::STANDARD.encode(sk.sign(m.as_bytes()).to_bytes());
+            let s =
+                base64::engine::general_purpose::STANDARD.encode(sk.sign(m.as_bytes()).to_bytes());
             (pk, s, m.to_string())
         };
         let resp = app
