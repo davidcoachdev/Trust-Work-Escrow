@@ -15,7 +15,7 @@ use crate::ui::{DashboardLayout, MarketingLayout};
 #[derive(Routable, Clone, Debug, PartialEq)]
 pub enum Route {
     // ── (marketing) ──
-    #[nest("/")]
+    #[nest("")]
         #[layout(MarketingLayout)]
             #[route("/")]
             LandingPage {},
