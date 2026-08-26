@@ -9,12 +9,12 @@
 | Chained PRs recommended | Yes |
 | Suggested split | 5 PRs (2 specs/PR) → 10 slices (1 spec/commit) |
 | Delivery strategy | ask-on-risk |
-| Chain strategy | pending |
+| Chain strategy | feature-branch-chain |
 
-Decision needed before apply: Yes
+Decision needed before apply: No — feature-branch-chain selected (tracker branch acumula integración)
 Chained PRs recommended: Yes
-Chain strategy: pending
-400-line budget risk: High
+Chain strategy: feature-branch-chain
+400-line budget risk: High — PR1 exception 2 commits foundation (~1000 lines)
 
 ### Suggested Work Units — 1 spec → 1 commit → live test
 
@@ -31,16 +31,16 @@ Chain strategy: pending
 |9|arbitration-role|Pool conditional+reject≥20|PR5|`cargo test pool_pool`|`reject`→PendingReassign|pool flag|
 |10|admin-console|/admin 7 rutas+fee_bps|PR5|`cargo test admin_403`|`PATCH /admin/config`|routes flag|
 
-Chain: `stacked-to-main` (PR→main) vs `feature-branch-chain` (PR1→tracker, PR2→PR1…). Orquestador pregunta.
+Chain: `feature-branch-chain` — tracker `mvp-dynamic-roles-jobs-tracker` (desde dev 3263d95), PR1 `mvp-dynamic-roles-jobs-pr1-wave0` → tracker.
 
-## Wave 0: Foundation — PR1 (no deps)
+## Wave 0: Foundation — PR1 (no deps) — DONE 2026-08-26
 
-- [ ] 0.1 `backend/api/src/models.rs` — `User{roles:Vec,perms:Vec,audit}` + mixin jobs/disputes. Acc: Given create When insert Then `created_by==actor&&is_active`. Commit: `feat(audit): add audit cols all tables`
-- [ ] 0.2 `backend/api/src/repository.rs` — `WHERE is_active=true` default, no hard DELETE. Acc: Given 1 soft-deleted When list Then hidden. Commit: `feat(audit): soft-delete filter`
-- [ ] 0.3 `backend/api/src/metadata.rs` — `UserMetadata Vec` + allowlist + alias legacy. Acc: Given `role="client"` Then `roles=["client"]`. Commit: `feat(permissions): Vec roles allowlist alias`
-- [ ] 0.4 `backend/api/src/routes.rs` — `DELETE /wallets/:pubkey` →400 `WalletHasActiveJob` if InProgress/Submitted|Active dispute. Acc: Given InProgress When DELETE Then 400. Commit: `feat(audit): wallet delete guard`
-- [ ] 0.5 `app/src/ui/dashboard_layout.rs,sidebar.rs` — `MenuConfig.has(p)` wildcard `admin:*`, `Sidebar(Vec)`. Acc: Given `[client,admin]` Then Jobs+Admin visibles sin toggle. Commit: `feat(menu): MenuConfig+Sidebar Vec`
-- [ ] 0.6 `app/src/route.rs` — guards `has(required)`→403 + drift test `frontend⊆allowlist`. Acc: Given no `admin:users` When `/admin/users` Then 403. Commit: `feat(menu): route guards`
+- [x] 0.1 `backend/api/src/models.rs` — `User{roles:Vec,perms:Vec,audit}` + mixin jobs/disputes. Acc: Given create When insert Then `created_by==actor&&is_active`. Commit: `feat(audit): add audit cols all tables` — 6c4e34a
+- [x] 0.2 `backend/api/src/repository.rs` — `WHERE is_active=true` default, no hard DELETE. Acc: Given 1 soft-deleted When list Then hidden. Commit: `feat(audit): soft-delete filter` — 6c4e34a (soft-delete, is_active_filter test)
+- [x] 0.3 `backend/api/src/metadata.rs` — `UserMetadata Vec` + allowlist + alias legacy. Acc: Given `role="client"` Then `roles=["client"]`. Commit: `feat(permissions): Vec roles allowlist alias` — 6c4e34a (PERMISSIONS_ALLOWLIST, has_wildcard, roles Vec)
+- [x] 0.4 `backend/api/src/routes.rs` — `DELETE /wallets/:pubkey` →400 `WalletHasActiveJob` if InProgress/Submitted|Active dispute. Acc: Given InProgress When DELETE Then 400. Commit: `feat(audit): wallet delete guard` — 6c4e34a (check_wallet_has_active_job)
+- [x] 0.5 `app/src/ui/dashboard_layout.rs,sidebar.rs` — `MenuConfig.has(p)` wildcard `admin:*`, `Sidebar(Vec)`. Acc: Given `[client,admin]` Then Jobs+Admin visibles sin toggle. Commit: `feat(menu): MenuConfig+Sidebar Vec` — 09e7f9f
+- [x] 0.6 `app/src/route.rs` — guards `has(required)`→403 + drift test `frontend⊆allowlist`. Acc: Given no `admin:users` When `/admin/users` Then 403. Commit: `feat(menu): route guards` — 09e7f9f (FRONTEND_PERMS drift, guard_403)
 
 ## Wave 1: Identity — PR2 (dep Wave0)
 
