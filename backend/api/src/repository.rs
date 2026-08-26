@@ -13,7 +13,7 @@ use tokio::sync::RwLock;
 
 use crate::metadata::{
     ApplicationMetadata, DisputeMetadata, EvidenceMetadata, JobMetadata, MilestoneMetadata,
-    SupportTicketMetadata, ValidationError,
+    SupportTicketMetadata, UserMetadata, ValidationError,
 };
 
 // ---------------------------------------------------------------------------
@@ -127,6 +127,16 @@ pub trait MetadataRepository: Send + Sync {
         dispute_pda: &str,
     ) -> Result<Vec<EvidenceMetadata>, RepositoryError>;
     async fn delete_evidence(&self, dispute_pda: &str, index: u8) -> Result<(), RepositoryError>;
+
+    // ---- Users (Postgres `users`) ----
+    async fn upsert_user(&self, user: UserMetadata) -> Result<UserMetadata, RepositoryError>;
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<UserMetadata>, RepositoryError>;
+    async fn update_wallet(
+        &self,
+        email: &str,
+        wallet_pubkey: Option<String>,
+    ) -> Result<UserMetadata, RepositoryError>;
+    async fn clear_wallet(&self, email: &str) -> Result<UserMetadata, RepositoryError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +157,7 @@ pub struct InMemoryMetadataRepository {
     disputes: RwLock<HashMap<String, DisputeMetadata>>,
     support_tickets: RwLock<HashMap<String, SupportTicketMetadata>>,
     evidence: RwLock<HashMap<(String, u8), EvidenceMetadata>>,
+    users: RwLock<HashMap<String, UserMetadata>>,
 }
 
 impl InMemoryMetadataRepository {
@@ -184,20 +195,31 @@ impl MetadataRepository for InMemoryMetadataRepository {
         if !map.contains_key(&job.pda_address) {
             return Err(RepositoryError::NotFound(job.pda_address.clone()));
         }
-        map.insert(job.pda_address.clone(), job.clone());
-        Ok(job)
+        let mut j = job.clone();
+        j.updated_at = chrono::Utc::now().timestamp();
+        if j.created_by.is_empty() {
+            if let Some(existing) = map.get(&job.pda_address) {
+                j.created_by = existing.created_by.clone();
+                j.created_at = existing.created_at;
+            }
+        }
+        map.insert(job.pda_address.clone(), j.clone());
+        Ok(j)
     }
 
     async fn delete_job(&self, pda_address: &str) -> Result<(), RepositoryError> {
         let mut map = self.jobs.write().await;
-        map.remove(pda_address)
-            .map(|_| ())
-            .ok_or_else(|| RepositoryError::NotFound(pda_address.to_string()))
+        let mut job = map.get(pda_address).cloned().ok_or_else(|| RepositoryError::NotFound(pda_address.to_string()))?;
+        job.is_active = false;
+        job.deleted_at = Some(chrono::Utc::now().timestamp());
+        job.updated_at = chrono::Utc::now().timestamp();
+        map.insert(pda_address.to_string(), job);
+        Ok(())
     }
 
     async fn list_jobs(&self) -> Result<Vec<JobMetadata>, RepositoryError> {
         let map = self.jobs.read().await;
-        Ok(map.values().cloned().collect())
+        Ok(map.values().filter(|j| j.is_active).cloned().collect())
     }
 
     // ---- Applications ----
@@ -229,16 +251,19 @@ impl MetadataRepository for InMemoryMetadataRepository {
         let map = self.applications.read().await;
         Ok(map
             .values()
-            .filter(|a| a.job_pda == job_pda)
+            .filter(|a| a.job_pda == job_pda && a.is_active)
             .cloned()
             .collect())
     }
 
     async fn delete_application(&self, application_pda: &str) -> Result<(), RepositoryError> {
         let mut map = self.applications.write().await;
-        map.remove(application_pda)
-            .map(|_| ())
-            .ok_or_else(|| RepositoryError::NotFound(application_pda.to_string()))
+        let mut app = map.get(application_pda).cloned().ok_or_else(|| RepositoryError::NotFound(application_pda.to_string()))?;
+        app.is_active = false;
+        app.deleted_at = Some(chrono::Utc::now().timestamp());
+        app.updated_at = chrono::Utc::now().timestamp();
+        map.insert(application_pda.to_string(), app);
+        Ok(())
     }
 
     // ---- Milestones ----
@@ -276,6 +301,7 @@ impl MetadataRepository for InMemoryMetadataRepository {
         let mut out: Vec<_> = map
             .iter()
             .filter(|((job, _), _)| job == job_pda)
+            .filter(|(_, ms)| ms.is_active)
             .map(|(_, ms)| ms.clone())
             .collect();
         out.sort_by_key(|ms| ms.index);
@@ -284,9 +310,13 @@ impl MetadataRepository for InMemoryMetadataRepository {
 
     async fn delete_milestone(&self, job_pda: &str, index: u8) -> Result<(), RepositoryError> {
         let mut map = self.milestones.write().await;
-        map.remove(&(job_pda.to_string(), index))
-            .map(|_| ())
-            .ok_or_else(|| RepositoryError::NotFound(format!("{job_pda}#{index}")))
+        let key = (job_pda.to_string(), index);
+        let mut ms = map.get(&key).cloned().ok_or_else(|| RepositoryError::NotFound(format!("{job_pda}#{index}")))?;
+        ms.is_active = false;
+        ms.deleted_at = Some(chrono::Utc::now().timestamp());
+        ms.updated_at = chrono::Utc::now().timestamp();
+        map.insert(key, ms);
+        Ok(())
     }
 
     // ---- Disputes ----
@@ -320,15 +350,26 @@ impl MetadataRepository for InMemoryMetadataRepository {
         if !map.contains_key(&dispute.dispute_pda) {
             return Err(RepositoryError::NotFound(dispute.dispute_pda.clone()));
         }
-        map.insert(dispute.dispute_pda.clone(), dispute.clone());
-        Ok(dispute)
+        let mut d = dispute.clone();
+        d.updated_at = chrono::Utc::now().timestamp();
+        if d.created_by.is_empty() {
+            if let Some(existing) = map.get(&dispute.dispute_pda) {
+                d.created_by = existing.created_by.clone();
+                d.created_at = existing.created_at;
+            }
+        }
+        map.insert(dispute.dispute_pda.clone(), d.clone());
+        Ok(d)
     }
 
     async fn delete_dispute(&self, dispute_pda: &str) -> Result<(), RepositoryError> {
         let mut map = self.disputes.write().await;
-        map.remove(dispute_pda)
-            .map(|_| ())
-            .ok_or_else(|| RepositoryError::NotFound(dispute_pda.to_string()))
+        let mut d = map.get(dispute_pda).cloned().ok_or_else(|| RepositoryError::NotFound(dispute_pda.to_string()))?;
+        d.is_active = false;
+        d.deleted_at = Some(chrono::Utc::now().timestamp());
+        d.updated_at = chrono::Utc::now().timestamp();
+        map.insert(dispute_pda.to_string(), d);
+        Ok(())
     }
 
     // ---- Support tickets ----
@@ -362,15 +403,26 @@ impl MetadataRepository for InMemoryMetadataRepository {
         if !map.contains_key(&ticket.ticket_pda) {
             return Err(RepositoryError::NotFound(ticket.ticket_pda.clone()));
         }
-        map.insert(ticket.ticket_pda.clone(), ticket.clone());
-        Ok(ticket)
+        let mut t = ticket.clone();
+        t.updated_at = chrono::Utc::now().timestamp();
+        if t.created_by.is_empty() {
+            if let Some(existing) = map.get(&ticket.ticket_pda) {
+                t.created_by = existing.created_by.clone();
+                t.created_at = existing.created_at;
+            }
+        }
+        map.insert(ticket.ticket_pda.clone(), t.clone());
+        Ok(t)
     }
 
     async fn delete_support_ticket(&self, ticket_pda: &str) -> Result<(), RepositoryError> {
         let mut map = self.support_tickets.write().await;
-        map.remove(ticket_pda)
-            .map(|_| ())
-            .ok_or_else(|| RepositoryError::NotFound(ticket_pda.to_string()))
+        let mut t = map.get(ticket_pda).cloned().ok_or_else(|| RepositoryError::NotFound(ticket_pda.to_string()))?;
+        t.is_active = false;
+        t.deleted_at = Some(chrono::Utc::now().timestamp());
+        t.updated_at = chrono::Utc::now().timestamp();
+        map.insert(ticket_pda.to_string(), t);
+        Ok(())
     }
 
     // ---- Evidence ----
@@ -408,6 +460,7 @@ impl MetadataRepository for InMemoryMetadataRepository {
         let mut out: Vec<_> = map
             .iter()
             .filter(|((dispute, _), _)| dispute == dispute_pda)
+            .filter(|(_, ev)| ev.is_active)
             .map(|(_, ev)| ev.clone())
             .collect();
         out.sort_by_key(|ev| ev.index);
@@ -416,9 +469,119 @@ impl MetadataRepository for InMemoryMetadataRepository {
 
     async fn delete_evidence(&self, dispute_pda: &str, index: u8) -> Result<(), RepositoryError> {
         let mut map = self.evidence.write().await;
-        map.remove(&(dispute_pda.to_string(), index))
-            .map(|_| ())
-            .ok_or_else(|| RepositoryError::NotFound(format!("{dispute_pda}#{index}")))
+        let key = (dispute_pda.to_string(), index);
+        let mut ev = map.get(&key).cloned().ok_or_else(|| RepositoryError::NotFound(format!("{dispute_pda}#{index}")))?;
+        ev.is_active = false;
+        ev.deleted_at = Some(chrono::Utc::now().timestamp());
+        ev.updated_at = chrono::Utc::now().timestamp();
+        map.insert(key, ev);
+        Ok(())
+    }
+
+    // ---- Users ----
+    async fn upsert_user(&self, user: UserMetadata) -> Result<UserMetadata, RepositoryError> {
+        user.validate()?;
+        let email_n = UserMetadata::normalize_email(&user.email);
+        // normalize fields before storage
+        let mut stored = user.clone();
+        stored.email = email_n.clone();
+        // Normalize roles: handle legacy alias
+        let mut roles = stored.roles.clone();
+        if roles.is_empty() && !stored.role.trim().is_empty() {
+            roles = vec![UserMetadata::normalize_role(&stored.role)];
+        }
+        stored.roles = roles.iter().map(|r| UserMetadata::normalize_role(r)).collect();
+        stored.role = stored.roles.first().cloned().unwrap_or_else(|| "guest".to_string());
+        if stored.permissions.is_empty() && !stored.roles.is_empty() {
+            stored.permissions = UserMetadata::default_permissions(&stored.roles);
+        }
+        stored.updated_at = chrono::Utc::now().timestamp();
+        stored.updated_by = email_n.clone();
+        if stored.created_at == 0 {
+            stored.created_at = stored.updated_at;
+        }
+        if stored.created_by.is_empty() {
+            stored.created_by = email_n.clone();
+        }
+        stored.is_active = true;
+        stored.deleted_at = None;
+        // Preserve existing wallet/created if exists
+        let mut map = self.users.write().await;
+        if let Some(existing) = map.get(&email_n) {
+            if stored.wallet_pubkey.is_none() {
+                stored.wallet_pubkey = existing.wallet_pubkey.clone();
+            }
+            if stored.created_at == existing.created_at || stored.created_at == 0 {
+                stored.created_at = existing.created_at;
+                stored.created_by = existing.created_by.clone();
+            }
+            // preserve is_active state unless explicitly re-activating
+            if !existing.is_active && stored.is_active {
+                // re-activate: keep new
+            } else if !existing.is_active {
+                stored.is_active = existing.is_active;
+                stored.deleted_at = existing.deleted_at;
+            }
+        }
+        // filter empty wallet => None
+        if let Some(pk) = &stored.wallet_pubkey {
+            if pk.trim().is_empty() {
+                stored.wallet_pubkey = None;
+            }
+        }
+        stored.validate()?;
+        map.insert(email_n.clone(), stored.clone());
+        Ok(stored)
+    }
+
+    async fn get_user_by_email(&self, email: &str) -> Result<Option<UserMetadata>, RepositoryError> {
+        let email_n = UserMetadata::normalize_email(email);
+        let map = self.users.read().await;
+        Ok(map.get(&email_n).cloned())
+    }
+
+    async fn update_wallet(
+        &self,
+        email: &str,
+        wallet_pubkey: Option<String>,
+    ) -> Result<UserMetadata, RepositoryError> {
+        let email_n = UserMetadata::normalize_email(email);
+        // validate pubkey if Some
+        if let Some(pk) = &wallet_pubkey {
+            let trimmed = pk.trim();
+            if !trimmed.is_empty() {
+                let bytes = bs58::decode(trimmed)
+                    .into_vec()
+                    .map_err(|e| RepositoryError::Validation(crate::metadata::ValidationError::InvalidPda(format!("wallet pubkey base58: {}", e))))?;
+                if bytes.len() != 32 {
+                    return Err(RepositoryError::Validation(
+                        crate::metadata::ValidationError::InvalidPda(
+                            "wallet pubkey must be 32 bytes".to_string(),
+                        ),
+                    ));
+                }
+            }
+        }
+        let mut map = self.users.write().await;
+        let mut user = map
+            .get(&email_n)
+            .cloned()
+            .ok_or_else(|| RepositoryError::NotFound(email_n.clone()))?;
+        // normalize: empty string => None, else validated Some(trimmed)
+        let normalized = match wallet_pubkey {
+            None => None,
+            Some(s) if s.trim().is_empty() => None,
+            Some(s) => Some(s.trim().to_string()),
+        };
+        user.wallet_pubkey = normalized;
+        user.updated_at = chrono::Utc::now().timestamp();
+        user.validate()?;
+        map.insert(email_n.clone(), user.clone());
+        Ok(user)
+    }
+
+    async fn clear_wallet(&self, email: &str) -> Result<UserMetadata, RepositoryError> {
+        self.update_wallet(email, None).await
     }
 }
 
@@ -455,6 +618,7 @@ mod tests {
         // get
         let fetched = repo.get_job(&pda(1)).await.unwrap().unwrap();
         assert_eq!(fetched.title, "Title");
+        assert!(fetched.is_active);
         // update
         let mut updated = fetched.clone();
         updated.title = "New title".into();
@@ -465,13 +629,12 @@ mod tests {
         );
         // list
         assert_eq!(repo.list_jobs().await.unwrap().len(), 1);
-        // delete
+        // soft delete: list hides, get still returns with is_active false
         repo.delete_job(&pda(1)).await.unwrap();
-        assert!(repo.get_job(&pda(1)).await.unwrap().is_none());
-        assert!(matches!(
-            repo.delete_job(&pda(1)).await,
-            Err(RepositoryError::NotFound(_))
-        ));
+        assert_eq!(repo.list_jobs().await.unwrap().len(), 0);
+        let soft = repo.get_job(&pda(1)).await.unwrap().unwrap();
+        assert!(!soft.is_active);
+        assert!(soft.deleted_at.is_some());
     }
 
     #[tokio::test]
@@ -491,11 +654,45 @@ mod tests {
             skills: vec![],
             created_at: 0,
             updated_at: 0,
+            created_by: String::new(),
+            updated_by: String::new(),
+            is_active: true,
+            deleted_at: None,
         };
         assert!(matches!(
             repo.create_job(bad).await,
             Err(RepositoryError::Validation(_))
         ));
+    }
+
+    #[tokio::test]
+    async fn is_active_filter() {
+        let repo = InMemoryMetadataRepository::new();
+        let dl = chrono::Utc::now().timestamp() + 86400;
+        let c = format!("7a2YhCd7iivXfyySkp1pf5jjClient{:0>20}{:02}", 9u8, 9u8);
+        let j1 = JobMetadata::new(pda(91), "A".into(), "desc".into(), 1000, 25, dl, c.clone()).unwrap();
+        let j2 = JobMetadata::new(pda(92), "B".into(), "desc".into(), 1000, 25, dl, c).unwrap();
+        repo.create_job(j1).await.unwrap();
+        repo.create_job(j2).await.unwrap();
+        assert_eq!(repo.list_jobs().await.unwrap().len(), 2);
+        repo.delete_job(&pda(91)).await.unwrap();
+        // list hides soft-deleted
+        let list = repo.list_jobs().await.unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].pda_address, pda(92));
+    }
+
+    #[tokio::test]
+    async fn has_wildcard() {
+        use crate::metadata::has_wildcard;
+        let perms = vec!["admin:*".to_string(), "jobs:view".to_string()];
+        assert!(has_wildcard(&perms, "admin:users"));
+        assert!(has_wildcard(&perms, "admin:wallets"));
+        assert!(has_wildcard(&perms, "jobs:view"));
+        assert!(!has_wildcard(&perms, "jobs:create"));
+        let perms2 = vec!["jobs:view:own".to_string()];
+        assert!(!has_wildcard(&perms2, "jobs:view"));
+        assert!(has_wildcard(&perms2, "jobs:view:own"));
     }
 
     #[tokio::test]
@@ -515,7 +712,9 @@ mod tests {
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].proposal, "Proposal text");
         repo.delete_application(&app_pda).await.unwrap();
-        assert!(repo.get_application(&app_pda).await.unwrap().is_none());
+        // soft-delete hides from list, get still returns inactive
+        assert_eq!(repo.list_applications_by_job(&job_pda).await.unwrap().len(), 0);
+        assert!(!repo.get_application(&app_pda).await.unwrap().unwrap().is_active);
     }
 
     #[tokio::test]
@@ -530,10 +729,13 @@ mod tests {
         assert_eq!(list.len(), 2);
         assert_eq!(list[0].index, 0);
         repo.delete_milestone(&job_pda, 0).await.unwrap();
-        assert_eq!(
-            repo.list_milestones_by_job(&job_pda).await.unwrap().len(),
-            1
-        );
+        // soft-delete filters list
+        let list2 = repo.list_milestones_by_job(&job_pda).await.unwrap();
+        assert_eq!(list2.len(), 1);
+        assert_eq!(list2[0].index, 1);
+        // but direct get still shows inactive
+        let soft = repo.get_milestone(&job_pda, 0).await.unwrap().unwrap();
+        assert!(!soft.is_active);
     }
 
     #[tokio::test]
@@ -570,7 +772,10 @@ mod tests {
             .is_some());
 
         repo.delete_evidence(&dispute_pda, 0).await.unwrap();
+        // evidence soft-delete hides from list
+        assert_eq!(repo.list_evidence_by_dispute(&dispute_pda).await.unwrap().len(), 0);
         repo.delete_dispute(&dispute_pda).await.unwrap();
+        assert!(!repo.get_dispute(&dispute_pda).await.unwrap().unwrap().is_active);
     }
 
     #[tokio::test]
@@ -592,10 +797,11 @@ mod tests {
             .resolved_at
             .is_some());
         repo.delete_support_ticket(&ticket_pda).await.unwrap();
-        assert!(repo
+        assert!(!repo
             .get_support_ticket(&ticket_pda)
             .await
             .unwrap()
-            .is_none());
+            .unwrap()
+            .is_active);
     }
 }

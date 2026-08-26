@@ -248,3 +248,46 @@ pub struct ArbiterPoolResponse {
 pub struct AddArbiterRequest {
     pub arbiter: String,
 }
+
+// ---------------------------------------------------------------------------
+// Users — email PK, role + wallet live via backend/api
+// ---------------------------------------------------------------------------
+
+/// Request: login-or-create user (idempotent upsert).
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct LoginOrCreateRequest {
+    pub email: String,
+    pub role: String,
+}
+
+/// Request: link wallet to user.
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct WalletLinkRequest {
+    pub wallet_pubkey: String,
+}
+
+/// Response: user profile (mirrors `app::server::auth::guest::User`).
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct UserResponse {
+    pub email: String,
+    pub role: String,
+    #[serde(default)]
+    pub roles: Vec<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallet_pubkey: Option<String>,
+    pub is_guest: bool,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active_true")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
+}
+
+fn default_is_active_true() -> bool { true }

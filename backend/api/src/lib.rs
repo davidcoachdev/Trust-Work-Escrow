@@ -84,6 +84,10 @@ use crate::state::AppState;
         routes::create_arbiter_pool,
         routes::add_arbiter,
         routes::remove_arbiter,
+        routes::login_or_create_user,
+        routes::get_user_by_email,
+        routes::link_wallet,
+        routes::unlink_wallet,
     ),
     components(schemas(
         HealthResponse,
@@ -117,6 +121,9 @@ use crate::state::AppState;
         UnsignedTransactionResponse,
         RelayedTransactionResponse,
         DepositTransactionRequest,
+        LoginOrCreateRequest,
+        WalletLinkRequest,
+        UserResponse,
     ))
 )]
 pub struct ApiDoc;

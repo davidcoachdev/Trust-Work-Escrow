@@ -140,6 +140,17 @@ impl Default for JobStatus {
     }
 }
 
+/// Audit columns shared across all tables (soft-delete).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct AuditFields {
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub created_by: String,
+    pub updated_by: String,
+    pub is_active: bool,
+    pub deleted_at: Option<i64>,
+}
+
 /// Descriptive metadata for a `Job` PDA. Stored in Postgres, linked by
 /// `pda_address`. Complements the on-chain `Job` which only keeps
 /// `client`, `amount`, `status`, `deadline`, `applicants` etc.
@@ -173,7 +184,21 @@ pub struct JobMetadata {
     pub created_at: i64,
     /// Unix timestamp (seconds) when the record was last updated.
     pub updated_at: i64,
+    /// Audit: who created.
+    #[serde(default)]
+    pub created_by: String,
+    /// Audit: who last updated.
+    #[serde(default)]
+    pub updated_by: String,
+    /// Soft-delete flag.
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    /// Soft-delete timestamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
 }
+
+fn default_is_active() -> bool { true }
 
 impl JobMetadata {
     /// Create a new `JobMetadata` with current timestamps.
@@ -195,15 +220,26 @@ impl JobMetadata {
             amount,
             fee_amount,
             deadline,
-            client,
+            client: client.clone(),
             freelancer: None,
             status: JobStatus::Created,
             skills: Vec::new(),
             created_at: now,
             updated_at: now,
+            created_by: client.clone(),
+            updated_by: client,
+            is_active: true,
+            deleted_at: None,
         };
         m.validate()?;
         Ok(m)
+    }
+
+    pub fn soft_delete(&mut self, actor: &str) {
+        self.is_active = false;
+        self.deleted_at = Some(chrono::Utc::now().timestamp());
+        self.updated_by = actor.to_string();
+        self.updated_at = chrono::Utc::now().timestamp();
     }
 
     /// Validate all fields.
@@ -278,6 +314,16 @@ pub struct ApplicationMetadata {
     pub proposal_hash: String,
     /// Unix timestamp of submission.
     pub applied_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
 }
 
 impl ApplicationMetadata {
@@ -287,13 +333,19 @@ impl ApplicationMetadata {
         applicant: String,
         proposal: String,
     ) -> Result<Self, ValidationError> {
+        let now2 = chrono::Utc::now().timestamp();
         let m = Self {
             application_pda,
             job_pda,
             applicant,
             proposal_hash: String::new(), // filled below
             proposal: String::new(),
-            applied_at: chrono::Utc::now().timestamp(),
+            applied_at: now2,
+            updated_at: now2,
+            created_by: String::new(),
+            updated_by: String::new(),
+            is_active: true,
+            deleted_at: None,
         };
         // Validate proposal before hashing.
         let trimmed = proposal.trim();
@@ -305,9 +357,15 @@ impl ApplicationMetadata {
             return Err(ValidationError::ProposalTooLong(len, MAX_PROPOSAL_LEN));
         }
         let hash = Self::hash_proposal(trimmed);
+        let now = chrono::Utc::now().timestamp();
         let out = Self {
             proposal: proposal.trim().to_string(),
             proposal_hash: hash,
+            updated_at: now,
+            created_by: String::new(),
+            updated_by: String::new(),
+            is_active: true,
+            deleted_at: None,
             ..m
         };
         out.validate()?;
@@ -366,6 +424,16 @@ pub struct MilestoneMetadata {
     pub description: String,
     /// Creation timestamp.
     pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
 }
 
 impl MilestoneMetadata {
@@ -375,15 +443,28 @@ impl MilestoneMetadata {
         title: String,
         description: String,
     ) -> Result<Self, ValidationError> {
+        let now = chrono::Utc::now().timestamp();
         let m = Self {
             job_pda,
             index,
             title,
             description,
-            created_at: chrono::Utc::now().timestamp(),
+            created_at: now,
+            updated_at: now,
+            created_by: String::new(),
+            updated_by: String::new(),
+            is_active: true,
+            deleted_at: None,
         };
         m.validate()?;
         Ok(m)
+    }
+
+    pub fn soft_delete(&mut self, actor: &str) {
+        self.is_active = false;
+        self.deleted_at = Some(chrono::Utc::now().timestamp());
+        self.updated_by = actor.to_string();
+        self.updated_at = chrono::Utc::now().timestamp();
     }
 
     pub fn validate(&self) -> Result<(), ValidationError> {
@@ -415,6 +496,16 @@ pub struct DisputeMetadata {
     /// Resolution timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<i64>,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
 }
 
 impl DisputeMetadata {
@@ -423,16 +514,29 @@ impl DisputeMetadata {
         job_pda: String,
         reason: String,
     ) -> Result<Self, ValidationError> {
+        let now = chrono::Utc::now().timestamp();
         let m = Self {
             dispute_pda,
             job_pda,
             reason,
             resolution: None,
-            created_at: chrono::Utc::now().timestamp(),
+            created_at: now,
             resolved_at: None,
+            updated_at: now,
+            created_by: String::new(),
+            updated_by: String::new(),
+            is_active: true,
+            deleted_at: None,
         };
         m.validate()?;
         Ok(m)
+    }
+
+    pub fn soft_delete(&mut self, actor: &str) {
+        self.is_active = false;
+        self.deleted_at = Some(chrono::Utc::now().timestamp());
+        self.updated_by = actor.to_string();
+        self.updated_at = chrono::Utc::now().timestamp();
     }
 
     pub fn validate(&self) -> Result<(), ValidationError> {
@@ -494,6 +598,16 @@ pub struct SupportTicketMetadata {
     /// Resolution timestamp.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<i64>,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
 }
 
 impl SupportTicketMetadata {
@@ -502,16 +616,29 @@ impl SupportTicketMetadata {
         job_pda: String,
         reason: String,
     ) -> Result<Self, ValidationError> {
+        let now = chrono::Utc::now().timestamp();
         let m = Self {
             ticket_pda,
             job_pda,
             reason,
             resolution: None,
-            created_at: chrono::Utc::now().timestamp(),
+            created_at: now,
             resolved_at: None,
+            updated_at: now,
+            created_by: String::new(),
+            updated_by: String::new(),
+            is_active: true,
+            deleted_at: None,
         };
         m.validate()?;
         Ok(m)
+    }
+
+    pub fn soft_delete(&mut self, actor: &str) {
+        self.is_active = false;
+        self.deleted_at = Some(chrono::Utc::now().timestamp());
+        self.updated_by = actor.to_string();
+        self.updated_at = chrono::Utc::now().timestamp();
     }
 
     pub fn validate(&self) -> Result<(), ValidationError> {
@@ -571,6 +698,16 @@ pub struct EvidenceMetadata {
     pub content_hash: String,
     /// Submission timestamp.
     pub submitted_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
 }
 
 impl EvidenceMetadata {
@@ -592,13 +729,19 @@ impl EvidenceMetadata {
             ));
         }
         let hash = Self::hash_content(trimmed);
+        let now = chrono::Utc::now().timestamp();
         let m = Self {
             dispute_pda,
             index,
             author,
             content: trimmed.to_string(),
             content_hash: hash,
-            submitted_at: chrono::Utc::now().timestamp(),
+            submitted_at: now,
+            updated_at: now,
+            created_by: String::new(),
+            updated_by: String::new(),
+            is_active: true,
+            deleted_at: None,
         };
         m.validate()?;
         Ok(m)
@@ -644,6 +787,263 @@ impl EvidenceMetadata {
     pub fn verify_hash(&self) -> bool {
         Self::hash_content(&self.content) == self.content_hash
     }
+}
+
+// ---------------------------------------------------------------------------
+// User metadata (Postgres `users`)
+// ---------------------------------------------------------------------------
+
+/// Allowed roles for `UserMetadata`.
+pub const ALLOWED_ROLES: &[&str] = &["client", "freelancer", "admin", "arbiter", "guest"];
+
+/// Single source of truth for permission strings. Frontend `MenuConfig` must stay subset of this.
+pub const PERMISSIONS_ALLOWLIST: &[&str] = &[
+    "admin:*",
+    "admin:users",
+    "admin:permissions",
+    "admin:wallets",
+    "admin:accounting",
+    "admin:support",
+    "support:view",
+    "support:manage",
+    "jobs:view",
+    "jobs:view:own",
+    "jobs:create",
+    "jobs:apply",
+    "jobs:manage",
+    "jobs:delete:own",
+    "disputes:view",
+    "arbitration:assigned",
+    "config:wallet",
+    "accountant:view",
+];
+
+pub fn is_allowed_permission(p: &str) -> bool {
+    PERMISSIONS_ALLOWLIST.contains(&p)
+}
+
+pub fn is_allowed_role(r: &str) -> bool {
+    ALLOWED_ROLES.contains(&r.to_lowercase().as_str())
+}
+
+/// Persistent user profile — email is PK, roles+permissions live off-chain.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct UserMetadata {
+    /// Normalized email (lowercase, trimmed). Primary key.
+    pub email: String,
+    /// Vec roles: `client` | `freelancer` | `admin` | `arbiter` | `guest` (allow multiple).
+    #[serde(default)]
+    pub roles: Vec<String>,
+    /// Permissions Vec (must be subset of allowlist).
+    #[serde(default)]
+    pub permissions: Vec<String>,
+    /// Legacy single role alias — deserialized as `role` but stored into `roles[0]` for backward compat.
+    #[serde(default, alias = "role", skip_serializing_if = "String::is_empty")]
+    #[schema(value_type = String)]
+    pub role: String,
+    /// Optional wallet pubkey (base58 32 bytes) — set via SIWS flow.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wallet_pubkey: Option<String>,
+    /// Guest flag (true for ephemeral OTP-less accounts).
+    pub is_guest: bool,
+    /// Unix timestamp creation.
+    pub created_at: i64,
+    /// Unix timestamp last update.
+    pub updated_at: i64,
+    /// Audit.
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
+}
+
+impl UserMetadata {
+    pub fn new(
+        email: String,
+        role: String,
+        wallet_pubkey: Option<String>,
+        is_guest: bool,
+    ) -> Result<Self, ValidationError> {
+        let now = chrono::Utc::now().timestamp();
+        // Legacy single role -> Vec
+        let roles = if role.trim().is_empty() {
+            vec!["guest".to_string()]
+        } else {
+            vec![Self::normalize_role(&role)]
+        };
+        let m = Self {
+            email: email.clone(),
+            roles: roles.clone(),
+            permissions: Self::default_permissions(&roles),
+            role: roles.first().cloned().unwrap_or_default(),
+            wallet_pubkey,
+            is_guest,
+            created_at: now,
+            updated_at: now,
+            created_by: email.clone(),
+            updated_by: email,
+            is_active: true,
+            deleted_at: None,
+        };
+        m.validate()?;
+        Ok(m)
+    }
+
+    pub fn new_with_roles(
+        email: String,
+        roles: Vec<String>,
+        permissions: Vec<String>,
+        wallet_pubkey: Option<String>,
+        is_guest: bool,
+    ) -> Result<Self, ValidationError> {
+        let now = chrono::Utc::now().timestamp();
+        let normalized_roles: Vec<String> = roles.iter().map(|r| Self::normalize_role(r)).collect();
+        let m = Self {
+            role: normalized_roles.first().cloned().unwrap_or_default(),
+            email: email.clone(),
+            roles: normalized_roles,
+            permissions,
+            wallet_pubkey,
+            is_guest,
+            created_at: now,
+            updated_at: now,
+            created_by: email.clone(),
+            updated_by: email,
+            is_active: true,
+            deleted_at: None,
+        };
+        m.validate()?;
+        Ok(m)
+    }
+
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        let e = self.email.trim();
+        if e.is_empty() || !e.contains('@') || !e.contains('.') {
+            return Err(ValidationError::EmptyField {
+                field: "email".to_string(),
+            });
+        }
+        if e.len() > 320 {
+            return Err(ValidationError::FieldTooLong {
+                field: "email".to_string(),
+                actual: e.len(),
+                max: 320,
+            });
+        }
+        // Normalize alias: if roles empty but legacy role present, populate
+        let mut roles = self.roles.clone();
+        if roles.is_empty() && !self.role.trim().is_empty() {
+            roles = vec![Self::normalize_role(&self.role)];
+        }
+        if roles.is_empty() {
+            return Err(ValidationError::EmptyField { field: "roles".to_string() });
+        }
+        for r in &roles {
+            if !is_allowed_role(r) {
+                return Err(ValidationError::EmptyField { field: format!("role:{}", r) });
+            }
+        }
+        for p in &self.permissions {
+            if !is_allowed_permission(p) {
+                return Err(ValidationError::EmptyField { field: format!("permission:{}", p) });
+            }
+        }
+        if let Some(pk) = &self.wallet_pubkey {
+            if !pk.trim().is_empty() {
+                let bytes = bs58::decode(pk.trim())
+                    .into_vec()
+                    .map_err(|e| ValidationError::InvalidPda(format!("wallet pubkey base58: {}", e)))?;
+                if bytes.len() != 32 {
+                    return Err(ValidationError::InvalidPda(
+                        "wallet pubkey must be 32 bytes".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn normalize_email(email: &str) -> String {
+        email.trim().to_lowercase()
+    }
+
+    pub fn normalize_role(role: &str) -> String {
+        role.trim().to_lowercase()
+    }
+
+    pub fn normalized_roles(&self) -> Vec<String> {
+        if !self.roles.is_empty() {
+            self.roles.iter().map(|r| Self::normalize_role(r)).collect()
+        } else if !self.role.trim().is_empty() {
+            vec![Self::normalize_role(&self.role)]
+        } else {
+            vec!["guest".to_string()]
+        }
+    }
+
+    pub fn sync_role_alias(&mut self) {
+        if let Some(first) = self.normalized_roles().first().cloned() {
+            self.role = first.clone();
+            if self.roles.is_empty() {
+                self.roles = vec![first];
+            }
+        }
+    }
+
+    pub fn default_permissions(roles: &[String]) -> Vec<String> {
+        let mut perms = Vec::new();
+        for r in roles {
+            match r.as_str() {
+                "client" => {
+                    perms.extend(["jobs:view:own", "jobs:create", "jobs:view", "config:wallet"].map(|s| s.to_string()));
+                }
+                "freelancer" => {
+                    perms.extend(["jobs:view", "jobs:apply", "config:wallet"].map(|s| s.to_string()));
+                }
+                "admin" => {
+                    perms.extend(["admin:*", "admin:users", "admin:wallets", "support:view"].map(|s| s.to_string()));
+                }
+                "arbiter" => {
+                    perms.extend(["arbitration:assigned", "disputes:view"].map(|s| s.to_string()));
+                }
+                _ => {}
+            }
+        }
+        perms.sort();
+        perms.dedup();
+        perms
+    }
+
+    pub fn soft_delete(&mut self, actor: &str) {
+        self.is_active = false;
+        self.deleted_at = Some(chrono::Utc::now().timestamp());
+        self.updated_by = actor.to_string();
+        self.updated_at = chrono::Utc::now().timestamp();
+    }
+
+    pub fn has_permission(&self, perm: &str) -> bool {
+        has_wildcard(&self.permissions, perm)
+    }
+}
+
+/// Wildcard-aware permission check: `admin:*` matches `admin:users`.
+pub fn has_wildcard(perms: &[String], required: &str) -> bool {
+    for p in perms {
+        if p == required {
+            return true;
+        }
+        if p.ends_with(":*") {
+            let prefix = &p[..p.len() - 1]; // keep colon
+            if required.starts_with(prefix) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------

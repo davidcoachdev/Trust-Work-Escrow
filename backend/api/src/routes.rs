@@ -16,7 +16,7 @@ use std::sync::atomic::Ordering;
 use crate::error::ApiError;
 use crate::metadata::{
     ApplicationMetadata, DisputeMetadata, EvidenceMetadata, JobMetadata, JobStatus,
-    MilestoneMetadata, SupportTicketMetadata,
+    MilestoneMetadata, SupportTicketMetadata, UserMetadata,
 };
 use crate::models::*;
 use crate::state::{AppState, ArbiterPoolState};
@@ -165,6 +165,10 @@ pub fn api_router() -> Router<AppState> {
         )
         .route("/arbiter-pool/arbiters", post(add_arbiter))
         .route("/arbiter-pool/arbiters/:arbiter", delete(remove_arbiter))
+        // ---- Users (email PK) — persist via backend only ----
+        .route("/users/login-or-create", post(login_or_create_user))
+        .route("/users/:email", get(get_user_by_email))
+        .route("/users/:email/wallet", post(link_wallet).delete(unlink_wallet))
 }
 
 #[utoipa::path(get, path = "/config", tag = "Config", responses((status = 200, description = "Protocol config", body = ConfigResponse)))]
@@ -179,6 +183,214 @@ async fn get_config(State(state): State<AppState>) -> Result<impl IntoResponse, 
     };
     let _ = &state.config.rpc_url;
     Ok((StatusCode::OK, Json(resp)))
+}
+
+// ---------------------------------------------------------------------------
+// Users — backend-only persistence (frontend calls via API_INTERNAL_URL)
+// ---------------------------------------------------------------------------
+
+fn check_service_token(headers: &HeaderMap, state: &AppState) -> Result<(), ApiError> {
+    if let Some(expected) = state.config.service_token.as_deref().filter(|v| !v.trim().is_empty()) {
+        let provided = headers
+            .get("x-service-token")
+            .and_then(|v| v.to_str().ok())
+            .or_else(|| {
+                headers
+                    .get("authorization")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.strip_prefix("Bearer "))
+            });
+        if provided != Some(expected) {
+            return Err(ApiError::Unauthorized(
+                "invalid or missing service token".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn user_to_response(u: &UserMetadata) -> UserResponse {
+    let mut roles = u.roles.clone();
+    if roles.is_empty() && !u.role.trim().is_empty() {
+        roles = vec![UserMetadata::normalize_role(&u.role)];
+    }
+    if roles.is_empty() {
+        roles = vec!["guest".to_string()];
+    }
+    UserResponse {
+        email: u.email.clone(),
+        role: roles.first().cloned().unwrap_or_else(|| "guest".to_string()),
+        roles: roles.clone(),
+        permissions: u.permissions.clone(),
+        wallet_pubkey: u.wallet_pubkey.clone().filter(|s| !s.trim().is_empty()),
+        is_guest: u.is_guest,
+        created_at: u.created_at,
+        updated_at: u.updated_at,
+        created_by: u.created_by.clone(),
+        updated_by: u.updated_by.clone(),
+        is_active: u.is_active,
+        deleted_at: u.deleted_at,
+    }
+}
+
+fn validate_email(email: &str) -> Result<String, ApiError> {
+    let e = email.trim().to_lowercase();
+    if e.is_empty() || !e.contains('@') || !e.contains('.') {
+        return Err(ApiError::BadRequest("email inválido".to_string()));
+    }
+    if e.len() > 320 {
+        return Err(ApiError::BadRequest("email demasiado largo".to_string()));
+    }
+    Ok(e)
+}
+
+fn validate_role(role: &str) -> Result<String, ApiError> {
+    let r = role.trim().to_lowercase();
+    if crate::metadata::is_allowed_role(&r) {
+        Ok(r)
+    } else {
+        Err(ApiError::BadRequest(format!(
+            "role must be one of client|freelancer|admin|arbiter|guest (got '{}')",
+            role
+        )))
+    }
+}
+
+async fn check_wallet_has_active_job(
+    repo: &std::sync::Arc<dyn crate::repository::MetadataRepository>,
+    wallet_pubkey: &str,
+) -> Result<bool, ApiError> {
+    // Check jobs where client == wallet and status not terminal
+    let jobs = repo.list_jobs().await.map_err(ApiError::from)?;
+    for j in &jobs {
+        if j.client == wallet_pubkey && !matches!(j.status, crate::metadata::JobStatus::Cancelled | crate::metadata::JobStatus::Rejected | crate::metadata::JobStatus::Approved) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+#[utoipa::path(post, path = "/users/login-or-create", tag = "Users", request_body = LoginOrCreateRequest, responses((status = 200, description = "User upserted", body = UserResponse), (status = 400, description = "Invalid input", body = crate::error::ErrorResponse), (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse)))]
+async fn login_or_create_user(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(req): Json<LoginOrCreateRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    check_service_token(&headers, &state)?;
+    let email = validate_email(&req.email)?;
+    let role = validate_role(&req.role)?;
+    // If user exists keep wallet, else create fresh — handle Vec roles
+    let existing = state.repo.get_user_by_email(&email).await?;
+    let user = if let Some(mut ex) = existing {
+        // update roles Vec, keep alias
+        ex.roles = vec![role.clone()];
+        ex.role = role.clone();
+        // if permissions empty, default
+        if ex.permissions.is_empty() {
+            ex.permissions = UserMetadata::default_permissions(&ex.roles);
+        }
+        ex.updated_at = chrono::Utc::now().timestamp();
+        ex.updated_by = email.clone();
+        ex.validate().map_err(ApiError::from)?;
+        state.repo.upsert_user(ex).await?
+    } else {
+        let now = chrono::Utc::now().timestamp();
+        let new_user = UserMetadata {
+            email: email.clone(),
+            roles: vec![role.clone()],
+            permissions: UserMetadata::default_permissions(&[role.clone()]),
+            role: role.clone(),
+            wallet_pubkey: None,
+            is_guest: false,
+            created_at: now,
+            updated_at: now,
+            created_by: email.clone(),
+            updated_by: email.clone(),
+            is_active: true,
+            deleted_at: None,
+        };
+        new_user.validate().map_err(ApiError::from)?;
+        state.repo.upsert_user(new_user).await?
+    };
+    Ok((StatusCode::OK, Json(user_to_response(&user))))
+}
+
+#[utoipa::path(get, path = "/users/{email}", tag = "Users", params(("email" = String, Path, description = "User email")), responses((status = 200, description = "User found", body = UserResponse), (status = 404, description = "Not found", body = crate::error::ErrorResponse)))]
+async fn get_user_by_email(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(email): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    check_service_token(&headers, &state)?;
+    let email_n = validate_email(&email)?;
+    let user = state
+        .repo
+        .get_user_by_email(&email_n)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(format!("user {} not found", email_n)))?;
+    Ok((StatusCode::OK, Json(user_to_response(&user))))
+}
+
+#[utoipa::path(post, path = "/users/{email}/wallet", tag = "Users", params(("email" = String, Path, description = "User email")), request_body = WalletLinkRequest, responses((status = 200, description = "Wallet linked", body = UserResponse), (status = 400, description = "Invalid pubkey", body = crate::error::ErrorResponse)))]
+async fn link_wallet(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(email): Path<String>,
+    Json(req): Json<WalletLinkRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    check_service_token(&headers, &state)?;
+    let email_n = validate_email(&email)?;
+    let pk = req.wallet_pubkey.trim().to_string();
+    if pk.is_empty() {
+        return Err(ApiError::BadRequest("wallet pubkey vacío".to_string()));
+    }
+    let bytes = bs58::decode(&pk)
+        .into_vec()
+        .map_err(|e| ApiError::BadRequest(format!("pubkey base58 inválido: {:?}", e)))?;
+    if bytes.len() != 32 {
+        return Err(ApiError::BadRequest(
+            "pubkey debe ser 32 bytes (base58)".to_string(),
+        ));
+    }
+    let user = state
+        .repo
+        .update_wallet(&email_n, Some(pk))
+        .await
+        .map_err(|e| match e {
+            crate::repository::RepositoryError::NotFound(_) => {
+                ApiError::NotFound(format!("user {} not found", email_n))
+            }
+            other => ApiError::from(other),
+        })?;
+    Ok((StatusCode::OK, Json(user_to_response(&user))))
+}
+
+#[utoipa::path(delete, path = "/users/{email}/wallet", tag = "Users", params(("email" = String, Path, description = "User email")), responses((status = 200, description = "Wallet unlinked", body = UserResponse)))]
+async fn unlink_wallet(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(email): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    check_service_token(&headers, &state)?;
+    let email_n = validate_email(&email)?;
+    // WalletHasActiveJob guard: if wallet has active job InProgress/Submitted or dispute Active, block
+    let existing = state.repo.get_user_by_email(&email_n).await?.ok_or_else(|| ApiError::NotFound(format!("user {} not found", email_n.clone())))?;
+    if let Some(pk) = existing.wallet_pubkey.clone().filter(|s| !s.trim().is_empty()) {
+        if check_wallet_has_active_job(&state.repo, &pk).await? {
+            return Err(ApiError::BadRequest("WalletHasActiveJob".to_string()));
+        }
+    }
+    let user = state
+        .repo
+        .clear_wallet(&email_n)
+        .await
+        .map_err(|e| match e {
+            crate::repository::RepositoryError::NotFound(_) => {
+                ApiError::NotFound(format!("user {} not found", email_n))
+            }
+            other => ApiError::from(other),
+        })?;
+    Ok((StatusCode::OK, Json(user_to_response(&user))))
 }
 
 #[utoipa::path(get, path = "/jobs", tag = "Jobs", responses((status = 200, description = "List of jobs", body = [JobResponse])))]
