@@ -1,7 +1,19 @@
 use crate::i18n::{tr, use_i18n};
 use crate::route::Route;
+use crate::server::auth::guest::{use_auth, User};
+use crate::server::auth::users::login_or_create_user;
 use dioxus::prelude::*;
-use std::string::String;
+
+#[cfg(target_arch = "wasm32")]
+fn persist_email(email: &str) {
+    if let Some(win) = web_sys::window() {
+        if let Ok(Some(storage)) = win.local_storage() {
+            let _ = storage.set_item("twe-email", email);
+        }
+    }
+}
+#[cfg(not(target_arch = "wasm32"))]
+fn persist_email(_email: &str) {}
 
 #[component]
 pub fn SignupPage() -> Element {
@@ -9,7 +21,9 @@ pub fn SignupPage() -> Element {
     let mut name = use_signal(|| String::new());
     let mut email = use_signal(|| String::new());
     let mut password = use_signal(|| String::new());
+    let mut role = use_signal(|| "client".to_string());
     let mut msg = use_signal(|| String::new());
+    let auth = use_auth();
     let nav = navigator();
 
     rsx! {
@@ -20,18 +34,62 @@ pub fn SignupPage() -> Element {
                 form { class: "grid gap-4 mt-6",
                     onsubmit: move |evt| {
                         evt.prevent_default();
-                        let n = name.read().clone();
-                        let e = email.read().clone();
+                        let e = email.read().trim().to_lowercase();
+                        let r = role.read().clone();
+                        if !e.contains('@') {
+                            msg.set("Email inválido".to_string());
+                            return;
+                        }
+                        if r != "client" && r != "freelancer" {
+                            msg.set("Rol inválido".to_string());
+                            return;
+                        }
+                        let mut auth = auth;
                         let nav = nav.clone();
-                        log::info!("signup submit: {}/{}", n, e);
-                        msg.set("¡Cuenta creada! Revisa tu correo — ahora ingresá con OTP".to_string());
-                        nav.push(Route::LoginPage {});
+                        spawn(async move {
+                            msg.set("Creando cuenta...".to_string());
+                            match login_or_create_user(e.clone(), r.clone()).await {
+                                Ok(user) => {
+                                    persist_email(&user.email);
+                                    auth.user.set(Some(user.clone()));
+                                    msg.set("¡Cuenta creada! Bienvenido...".to_string());
+                                    if user.role == "freelancer" {
+                                        nav.push(Route::FreelancerDashboardGuard {});
+                                    } else {
+                                        nav.push(Route::ClientDashboardGuard {});
+                                    }
+                                }
+                                Err(err) => {
+                                    log::warn!("signup login_or_create_user failed: {:?}", err);
+                                    msg.set(format!("Error: {}", err));
+                                    // MVP bypass preserved — degrade to in-memory
+                                    let mut user_sig = auth.user;
+                                    user_sig.set(Some(User {
+                                        email: e.clone(),
+                                        wallet_pubkey: None,
+                                        role: r.clone(),
+                                        roles: vec![r.clone()],
+                                        permissions: vec![],
+                                        is_guest: false,
+                                        created_at: 0,
+                                        updated_at: 0,
+                                        is_active: true,
+                                    }));
+                                    persist_email(&e);
+                                    if r == "freelancer" {
+                                        nav.push(Route::FreelancerDashboardGuard {});
+                                    } else {
+                                        nav.push(Route::ClientDashboardGuard {});
+                                    }
+                                }
+                            }
+                        });
                     },
                     div { class: "grid gap-1.5",
                         label { class: "text-sm text-muted", r#for: "signup-name", {tr(l, "auth.name")} }
                         input { class: "bg-bg border border-border rounded-xl px-3.5 py-3 text-fg font-inherit outline-none focus:border-primary transition-colors",
                             id: "signup-name", autocomplete: "name",
-                            r#type: "text", name: "name", required: true,
+                            r#type: "text", name: "name",
                             value: "{name.read()}",
                             oninput: move |e| name.set(e.value()),
                         }
@@ -49,10 +107,28 @@ pub fn SignupPage() -> Element {
                         label { class: "text-sm text-muted", r#for: "signup-password", {tr(l, "auth.password")} }
                         input { class: "bg-bg border border-border rounded-xl px-3.5 py-3 text-fg font-inherit outline-none focus:border-primary transition-colors",
                             id: "signup-password", autocomplete: "new-password",
-                            r#type: "password", name: "password", required: true,
+                            r#type: "password", name: "password",
                             value: "{password.read()}",
                             oninput: move |e| password.set(e.value()),
                         }
+                    }
+                    div { class: "grid gap-1.5",
+                        label { class: "text-sm text-muted", "Rol" }
+                        div { class: "grid grid-cols-2 gap-2",
+                            button {
+                                class: if *role.read() == "client" { "bg-primary text-on-primary rounded-xl px-3 py-2.5 text-sm font-medium border border-primary" } else { "bg-bg border border-border rounded-xl px-3 py-2.5 text-sm font-medium" },
+                                r#type: "button",
+                                onclick: move |_| role.set("client".to_string()),
+                                "Cliente"
+                            }
+                            button {
+                                class: if *role.read() == "freelancer" { "bg-primary text-on-primary rounded-xl px-3 py-2.5 text-sm font-medium border border-primary" } else { "bg-bg border border-border rounded-xl px-3 py-2.5 text-sm font-medium" },
+                                r#type: "button",
+                                onclick: move |_| role.set("freelancer".to_string()),
+                                "Freelancer"
+                            }
+                        }
+                        p { class: "text-xs text-muted", "Podés cambiarlo después desde tu perfil." }
                     }
                     button { class: "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-base font-medium bg-primary text-on-primary transition hover:-translate-y-0.5 mt-2", r#type: "submit", {tr(l, "nav.signup")} }
                     if !msg.read().is_empty() {

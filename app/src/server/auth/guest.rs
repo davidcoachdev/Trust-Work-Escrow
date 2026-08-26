@@ -11,7 +11,72 @@ pub struct User {
     pub email: String,
     pub wallet_pubkey: Option<String>,
     pub role: String,
+    #[serde(default)]
+    pub roles: Vec<String>,
+    #[serde(default)]
+    pub permissions: Vec<String>,
     pub is_guest: bool,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default)]
+    pub is_active: bool,
+}
+
+impl User {
+    pub fn normalized_roles(&self) -> Vec<String> {
+        if !self.roles.is_empty() {
+            self.roles.iter().map(|r| r.trim().to_lowercase()).collect()
+        } else if !self.role.trim().is_empty() {
+            vec![self.role.trim().to_lowercase()]
+        } else {
+            vec!["guest".to_string()]
+        }
+    }
+
+    pub fn has_permission(&self, perm: &str) -> bool {
+        has_wildcard(&self.permissions, perm)
+    }
+}
+
+pub fn has_wildcard(perms: &[String], required: &str) -> bool {
+    for p in perms {
+        if p == required {
+            return true;
+        }
+        if p.ends_with(":*") {
+            let prefix = &p[..p.len() - 1];
+            if required.starts_with(prefix) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct MenuConfig {
+    pub roles: Vec<String>,
+    pub perms: Vec<String>,
+}
+
+impl MenuConfig {
+    pub fn new(roles: Vec<String>, perms: Vec<String>) -> Self {
+        Self { roles, perms }
+    }
+    pub fn from_user(user: &User) -> Self {
+        Self {
+            roles: user.normalized_roles(),
+            perms: user.permissions.clone(),
+        }
+    }
+    pub fn has(&self, required: &str) -> bool {
+        has_wildcard(&self.perms, required)
+    }
+    pub fn has_role(&self, role: &str) -> bool {
+        self.roles.iter().any(|r| r.eq_ignore_ascii_case(role))
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -85,7 +150,12 @@ pub async fn get_me() -> Result<Option<User>, ServerFnError> {
             email: "invitado@guest.local".to_string(),
             wallet_pubkey: None,
             role: "guest".to_string(),
+            roles: vec!["guest".to_string()],
+            permissions: vec![],
             is_guest: true,
+            created_at: 0,
+            updated_at: 0,
+            is_active: true,
         }))
     }
     #[cfg(not(feature = "server"))]

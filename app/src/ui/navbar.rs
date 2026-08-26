@@ -53,7 +53,7 @@ pub fn Navbar() -> Element {
                         if let Some(u) = user_opt.clone() {
                             span { class: "hidden lg:inline text-xs text-muted truncate max-w-[160px]", "{u.email}" }
                         }
-                        Link { class: "inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-medium bg-primary text-on-primary hover:opacity-90 transition", to: Route::ClientDashboard {}, "Dashboard" }
+                        Link { class: "inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-medium bg-primary text-on-primary hover:opacity-90 transition", to: Route::ClientDashboardGuard {}, "Dashboard" }
                     }
                 }
                 div { class: "flex items-center gap-2",
