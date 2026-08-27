@@ -269,6 +269,40 @@ pub struct WalletLinkRequest {
     pub wallet_pubkey: String,
 }
 
+/// Request: add wallet with purpose (multi-wallet).
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct AddWalletRequest {
+    /// Solana pubkey base58 32 bytes.
+    pub pubkey: String,
+    /// Purpose: publish|apply|general
+    pub purpose: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// Response: wallet entry.
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct WalletResponse {
+    pub email: String,
+    pub pubkey: String,
+    pub purpose: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub created_at: i64,
+    pub is_active: bool,
+}
+
+/// Request: extend job creation with optional signer purpose
+#[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
+pub struct CreateJobWithWalletRequest {
+    pub title: String,
+    pub description: String,
+    pub amount: u64,
+    pub deadline: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signer_purpose: Option<String>,
+}
+
 /// Response: user profile (mirrors `app::server::auth::guest::User`).
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct UserResponse {

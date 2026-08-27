@@ -137,6 +137,19 @@ pub trait MetadataRepository: Send + Sync {
         wallet_pubkey: Option<String>,
     ) -> Result<UserMetadata, RepositoryError>;
     async fn clear_wallet(&self, email: &str) -> Result<UserMetadata, RepositoryError>;
+
+    // ---- Wallets (user_wallets 1..N) ----
+    async fn add_wallet(&self, wallet: crate::metadata::UserWallet) -> Result<crate::metadata::UserWallet, RepositoryError>;
+    async fn list_wallets_by_email(&self, email: &str) -> Result<Vec<crate::metadata::UserWallet>, RepositoryError>;
+    async fn get_wallet(&self, email: &str, pubkey: &str) -> Result<Option<crate::metadata::UserWallet>, RepositoryError>;
+    async fn remove_wallet(&self, email: &str, pubkey: &str, actor: &str) -> Result<(), RepositoryError>;
+    async fn get_wallet_for_purpose(&self, email: &str, purpose: crate::metadata::WalletPurpose) -> Result<Option<crate::metadata::UserWallet>, RepositoryError>;
+
+    // ---- Job participants (per-job authority) ----
+    async fn add_participant(&self, p: crate::metadata::JobParticipant) -> Result<crate::metadata::JobParticipant, RepositoryError>;
+    async fn get_participant(&self, job_pda: &str, email: &str) -> Result<Option<crate::metadata::JobParticipant>, RepositoryError>;
+    async fn list_participants_by_job(&self, job_pda: &str) -> Result<Vec<crate::metadata::JobParticipant>, RepositoryError>;
+    async fn list_participants_by_email(&self, email: &str) -> Result<Vec<crate::metadata::JobParticipant>, RepositoryError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,6 +171,8 @@ pub struct InMemoryMetadataRepository {
     support_tickets: RwLock<HashMap<String, SupportTicketMetadata>>,
     evidence: RwLock<HashMap<(String, u8), EvidenceMetadata>>,
     users: RwLock<HashMap<String, UserMetadata>>,
+    wallets: RwLock<HashMap<(String, String), crate::metadata::UserWallet>>,
+    participants: RwLock<HashMap<(String, String), crate::metadata::JobParticipant>>,
 }
 
 impl InMemoryMetadataRepository {
@@ -582,6 +597,156 @@ impl MetadataRepository for InMemoryMetadataRepository {
 
     async fn clear_wallet(&self, email: &str) -> Result<UserMetadata, RepositoryError> {
         self.update_wallet(email, None).await
+    }
+
+    async fn add_wallet(&self, wallet: crate::metadata::UserWallet) -> Result<crate::metadata::UserWallet, RepositoryError> {
+        wallet.validate().map_err(RepositoryError::Validation)?;
+        let email_n = UserMetadata::normalize_email(&wallet.email);
+        let pubkey_n = wallet.pubkey.trim().to_string();
+        let key = (email_n.clone(), pubkey_n.clone());
+        // ensure user exists
+        {
+            let users = self.users.read().await;
+            if !users.contains_key(&email_n) {
+                return Err(RepositoryError::NotFound(email_n.clone()));
+            }
+        }
+        let mut map = self.wallets.write().await;
+        if let Some(existing) = map.get(&key) {
+            if existing.is_active {
+                return Err(RepositoryError::AlreadyExists(pubkey_n.clone()));
+            }
+        }
+        let mut w = wallet.clone();
+        w.email = email_n.clone();
+        w.pubkey = pubkey_n.clone();
+        w.validate().map_err(RepositoryError::Validation)?;
+        map.insert(key, w.clone());
+        // also keep legacy single wallet_pubkey in sync for backward compat (first active wallet)
+        {
+            let mut users = self.users.write().await;
+            if let Some(u) = users.get_mut(&email_n) {
+                if u.wallet_pubkey.is_none() || u.wallet_pubkey.as_deref().map(|s| s.trim().is_empty()).unwrap_or(true) {
+                    u.wallet_pubkey = Some(pubkey_n.clone());
+                    u.updated_at = chrono::Utc::now().timestamp();
+                }
+            }
+        }
+        Ok(w)
+    }
+
+    async fn list_wallets_by_email(&self, email: &str) -> Result<Vec<crate::metadata::UserWallet>, RepositoryError> {
+        let email_n = UserMetadata::normalize_email(email);
+        let wallets = self.wallets.read().await;
+        let mut out: Vec<crate::metadata::UserWallet> = wallets.values().filter(|w| w.email==email_n && w.is_active).cloned().collect();
+        // migration: if no wallets but legacy wallet_pubkey exists, synthesize publish wallet
+        if out.is_empty() {
+            // clone user info before dropping locks to avoid borrow issues
+            let legacy = {
+                let users = self.users.read().await;
+                users.get(&email_n).and_then(|u| {
+                    u.wallet_pubkey.clone().filter(|s| !s.trim().is_empty()).map(|pk| {
+                        (pk, u.created_at, u.updated_at, u.created_by.clone(), u.updated_by.clone())
+                    })
+                })
+            };
+            if let Some((pk, c_at, u_at, c_by, u_by)) = legacy {
+                if crate::metadata::validate_pubkey_bs58(&pk).is_ok() {
+                    drop(wallets);
+                    let synth = crate::metadata::UserWallet {
+                        email: email_n.clone(),
+                        pubkey: pk.clone(),
+                        purpose: crate::metadata::WalletPurpose::Publish,
+                        label: Some("Principal".to_string()),
+                        created_at: c_at,
+                        updated_at: u_at,
+                        created_by: c_by,
+                        updated_by: u_by,
+                        is_active: true,
+                        deleted_at: None,
+                    };
+                    let mut wm = self.wallets.write().await;
+                    wm.insert((email_n.clone(), pk.clone()), synth.clone());
+                    out.push(synth);
+                }
+            }
+        } else {
+            // sort by created_at
+            out.sort_by(|a,b| a.created_at.cmp(&b.created_at));
+        }
+        Ok(out)
+    }
+
+    async fn get_wallet(&self, email: &str, pubkey: &str) -> Result<Option<crate::metadata::UserWallet>, RepositoryError> {
+        let email_n = UserMetadata::normalize_email(email);
+        let pk_n = pubkey.trim().to_string();
+        let map = self.wallets.read().await;
+        Ok(map.get(&(email_n, pk_n)).cloned().filter(|w| w.is_active))
+    }
+
+    async fn remove_wallet(&self, email: &str, pubkey: &str, actor: &str) -> Result<(), RepositoryError> {
+        let email_n = UserMetadata::normalize_email(email);
+        let pk_n = pubkey.trim().to_string();
+        let mut map = self.wallets.write().await;
+        let key = (email_n.clone(), pk_n.clone());
+        let mut w = map.get(&key).cloned().ok_or_else(|| RepositoryError::NotFound(pk_n.clone()))?;
+        if !w.is_active {
+            return Err(RepositoryError::NotFound(pk_n));
+        }
+        w.soft_delete(actor);
+        map.insert(key, w.clone());
+        // if legacy wallet equals this pubkey, clear it
+        {
+            let mut users = self.users.write().await;
+            if let Some(u) = users.get_mut(&email_n) {
+                if u.wallet_pubkey.as_deref() == Some(pk_n.as_str()) {
+                    u.wallet_pubkey = None;
+                    u.updated_at = chrono::Utc::now().timestamp();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn get_wallet_for_purpose(&self, email: &str, purpose: crate::metadata::WalletPurpose) -> Result<Option<crate::metadata::UserWallet>, RepositoryError> {
+        let list = self.list_wallets_by_email(email).await?;
+        Ok(list.into_iter().find(|w| w.purpose == purpose))
+    }
+
+    async fn add_participant(&self, p: crate::metadata::JobParticipant) -> Result<crate::metadata::JobParticipant, RepositoryError> {
+        p.validate().map_err(RepositoryError::Validation)?;
+        let email_n = UserMetadata::normalize_email(&p.email);
+        let job_n = p.job_pda.trim().to_string();
+        let key = (job_n.clone(), email_n.clone());
+        let mut map = self.participants.write().await;
+        if map.contains_key(&key) {
+            return Err(RepositoryError::AlreadyExists(format!("{}:{}", job_n, email_n)));
+        }
+        let mut stored = p.clone();
+        stored.email = email_n.clone();
+        stored.job_pda = job_n.clone();
+        stored.validate().map_err(RepositoryError::Validation)?;
+        map.insert(key, stored.clone());
+        Ok(stored)
+    }
+
+    async fn get_participant(&self, job_pda: &str, email: &str) -> Result<Option<crate::metadata::JobParticipant>, RepositoryError> {
+        let email_n = UserMetadata::normalize_email(email);
+        let job_n = job_pda.trim().to_string();
+        let map = self.participants.read().await;
+        Ok(map.get(&(job_n, email_n)).cloned().filter(|p| p.is_active))
+    }
+
+    async fn list_participants_by_job(&self, job_pda: &str) -> Result<Vec<crate::metadata::JobParticipant>, RepositoryError> {
+        let job_n = job_pda.trim().to_string();
+        let map = self.participants.read().await;
+        Ok(map.values().filter(|p| p.job_pda==job_n && p.is_active).cloned().collect())
+    }
+
+    async fn list_participants_by_email(&self, email: &str) -> Result<Vec<crate::metadata::JobParticipant>, RepositoryError> {
+        let email_n = UserMetadata::normalize_email(email);
+        let map = self.participants.read().await;
+        Ok(map.values().filter(|p| p.email==email_n && p.is_active).cloned().collect())
     }
 }
 

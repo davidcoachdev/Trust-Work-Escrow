@@ -1047,6 +1047,209 @@ pub fn has_wildcard(perms: &[String], required: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// Wallet purpose and UserWallet (multi-wallet 1..N per email)
+// ---------------------------------------------------------------------------
+
+/// Validate a Solana pubkey is 32 bytes bs58 (44 chars).
+pub fn validate_pubkey_bs58(pubkey: &str) -> Result<(), ValidationError> {
+    let trimmed = pubkey.trim();
+    if trimmed.is_empty() {
+        return Err(ValidationError::EmptyField { field: "pubkey".to_string() });
+    }
+    let bytes = bs58::decode(trimmed)
+        .into_vec()
+        .map_err(|e| ValidationError::InvalidPda(format!("pubkey base58: {}", e)))?;
+    if bytes.len() != 32 {
+        return Err(ValidationError::InvalidPda("pubkey must be 32 bytes".to_string()));
+    }
+    Ok(())
+}
+
+/// Purpose of a wallet per user — publish for job creation, apply for applications.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum WalletPurpose {
+    Publish,
+    Apply,
+    General,
+}
+
+impl WalletPurpose {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "publish" => Some(Self::Publish),
+            "apply" => Some(Self::Apply),
+            "general" => Some(Self::General),
+            _ => None,
+        }
+    }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Publish => "publish",
+            Self::Apply => "apply",
+            Self::General => "general",
+        }
+    }
+}
+
+impl std::fmt::Display for WalletPurpose {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}
+
+/// UserWallet — one wallet per email/purpose, soft-deletable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct UserWallet {
+    /// Normalized email (FK to users).
+    pub email: String,
+    /// Solana pubkey (base58 32 bytes, unique per email).
+    pub pubkey: String,
+    pub purpose: WalletPurpose,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
+}
+
+impl UserWallet {
+    pub fn new(email: String, pubkey: String, purpose: WalletPurpose, label: Option<String>) -> Result<Self, ValidationError> {
+        let email_n = UserMetadata::normalize_email(&email);
+        if email_n.is_empty() || !email_n.contains('@') { return Err(ValidationError::EmptyField{ field:"email".into()}); }
+        validate_pubkey_bs58(&pubkey)?;
+        if purpose.as_str().is_empty() { return Err(ValidationError::EmptyField{ field:"purpose".into()}); }
+        let now = chrono::Utc::now().timestamp();
+        let m = Self {
+            email: email_n.clone(),
+            pubkey: pubkey.trim().to_string(),
+            purpose,
+            label: label.and_then(|l| { let t=l.trim().to_string(); if t.is_empty(){None} else {Some(t)}}),
+            created_at: now,
+            updated_at: now,
+            created_by: email_n.clone(),
+            updated_by: email_n,
+            is_active: true,
+            deleted_at: None,
+        };
+        m.validate()?;
+        Ok(m)
+    }
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        let e = self.email.trim();
+        if e.is_empty() || !e.contains('@') { return Err(ValidationError::EmptyField{ field:"email".into()}); }
+        validate_pubkey_bs58(&self.pubkey)?;
+        Ok(())
+    }
+    pub fn soft_delete(&mut self, actor: &str) {
+        self.is_active = false;
+        self.deleted_at = Some(chrono::Utc::now().timestamp());
+        self.updated_by = actor.to_string();
+        self.updated_at = chrono::Utc::now().timestamp();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// JobParticipant — per-job authority (client|freelancer)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum RolePerJob {
+    Client,
+    Freelancer,
+}
+
+impl RolePerJob {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "client" => Some(Self::Client),
+            "freelancer" => Some(Self::Freelancer),
+            _ => None,
+        }
+    }
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Client => "client",
+            Self::Freelancer => "freelancer",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct JobParticipant {
+    /// Job PDA address (FK).
+    pub job_pda: String,
+    /// Normalized email of participant.
+    pub email: String,
+    pub role_per_job: RolePerJob,
+    /// Wallet pubkey used for this job (must be 32B bs58 if non-empty).
+    pub wallet_pubkey: String,
+    pub joined_at: i64,
+    #[serde(default)]
+    pub created_at: i64,
+    #[serde(default)]
+    pub updated_at: i64,
+    #[serde(default)]
+    pub created_by: String,
+    #[serde(default)]
+    pub updated_by: String,
+    #[serde(default = "default_is_active")]
+    pub is_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<i64>,
+}
+
+impl JobParticipant {
+    pub fn new(job_pda: String, email: String, role_per_job: RolePerJob, wallet_pubkey: String) -> Result<Self, ValidationError> {
+        let email_n = UserMetadata::normalize_email(&email);
+        if email_n.is_empty() || !email_n.contains('@') { return Err(ValidationError::EmptyField{ field:"email".into()}); }
+        validate_pda(&job_pda)?;
+        if !wallet_pubkey.trim().is_empty() {
+            validate_pubkey_bs58(&wallet_pubkey)?;
+        }
+        let now = chrono::Utc::now().timestamp();
+        let m = Self {
+            job_pda: job_pda.trim().to_string(),
+            email: email_n.clone(),
+            role_per_job,
+            wallet_pubkey: wallet_pubkey.trim().to_string(),
+            joined_at: now,
+            created_at: now,
+            updated_at: now,
+            created_by: email_n.clone(),
+            updated_by: email_n,
+            is_active: true,
+            deleted_at: None,
+        };
+        m.validate()?;
+        Ok(m)
+    }
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        validate_pda(&self.job_pda)?;
+        let e=self.email.trim();
+        if e.is_empty()||!e.contains('@'){ return Err(ValidationError::EmptyField{ field:"email".into()});}
+        if !self.wallet_pubkey.trim().is_empty() {
+            validate_pubkey_bs58(&self.wallet_pubkey)?;
+        }
+        Ok(())
+    }
+    pub fn soft_delete(&mut self, actor: &str) {
+        self.is_active=false;
+        self.deleted_at=Some(chrono::Utc::now().timestamp());
+        self.updated_by=actor.to_string();
+        self.updated_at=chrono::Utc::now().timestamp();
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests — pure validation, no I/O
 // ---------------------------------------------------------------------------
 
