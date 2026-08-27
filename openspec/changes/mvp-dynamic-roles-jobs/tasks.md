@@ -42,13 +42,13 @@ Chain: `feature-branch-chain` — tracker `mvp-dynamic-roles-jobs-tracker` (desd
 - [x] 0.5 `app/src/ui/dashboard_layout.rs,sidebar.rs` — `MenuConfig.has(p)` wildcard `admin:*`, `Sidebar(Vec)`. Acc: Given `[client,admin]` Then Jobs+Admin visibles sin toggle. Commit: `feat(menu): MenuConfig+Sidebar Vec` — 09e7f9f
 - [x] 0.6 `app/src/route.rs` — guards `has(required)`→403 + drift test `frontend⊆allowlist`. Acc: Given no `admin:users` When `/admin/users` Then 403. Commit: `feat(menu): route guards` — 09e7f9f (FRONTEND_PERMS drift, guard_403)
 
-## Wave 1: Identity — PR2 (dep Wave0)
+## Wave 1: Identity — PR2 (dep Wave0) — DONE 2026-08-26 PR2 mvp-dynamic-roles-jobs-pr2-wave1
 
-- [ ] 1.1 `backend/api/src/models.rs,repository.rs` — `UserWallet{pubkey bs58,purpose}` migrate `wallet_pubkey→publish`. Acc: Given legacy 1 wallet Then `purpose=publish`. Commit: `feat(wallet): user_wallets table`
-- [ ] 1.2 `backend/api/src/routes.rs` — `GET/POST/DELETE /wallets`, `x-pubkey==signer_purpose`, `getBalance` before relay. Acc: Given 2 wallets When apply sin `signer_purpose` Then 400. Commit: `feat(wallet): CRUD+signer+funds`
-- [ ] 1.3 `backend/api/src/models.rs` — `JobParticipant{job_pda,email,role_per_job}` creator auto `client`. Acc: Given alice crea A+aplica B Then `client`+`freelancer`. Commit: `feat(roles): job_participants`
-- [ ] 1.4 `backend/api/src/routes.rs` — self-apply `CannotWorkOnOwnJob` (job.rs:385) + `ArbiterCannotBeParty` (dispute.rs:435). Acc: Given same email client When apply otra wallet Then 400. Commit: `feat(roles): self-apply guard`
-- [ ] 1.5 `app/src/features/dashboard/config.rs` — picker auto(1)/select(2+), insufficient-funds banner. Acc: Given balance 0.01 When create 1 SOL Then blocked pre-relay. Commit: `feat(wallet): picker UX`
+- [x] 1.1 `backend/api/src/models.rs,repository.rs` — `UserWallet{pubkey bs58,purpose}` migrate `wallet_pubkey→publish`. Acc: Given legacy 1 wallet Then `purpose=publish`. Commit: `feat(wallet): user_wallets table` — 15e74f2
+- [x] 1.2 `backend/api/src/routes.rs` — `GET/POST/DELETE /wallets`, `x-pubkey==signer_purpose`, `getBalance` before relay. Acc: Given 2 wallets When apply sin `signer_purpose` Then 400. Commit: `feat(wallet): CRUD+signer+funds` — a0cf31c (also SDK + server wrappers)
+- [x] 1.3 `backend/api/src/models.rs` — `JobParticipant{job_pda,email,role_per_job}` creator auto `client`. Acc: Given alice crea A+aplica B Then `client`+`freelancer`. Commit: `feat(roles): job_participants` — 15e74f2 (entity) + a0cf31c (repo)
+- [x] 1.4 `backend/api/src/routes.rs` — self-apply `CannotWorkOnOwnJob` (job.rs:385) + `ArbiterCannotBeParty` (dispute.rs:435). Acc: Given same email client When apply otra wallet Then 400. Commit: `feat(roles): self-apply guard` — a0cf31c
+- [x] 1.5 `app/src/features/dashboard/config.rs` — picker auto(1)/select(2+), insufficient-funds banner. Acc: Given balance 0.01 When create 1 SOL Then blocked pre-relay. Commit: `feat(wallet): picker UX` — 160b788
 
 ## Wave 2: Jobs — PR3 (dep Wave1)
 
