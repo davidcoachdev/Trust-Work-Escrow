@@ -185,6 +185,42 @@ pub async fn sign_transaction(unsigned_base64: &str) -> Result<String, String> {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub async fn get_balance(pubkey: &str) -> Result<u64, String> {
+    let pubkey = validate_base58_public_key(pubkey)?;
+    let mut eval = dioxus::document::eval(
+        r#"
+        const pubkey = await dioxus.recv();
+        const provider = window.solana;
+        if (!provider || !provider.isPhantom) dioxus.send({ok: false, error: "Phantom provider not found"});
+        else {
+            // Try connection via Phantom's connection if available, else via solanaWeb3
+            const conn = provider.connection || (globalThis.solanaWeb3 && new globalThis.solanaWeb3.Connection("https://api.devnet.solana.com"));
+            if (!conn || !conn.getBalance) dioxus.send({ok: false, error: "No connection for getBalance"});
+            else try {
+                const pk = new (globalThis.solanaWeb3 || {}).PublicKey(pubkey);
+                // fallback if PublicKey not available, try provider publicKey
+                const target = pk || pubkey;
+                const lamports = await conn.getBalance(typeof target === 'string' ? new (globalThis.solanaWeb3.PublicKey)(target) : target);
+                dioxus.send({ok: true, value: String(lamports)});
+            } catch (e) { dioxus.send({ok: false, error: e?.message || "getBalance failed"}); }
+        }
+    "#,
+    );
+    eval.send(pubkey.clone()).map_err(|_| "Phantom bridge failed".to_string())?;
+    let response: BridgePayload = eval.recv().await.map_err(|_| "Phantom bridge failed".to_string())?;
+    let json = serde_json::to_string(&response).map_err(|_| "Phantom bridge failed".to_string())?;
+    match parse_bridge_response(&json)? {
+        BridgeResponse::Value(v) => v.parse::<u64>().map_err(|_| "invalid balance".to_string()),
+        BridgeResponse::Error(e) => Err(e),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn get_balance(_pubkey: &str) -> Result<u64, String> {
+    Err("Phantom is available only in the browser".to_string())
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn connect() -> Result<String, String> {
     Err("Phantom is available only in the browser".to_string())

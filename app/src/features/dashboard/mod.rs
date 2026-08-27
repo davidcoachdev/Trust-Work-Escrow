@@ -48,7 +48,27 @@ pub fn ClientDashboard() -> Element {
         .read()
         .as_ref()
         .and_then(|u| u.wallet_pubkey.clone());
+    let email = auth.user.read().as_ref().map(|u| u.email.clone()).unwrap_or_default();
     let can_act = !is_guest && wallet.is_some();
+    // multi-wallet picker: load wallets, auto if 1 else select publish
+    let mut wallets = use_signal(|| Vec::<crate::server::auth::api_client::ApiWallet>::new());
+    let mut selected = use_signal(|| String::new());
+    let mut balance_warn = use_signal(|| Option::<String>::None);
+    {
+        let email_c = email.clone();
+        use_effect(move || {
+            let e = email_c.clone();
+            spawn(async move {
+                if e.is_empty() { return; }
+                if let Ok(list) = crate::server::auth::users::list_wallets_persist(e).await {
+                    // prefer publish wallet as default
+                    let def = list.iter().find(|w| w.purpose=="publish").or(list.first()).map(|w| w.pubkey.clone()).unwrap_or_default();
+                    wallets.set(list);
+                    if !def.is_empty() { selected.set(def); }
+                }
+            });
+        });
+    }
     rsx! {
         div { class: "space-y-6",
             if is_guest {
@@ -98,13 +118,25 @@ pub fn ClientDashboard() -> Element {
                                  let t = title.read().clone();
                                  let amt = amount_sol.read().parse::<f64>().unwrap_or(0.0);
                                  let _title = t.clone();
-                                 let signer = wallet.clone().unwrap_or_default();
+                                 let signer_pick = selected.read().clone();
+                                 let signer = if !signer_pick.is_empty() { signer_pick } else { wallet.clone().unwrap_or_default() };
+                                 let amt_c = amt;
                                  spawn(async move {
                                      if signer.is_empty() {
-                                         msg.set("Conectá Phantom antes de crear un Job.".to_string());
+                                         msg.set("Conectá Phantom y elegí una wallet publish antes de crear un Job.".to_string());
                                          return;
                                      }
-                                     let lamports = (amt * 1_000_000_000.0) as u64;
+                                     let lamports = (amt_c * 1_000_000_000.0) as u64;
+                                     let fee = lamports * 250 / 10_000;
+                                     // insufficient funds check via getBalance
+                                     match phantom::get_balance(&signer).await {
+                                         Ok(bal) if bal < lamports + fee => {
+                                             balance_warn.set(Some(format!("Saldo insuficiente: {} lamports, requiere {} + {} fee. Elegí otra wallet.", bal, lamports, fee)));
+                                             msg.set("Fondos insuficientes — elegí otra wallet (picker)".to_string());
+                                             return;
+                                         }
+                                         _ => { balance_warn.set(None); }
+                                     }
                                      let deadline = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64 + 2_592_000).unwrap_or(2_592_000);
                                      match request_siws_challenge(signer.clone()).await {
                                          Ok(auth_message) => match phantom::sign_message(&auth_message).await {
@@ -139,6 +171,23 @@ pub fn ClientDashboard() -> Element {
                                 placeholder: "0.1",
                                 value: "{amount_sol.read()}",
                                 oninput: move |e| amount_sol.set(e.value()),
+                            }
+                            // wallet picker: auto if 1 else select
+                            if wallets.read().len() >= 2 {
+                                select {
+                                    class: "bg-bg border border-border rounded-xl px-3 py-2 text-sm",
+                                    value: "{selected.read()}",
+                                    onchange: move |e| selected.set(e.value()),
+                                    for w in wallets.read().iter() {
+                                        option { value: "{w.pubkey}", "{w.purpose}: {&w.pubkey[..6]}…{&w.pubkey[w.pubkey.len()-4..]}" }
+                                    }
+                                }
+                                p { class: "text-xs text-muted", "Elegí wallet publish para crear. Balance se verifica antes de firmar." }
+                            } else if wallets.read().len() == 1 {
+                                p { class: "text-xs text-muted", "Wallet auto: {wallets.read()[0].pubkey[..6].to_string()}… ({wallets.read()[0].purpose})" }
+                            }
+                            if let Some(warn) = balance_warn.read().clone() {
+                                div { class: "bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-700", "{warn}" }
                             }
                              button { class: "bg-primary text-on-primary rounded-xl px-5 py-2.5 font-medium hover:opacity-90 transition hover:-translate-y-0.5 active:scale-[0.98]", r#type: "submit", "Firmar y crear Job con Phantom" }
                             if !msg.read().is_empty() {
