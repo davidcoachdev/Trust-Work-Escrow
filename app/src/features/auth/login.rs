@@ -19,7 +19,6 @@ fn persist_email(_email: &str) {}
 pub fn LoginPage() -> Element {
     let l = *use_i18n().lang.read();
     let mut email = use_signal(|| String::new());
-    let mut role = use_signal(|| "client".to_string());
     let mut msg = use_signal(|| String::new());
     let auth = use_auth();
     let nav = navigator();
@@ -33,54 +32,49 @@ pub fn LoginPage() -> Element {
                     onsubmit: move |evt| {
                         evt.prevent_default();
                         let e = email.read().trim().to_lowercase();
-                        let r = role.read().clone();
                         if !e.contains('@') {
                             msg.set("Email inválido".to_string());
-                            return;
-                        }
-                        if r != "client" && r != "freelancer" {
-                            msg.set("Rol inválido".to_string());
                             return;
                         }
                         let mut auth = auth;
                         let nav = nav.clone();
                         spawn(async move {
                             msg.set("Verificando...".to_string());
-                            match login_or_create_user(e.clone(), r.clone()).await {
+                            // Rol global eliminado: todos los usuarios reciben permisos completos (client+freelancer).
+                            // Backend mapea cualquier rol a ["client","freelancer"] con permisos jobs:create/apply/view.
+                            match login_or_create_user(e.clone(), "client".to_string()).await {
                                 Ok(user) => {
                                     persist_email(&user.email);
                                     auth.user.set(Some(user.clone()));
                                     msg.set("¡Bienvenido! Redirigiendo...".to_string());
-                                    if user.role == "freelancer" {
-                                        nav.push(Route::FreelancerDashboardGuard {});
-                                    } else {
-                                        nav.push(Route::ClientDashboardGuard {});
-                                    }
+                                    // Dashboard unificado: todos pueden publicar y postular; rol es por job, no global.
+                                    nav.push(Route::ClientDashboardGuard {});
                                 }
                                 Err(err) => {
                                     // fallback: keep in-memory auth so UX not blocked if DB down
-                                    // but show error
                                     log::warn!("login_or_create_user failed: {:?}", err);
                                     msg.set(format!("Error: {}", err));
-                                    // still set in-memory as degraded fallback (MVP bypass preserved)
+                                    // degraded fallback con permisos completos para no bloquear UX
                                     let mut user_sig = auth.user;
                                     user_sig.set(Some(User {
                                         email: e.clone(),
                                         wallet_pubkey: None,
-                                        role: r.clone(),
-                                        roles: vec![r.clone()],
-                                        permissions: vec![],
+                                        role: "client".to_string(),
+                                        roles: vec!["client".to_string(), "freelancer".to_string()],
+                                        permissions: vec![
+                                            "jobs:create".to_string(),
+                                            "jobs:apply".to_string(),
+                                            "jobs:view".to_string(),
+                                            "jobs:view:own".to_string(),
+                                            "config:wallet".to_string(),
+                                        ],
                                         is_guest: false,
                                         created_at: 0,
                                         updated_at: 0,
                                         is_active: true,
                                     }));
                                     persist_email(&e);
-                                    if r == "freelancer" {
-                                        nav.push(Route::FreelancerDashboardGuard {});
-                                    } else {
-                                        nav.push(Route::ClientDashboardGuard {});
-                                    }
+                                    nav.push(Route::ClientDashboardGuard {});
                                 }
                             }
                         });
@@ -95,24 +89,7 @@ pub fn LoginPage() -> Element {
                             placeholder: "tu@correo.com"
                         }
                     }
-                    div { class: "grid gap-1.5",
-                        label { class: "text-sm text-muted", "Rol" }
-                        div { class: "grid grid-cols-2 gap-2",
-                            button {
-                                class: if *role.read() == "client" { "bg-primary text-on-primary rounded-xl px-3 py-2.5 text-sm font-medium border border-primary" } else { "bg-bg border border-border rounded-xl px-3 py-2.5 text-sm font-medium" },
-                                r#type: "button",
-                                onclick: move |_| role.set("client".to_string()),
-                                "Cliente"
-                            }
-                            button {
-                                class: if *role.read() == "freelancer" { "bg-primary text-on-primary rounded-xl px-3 py-2.5 text-sm font-medium border border-primary" } else { "bg-bg border border-border rounded-xl px-3 py-2.5 text-sm font-medium" },
-                                r#type: "button",
-                                onclick: move |_| role.set("freelancer".to_string()),
-                                "Freelancer"
-                            }
-                        }
-                        p { class: "text-xs text-muted", "Elegí cómo querés usar Trust Work." }
-                    }
+                    // Selector de rol eliminado: rol es por job, no global. Todos pueden publicar y postular.
                     button { class: "inline-flex items-center justify-center gap-2 rounded-xl px-5 py-3 text-base font-medium bg-primary text-on-primary transition hover:-translate-y-0.5 mt-2", r#type: "submit",
                         "Ingresar"
                     }

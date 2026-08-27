@@ -54,13 +54,17 @@ pub fn Sidebar(
         if has(&permissions, "support:view") || has(&permissions, "admin:*") {
             out.push(("/admin/support".to_string(), "Soporte · Tickets".to_string()));
         }
-        // Jobs — any jobs view/create
+        // Jobs — any jobs view/create (todos pueden publicar) y apply (todos pueden postular)
         if has(&permissions, "jobs:view") || has(&permissions, "jobs:view:own") || has(&permissions, "jobs:create") || has(&permissions, "admin:*") {
             out.push(("/dashboard/client".to_string(), "Jobs · Mis Jobs".to_string()));
             out.push(("/jobs/published".to_string(), "Jobs · Publicados".to_string()));
             if has(&permissions, "jobs:create") || has(&permissions, "admin:*") {
                 out.push(("/jobs/create".to_string(), "Jobs · Crear".to_string()));
             }
+        }
+        // Jobs disponibles — visible si puede postular (jobs:apply) o ver jobs; con permisos duales todos lo ven
+        if has(&permissions, "jobs:apply") || has(&permissions, "jobs:view") || has(&permissions, "admin:*") {
+            out.push(("/dashboard/freelancer".to_string(), "Jobs · Disponibles".to_string()));
         }
         // Disputas
         if has(&permissions, "disputes:view") || has(&permissions, "admin:*") {

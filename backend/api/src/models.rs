@@ -254,9 +254,12 @@ pub struct AddArbiterRequest {
 // ---------------------------------------------------------------------------
 
 /// Request: login-or-create user (idempotent upsert).
+/// Rol global eliminado: `role` es opcional; si es client/freelancer o ausente, se asignan permisos completos.
+/// admin/arbiter solo vía PUT /users/:email/roles por un admin (no desde login).
 #[derive(Serialize, Deserialize, ToSchema, Clone, Debug)]
 pub struct LoginOrCreateRequest {
     pub email: String,
+    #[serde(default)]
     pub role: String,
 }
 

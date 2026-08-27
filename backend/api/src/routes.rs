@@ -278,15 +278,34 @@ async fn login_or_create_user(
 ) -> Result<impl IntoResponse, ApiError> {
     check_service_token(&headers, &state)?;
     let email = validate_email(&req.email)?;
-    let role = validate_role(&req.role)?;
-    // If user exists keep wallet, else create fresh — handle Vec roles
+    // Rol global eliminado: todos los usuarios reciben permisos completos.
+    // `role` es opcional/compat: si es client/freelancer o vacío => dual [client,freelancer].
+    // admin/arbiter no asignable vía este endpoint (solo vía PUT /users/:email/roles por admin).
+    let role_raw = req.role.trim().to_lowercase();
+    let dual_roles: Vec<String> = vec!["client".to_string(), "freelancer".to_string()];
+    let (roles, permissions) = if role_raw.is_empty() || role_raw == "client" || role_raw == "freelancer" {
+        let perms = UserMetadata::default_permissions(&dual_roles);
+        (dual_roles.clone(), perms)
+    } else if role_raw == "admin" || role_raw == "arbiter" || role_raw == "guest" {
+        return Err(ApiError::BadRequest(format!(
+            "role '{}' no asignable vía login-or-create; usar PUT /users/:email/roles por admin",
+            role_raw
+        )));
+    } else {
+        return Err(ApiError::BadRequest(format!(
+            "role must be one of client|freelancer (or omitted) (got '{}')",
+            req.role
+        )));
+    };
     let existing = state.repo.get_user_by_email(&email).await?;
     let user = if let Some(mut ex) = existing {
-        // update roles Vec, keep alias
-        ex.roles = vec![role.clone()];
-        ex.role = role.clone();
-        // if permissions empty, default
-        if ex.permissions.is_empty() {
+        // Si el usuario ya es admin/arbiter, preservar sus roles privilegiados; si no, migrar a dual.
+        let has_privileged = ex.roles.iter().any(|r| r == "admin" || r == "arbiter");
+        if !has_privileged {
+            ex.roles = roles.clone();
+            ex.role = roles.first().cloned().unwrap_or_else(|| "client".to_string());
+            ex.permissions = permissions.clone();
+        } else if ex.permissions.is_empty() {
             ex.permissions = UserMetadata::default_permissions(&ex.roles);
         }
         ex.updated_at = chrono::Utc::now().timestamp();
@@ -297,9 +316,9 @@ async fn login_or_create_user(
         let now = chrono::Utc::now().timestamp();
         let new_user = UserMetadata {
             email: email.clone(),
-            roles: vec![role.clone()],
-            permissions: UserMetadata::default_permissions(&[role.clone()]),
-            role: role.clone(),
+            roles: roles.clone(),
+            permissions: permissions.clone(),
+            role: roles.first().cloned().unwrap_or_else(|| "client".to_string()),
             wallet_pubkey: None,
             is_guest: false,
             created_at: now,
