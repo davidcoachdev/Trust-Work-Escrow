@@ -42,6 +42,7 @@ fn service_token() -> Option<String> {
         .filter(|v| !v.trim().is_empty())
 }
 
+#[cfg(feature = "server")]
 fn headers() -> reqwest::header::HeaderMap {
     let mut h = reqwest::header::HeaderMap::new();
     if let Some(t) = service_token() {
@@ -83,6 +84,7 @@ fn encode_email(email: &str) -> String {
     out
 }
 
+#[cfg(feature = "server")]
 pub async fn api_login_or_create(email: &str, role: &str) -> Result<User, String> {
     let url = format!("{}/users/login-or-create", api_base());
     let client = reqwest::Client::builder()
@@ -109,6 +111,7 @@ pub async fn api_login_or_create(email: &str, role: &str) -> Result<User, String
     Ok(to_user(api_user))
 }
 
+#[cfg(feature = "server")]
 pub async fn api_get_user_by_email(email: &str) -> Result<Option<User>, String> {
     let url = format!("{}/users/{}", api_base(), encode_email(email));
     let client = reqwest::Client::builder()
@@ -136,6 +139,7 @@ pub async fn api_get_user_by_email(email: &str) -> Result<Option<User>, String> 
     Ok(Some(to_user(api_user)))
 }
 
+#[cfg(feature = "server")]
 pub async fn api_link_wallet(email: &str, wallet_pubkey: &str) -> Result<User, String> {
     let url = format!("{}/users/{}/wallet", api_base(), encode_email(email));
     let client = reqwest::Client::builder()
@@ -162,6 +166,7 @@ pub async fn api_link_wallet(email: &str, wallet_pubkey: &str) -> Result<User, S
     Ok(to_user(api_user))
 }
 
+#[cfg(feature = "server")]
 pub async fn api_unlink_wallet(email: &str) -> Result<User, String> {
     let url = format!("{}/users/{}/wallet", api_base(), encode_email(email));
     let client = reqwest::Client::builder()
@@ -184,4 +189,48 @@ pub async fn api_unlink_wallet(email: &str) -> Result<User, String> {
         .await
         .map_err(|e| format!("decode user: {e}"))?;
     Ok(to_user(api_user))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiWallet {
+    pub email: String,
+    pub pubkey: String,
+    pub purpose: String,
+    pub label: Option<String>,
+    pub created_at: i64,
+    pub is_active: bool,
+}
+
+#[cfg(feature = "server")]
+pub async fn api_list_wallets(email: &str) -> Result<Vec<ApiWallet>, String> {
+    let url = format!("{}/users/{}/wallets", api_base(), encode_email(email));
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().map_err(|e| e.to_string())?;
+    let resp = client.get(&url).headers(headers()).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        let s=resp.status(); let t=resp.text().await.unwrap_or_default(); return Err(format!("api list_wallets {}: {}", s, t));
+    }
+    resp.json::<Vec<ApiWallet>>().await.map_err(|e| e.to_string())
+}
+
+#[cfg(feature = "server")]
+pub async fn api_add_wallet(email: &str, pubkey: &str, purpose: &str, label: Option<String>) -> Result<ApiWallet, String> {
+    let url = format!("{}/users/{}/wallets", api_base(), encode_email(email));
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().map_err(|e| e.to_string())?;
+    let body = serde_json::json!({"pubkey": pubkey, "purpose": purpose, "label": label});
+    let resp = client.post(&url).headers(headers()).json(&body).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        let s=resp.status(); let t=resp.text().await.unwrap_or_default(); return Err(format!("api add_wallet {}: {}", s, t));
+    }
+    resp.json::<ApiWallet>().await.map_err(|e| e.to_string())
+}
+
+#[cfg(feature = "server")]
+pub async fn api_remove_wallet(email: &str, pubkey: &str) -> Result<(), String> {
+    let url = format!("{}/users/{}/wallets/{}", api_base(), encode_email(email), pubkey.trim());
+    let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(5)).build().map_err(|e| e.to_string())?;
+    let resp = client.delete(&url).headers(headers()).send().await.map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        let s=resp.status(); let t=resp.text().await.unwrap_or_default(); return Err(format!("api remove_wallet {}: {}", s, t));
+    }
+    Ok(())
 }

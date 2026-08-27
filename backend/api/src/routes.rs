@@ -169,6 +169,8 @@ pub fn api_router() -> Router<AppState> {
         .route("/users/login-or-create", post(login_or_create_user))
         .route("/users/:email", get(get_user_by_email))
         .route("/users/:email/wallet", post(link_wallet).delete(unlink_wallet))
+        .route("/users/:email/wallets", get(list_wallets).post(add_wallet))
+        .route("/users/:email/wallets/:pubkey", delete(remove_wallet))
 }
 
 #[utoipa::path(get, path = "/config", tag = "Config", responses((status = 200, description = "Protocol config", body = ConfigResponse)))]
@@ -268,6 +270,27 @@ async fn check_wallet_has_active_job(
         }
     }
     Ok(false)
+}
+
+async fn find_email_by_wallet(
+    repo: &std::sync::Arc<dyn crate::repository::MetadataRepository>,
+    pubkey: &str,
+) -> Option<String> {
+    // Use repository helper to find wallet by pubkey (scans wallets table)
+    if let Ok(Some(w)) = repo.find_wallet_by_pubkey(pubkey).await {
+        return Some(w.email);
+    }
+    // fallback: check legacy user wallet_pubkey via scanning users not directly exposed, try to find via email header not available here
+    None
+}
+
+fn is_arbiter_for_job(arbiter_pubkey: &str, job: &JobMetadata) -> bool {
+    // dispute.rs:435 ArbiterCannotBeParty — arbiter != client && arbiter != freelancer
+    if arbiter_pubkey == job.client { return false; }
+    if let Some(f) = &job.freelancer {
+        if arbiter_pubkey == f { return false; }
+    }
+    true
 }
 
 #[utoipa::path(post, path = "/users/login-or-create", tag = "Users", request_body = LoginOrCreateRequest, responses((status = 200, description = "User upserted", body = UserResponse), (status = 400, description = "Invalid input", body = crate::error::ErrorResponse), (status = 401, description = "Unauthorized", body = crate::error::ErrorResponse)))]
@@ -412,6 +435,82 @@ async fn unlink_wallet(
     Ok((StatusCode::OK, Json(user_to_response(&user))))
 }
 
+fn wallet_to_response(w: &crate::metadata::UserWallet) -> WalletResponse {
+    WalletResponse {
+        email: w.email.clone(),
+        pubkey: w.pubkey.clone(),
+        purpose: w.purpose.as_str().to_string(),
+        label: w.label.clone(),
+        created_at: w.created_at,
+        is_active: w.is_active,
+    }
+}
+
+#[utoipa::path(get, path = "/users/{email}/wallets", tag = "Users", params(("email" = String, Path, description = "User email")), responses((status = 200, description = "List wallets", body = [WalletResponse])))]
+async fn list_wallets(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(email): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    check_service_token(&headers, &state)?;
+    let email_n = validate_email(&email)?;
+    // ensure user exists
+    state.repo.get_user_by_email(&email_n).await?.ok_or_else(|| ApiError::NotFound(format!("user {} not found", email_n.clone())))?;
+    let wallets = state.repo.list_wallets_by_email(&email_n).await?;
+    let resp: Vec<WalletResponse> = wallets.iter().map(wallet_to_response).collect();
+    Ok((StatusCode::OK, Json(resp)))
+}
+
+#[utoipa::path(post, path = "/users/{email}/wallets", tag = "Users", params(("email" = String, Path, description = "User email")), request_body = AddWalletRequest, responses((status = 201, description = "Wallet added", body = WalletResponse), (status = 400, description = "Invalid input", body = crate::error::ErrorResponse)))]
+async fn add_wallet(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path(email): Path<String>,
+    Json(req): Json<AddWalletRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    check_service_token(&headers, &state)?;
+    let email_n = validate_email(&email)?;
+    state.repo.get_user_by_email(&email_n).await?.ok_or_else(|| ApiError::NotFound(format!("user {} not found", email_n.clone())))?;
+    let pubkey = req.pubkey.trim().to_string();
+    if pubkey.is_empty() {
+        return Err(ApiError::BadRequest("pubkey vacío".to_string()));
+    }
+    crate::metadata::validate_pubkey_bs58(&pubkey).map_err(|e| ApiError::BadRequest(format!("pubkey inválido: {}", e)))?;
+    let purpose = crate::metadata::WalletPurpose::from_str(&req.purpose).ok_or_else(|| ApiError::BadRequest("purpose must be publish|apply|general".to_string()))?;
+    // check duplicate active wallet for same pubkey
+    if let Some(_) = state.repo.get_wallet(&email_n, &pubkey).await? {
+        return Err(ApiError::Conflict(format!("wallet {} already linked", pubkey)));
+    }
+    let wallet = crate::metadata::UserWallet::new(email_n.clone(), pubkey.clone(), purpose, req.label.clone()).map_err(ApiError::from)?;
+    let created = state.repo.add_wallet(wallet).await?;
+    Ok((StatusCode::CREATED, Json(wallet_to_response(&created))))
+}
+
+#[utoipa::path(delete, path = "/users/{email}/wallets/{pubkey}", tag = "Users", params(("email" = String, Path, description = "User email"), ("pubkey" = String, Path, description = "Wallet pubkey")), responses((status = 200, description = "Wallet removed", body = ApiStatus)))]
+async fn remove_wallet(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Path((email, pubkey)): Path<(String, String)>,
+) -> Result<impl IntoResponse, ApiError> {
+    check_service_token(&headers, &state)?;
+    let email_n = validate_email(&email)?;
+    let pk = pubkey.trim().to_string();
+    if pk.is_empty() {
+        return Err(ApiError::BadRequest("pubkey vacío".to_string()));
+    }
+    // WalletHasActiveJob guard
+    if check_wallet_has_active_job(&state.repo, &pk).await? {
+        return Err(ApiError::BadRequest("WalletHasActiveJob".to_string()));
+    }
+    // also check if wallet exists and active
+    let existing = state.repo.get_wallet(&email_n, &pk).await?;
+    if existing.is_none() {
+        return Err(ApiError::NotFound(format!("wallet {} not found for {}", pk, email_n)));
+    }
+    state.repo.remove_wallet(&email_n, &pk, &email_n).await?;
+    Ok((StatusCode::OK, Json(ApiStatus{ status:"ok".into(), message: format!("wallet {} removed", pk)})))
+}
+
 #[utoipa::path(get, path = "/jobs", tag = "Jobs", responses((status = 200, description = "List of jobs", body = [JobResponse])))]
 async fn list_jobs(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
     let mut jobs = state.repo.list_jobs().await?;
@@ -490,6 +589,23 @@ async fn create_job(
         client.clone(),
     )?;
     state.repo.create_job(meta).await.map_err(ApiError::from)?;
+    // job_participants: creator auto client (per-job authority)
+    {
+        let header_email = headers.get("x-email").and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+        let email_for_participant = if let Some(e) = header_email {
+            e
+        } else if let Some(found) = find_email_by_wallet(&state.repo, &client).await {
+            found
+        } else {
+            // fallback: use pubkey as email placeholder or try to infer from caller if service token not used
+            // if service call from app, client is placeholder Service pubkey — try header x-email already checked
+            client.clone()
+        };
+        // Try to create participant; ignore AlreadyExists
+        if let Ok(part) = crate::metadata::JobParticipant::new(pda.clone(), email_for_participant.clone(), crate::metadata::RolePerJob::Client, client.clone()) {
+            let _ = state.repo.add_participant(part).await;
+        }
+    }
     let resp = JobResponse {
         job_id,
         client,
@@ -742,6 +858,28 @@ async fn apply_to_job(
     if existing.iter().any(|a| a.applicant == applicant) {
         return Err(ApiError::Conflict("already applied".into()));
     }
+    // Self-apply guard: CannotWorkOnOwnJob (job.rs:385)
+    if applicant == job.client {
+        return Err(ApiError::BadRequest("CannotWorkOnOwnJob".to_string()));
+    }
+    // wallet vs wallet already covered by above, but also check email-based participant
+    if let Some(email) = find_email_by_wallet(&state.repo, &applicant).await {
+        if let Some(part) = state.repo.get_participant(&pda, &email).await? {
+            if part.role_per_job == crate::metadata::RolePerJob::Client {
+                return Err(ApiError::BadRequest("CannotWorkOnOwnJob".to_string()));
+            }
+        }
+    } else {
+        // fallback: check if applicant already participant as client via direct job.client comparison already done
+        // also check participants by job for any client with same applicant pubkey wallet
+        let parts = state.repo.list_participants_by_job(&pda).await?;
+        for p in parts {
+            if p.role_per_job == crate::metadata::RolePerJob::Client && p.wallet_pubkey == applicant {
+                return Err(ApiError::BadRequest("CannotWorkOnOwnJob".to_string()));
+            }
+        }
+    }
+    // ArbiterCannotBeParty check placeholder (dispute.rs:435) — not enforced here
     // State machine: Created -> Applied, or stay Applied for additional applicants
     if job.status == JobStatus::Created {
         if !can_transition(&job.status, &JobStatus::Applied) {
@@ -768,6 +906,13 @@ async fn apply_to_job(
         req.proposal,
     )?;
     state.repo.create_application(meta.clone()).await?;
+    // job_participants: applicant becomes freelancer for this job
+    {
+        let email_for_part = find_email_by_wallet(&state.repo, &applicant).await.unwrap_or_else(|| applicant.clone());
+        if let Ok(part) = crate::metadata::JobParticipant::new(pda.clone(), email_for_part.clone(), crate::metadata::RolePerJob::Freelancer, applicant.clone()) {
+            let _ = state.repo.add_participant(part).await;
+        }
+    }
     let resp = ApplicationResponse {
         index,
         applicant,

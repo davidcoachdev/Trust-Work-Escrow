@@ -150,6 +150,7 @@ pub trait MetadataRepository: Send + Sync {
     async fn get_participant(&self, job_pda: &str, email: &str) -> Result<Option<crate::metadata::JobParticipant>, RepositoryError>;
     async fn list_participants_by_job(&self, job_pda: &str) -> Result<Vec<crate::metadata::JobParticipant>, RepositoryError>;
     async fn list_participants_by_email(&self, email: &str) -> Result<Vec<crate::metadata::JobParticipant>, RepositoryError>;
+    async fn find_wallet_by_pubkey(&self, pubkey: &str) -> Result<Option<crate::metadata::UserWallet>, RepositoryError>;
 }
 
 // ---------------------------------------------------------------------------
@@ -747,6 +748,15 @@ impl MetadataRepository for InMemoryMetadataRepository {
         let email_n = UserMetadata::normalize_email(email);
         let map = self.participants.read().await;
         Ok(map.values().filter(|p| p.email==email_n && p.is_active).cloned().collect())
+    }
+
+    async fn find_wallet_by_pubkey(&self, pubkey: &str) -> Result<Option<crate::metadata::UserWallet>, RepositoryError> {
+        let pk_n = pubkey.trim().to_string();
+        let map = self.wallets.read().await;
+        Ok(map.values().find(|w| w.pubkey==pk_n && w.is_active).cloned().or_else(|| {
+            // also check legacy users table not needed here
+            None
+        }))
     }
 }
 

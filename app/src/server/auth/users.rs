@@ -106,3 +106,42 @@ pub async fn unlink_wallet_persist(email: String) -> Result<User, ServerFnError>
         Err(ServerFnError::new("server only"))
     }
 }
+
+use crate::server::auth::api_client::ApiWallet;
+
+#[server]
+pub async fn list_wallets_persist(email: String) -> Result<Vec<ApiWallet>, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let email_n = validate_email(&email).map_err(|e| ServerFnError::new(e))?;
+        crate::server::auth::api_client::api_list_wallets(&email_n).await.map_err(|e| ServerFnError::new(e))
+    }
+    #[cfg(not(feature = "server"))]
+    { let _=email; Err(ServerFnError::new("server only")) }
+}
+
+#[server]
+pub async fn add_wallet_persist(email: String, pubkey: String, purpose: String, label: Option<String>) -> Result<ApiWallet, ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let email_n = validate_email(&email).map_err(|e| ServerFnError::new(e))?;
+        let pk = pubkey.trim().to_string();
+        if pk.is_empty() { return Err(ServerFnError::new("pubkey vacío")); }
+        let pur = purpose.trim().to_lowercase();
+        if !["publish","apply","general"].contains(&pur.as_str()) { return Err(ServerFnError::new("purpose must be publish|apply|general")); }
+        crate::server::auth::api_client::api_add_wallet(&email_n, &pk, &pur, label).await.map_err(|e| ServerFnError::new(e))
+    }
+    #[cfg(not(feature = "server"))]
+    { let _=(email,pubkey,purpose,label); Err(ServerFnError::new("server only")) }
+}
+
+#[server]
+pub async fn remove_wallet_persist(email: String, pubkey: String) -> Result<(), ServerFnError> {
+    #[cfg(feature = "server")]
+    {
+        let email_n = validate_email(&email).map_err(|e| ServerFnError::new(e))?;
+        crate::server::auth::api_client::api_remove_wallet(&email_n, &pubkey).await.map_err(|e| ServerFnError::new(e))
+    }
+    #[cfg(not(feature = "server"))]
+    { let _=(email,pubkey); Err(ServerFnError::new("server only")) }
+}

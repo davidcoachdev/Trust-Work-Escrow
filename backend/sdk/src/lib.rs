@@ -18,6 +18,7 @@ pub mod pda;
 #[cfg(feature = "solana")]
 pub mod relay;
 pub mod types;
+pub mod users;
 pub mod utils;
 
 /// Program ID of the immutable `trust_escrow_v3` contract, as a string.
