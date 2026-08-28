@@ -4,6 +4,7 @@ use crate::server::auth::guest::{use_auth, MenuConfig};
 use crate::ui::Sidebar;
 use dioxus::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
 const SIDEBAR_KEY: &str = "twe-sidebar-collapsed";
 
 #[cfg(target_arch = "wasm32")]
@@ -54,7 +55,7 @@ pub fn DashboardLayout() -> Element {
     let user_opt = auth.user.read().clone();
     let mut collapsed = use_signal(load_collapsed);
 
-    // Persist collapsed to localStorage + auto-collapse <768px handled via load_collapsed and resize poll
+    // Persist collapsed to localStorage
     #[cfg(target_arch = "wasm32")]
     {
         use_effect(move || {
@@ -65,7 +66,107 @@ pub fn DashboardLayout() -> Element {
                 }
             }
         });
-        // Resize listener: collapsed already derived from localStorage/innerWidth on load; continuous resize handled via CSS md: prefix + backdrop
+        // Continuous resize listener: auto-collapse when viewport shrinks <768px.
+        // Uses a leaked Closure (intentional 'static) to keep the listener alive
+        // for the app lifetime; no cleanup needed as DashboardLayout is mounted
+        // for the entire dashboard session.
+        use_effect(move || {
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
+            if let Some(win) = web_sys::window() {
+                let mut collapsed_sig = collapsed;
+                let win_clone = win.clone();
+                let closure = Closure::wrap(Box::new(move || {
+                    if let Ok(w) = win_clone.inner_width() {
+                        if let Some(width) = w.as_f64() {
+                            // Auto-collapse on narrow viewports; do not auto-expand
+                            // above 768 to respect explicit user toggles (persisted
+                            // via SIDEBAR_KEY). Continuous listener ensures 1024→390
+                            // without reload still collapses.
+                            if width < 768.0 {
+                                collapsed_sig.set(true);
+                            }
+                        }
+                    }
+                }) as Box<dyn FnMut()>);
+                let _ = win.add_event_listener_with_callback(
+                    "resize",
+                    closure.as_ref().unchecked_ref(),
+                );
+                closure.forget();
+            }
+        });
+        // Focus trap for mobile drawer: when open as overlay (<768 + !collapsed),
+        // trap Tab / Shift+Tab inside the drawer and restore focus on close.
+        use_effect(move || {
+            use wasm_bindgen::JsCast;
+            use wasm_bindgen::closure::Closure;
+            let is_open = !*collapsed.read();
+            if !is_open {
+                return;
+            }
+            if let Some(win) = web_sys::window() {
+                if let Ok(w) = win.inner_width() {
+                    let is_mobile = w.as_f64().is_some_and(|v| v < 768.0);
+                    if !is_mobile {
+                        return;
+                    }
+                }
+                if let Some(doc) = win.document() {
+                    // Focus first focusable element inside aside when drawer opens.
+                    if let Ok(Some(el)) = doc.query_selector("aside a, aside button") {
+                        if let Some(html) = el.dyn_ref::<web_sys::HtmlElement>() {
+                            let _ = html.focus();
+                        }
+                    }
+                    let doc_clone = doc.clone();
+                    let mut collapsed_for_esc = collapsed;
+                    let closure = Closure::wrap(Box::new(move |e: web_sys::KeyboardEvent| {
+                        if e.key() == "Escape" {
+                            collapsed_for_esc.set(true);
+                            e.prevent_default();
+                            return;
+                        }
+                        if e.key() != "Tab" {
+                            return;
+                        }
+                        let Ok(list) =
+                            doc_clone.query_selector_all("aside a, aside button, aside [tabindex]")
+                        else {
+                            return;
+                        };
+                        if list.length() == 0 {
+                            return;
+                        }
+                        let first = list.get(0).and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok());
+                        let last = list
+                            .get(list.length() - 1)
+                            .and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok());
+                        let active = doc_clone.active_element();
+                        let active_el = active.and_then(|n| n.dyn_into::<web_sys::HtmlElement>().ok());
+                        let shift = e.shift_key();
+                        let at_first = first.as_ref().zip(active_el.as_ref()).is_some_and(|(f, a)| f == a);
+                        let at_last = last.as_ref().zip(active_el.as_ref()).is_some_and(|(l, a)| l == a);
+                        if !shift && at_last {
+                            if let Some(f) = first {
+                                let _ = f.focus();
+                                e.prevent_default();
+                            }
+                        } else if shift && at_first {
+                            if let Some(l) = last {
+                                let _ = l.focus();
+                                e.prevent_default();
+                            }
+                        }
+                    }) as Box<dyn FnMut(web_sys::KeyboardEvent)>);
+                    let _ = doc.add_event_listener_with_callback(
+                        "keydown",
+                        closure.as_ref().unchecked_ref(),
+                    );
+                    closure.forget();
+                }
+            }
+        });
     }
 
     let is_collapsed = *collapsed.read();

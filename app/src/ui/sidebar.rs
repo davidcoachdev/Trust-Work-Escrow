@@ -2,6 +2,10 @@ use dioxus::prelude::*;
 
 use crate::server::auth::guest::has_wildcard;
 
+/// Legacy role fallback (kept for compat, cfg-free). Not constructed in new permission
+/// flow (`roles`/`permissions` props), but retained to avoid breaking external callers.
+/// Suppress dead-code lint — variants are intentionally unused on the permission path.
+#[allow(dead_code)]
 #[derive(Clone, PartialEq, Debug)]
 pub enum DashboardRole {
     Client,
@@ -104,7 +108,10 @@ pub fn Sidebar(
     rsx! {
         aside {
             class: "{width_cls} {translate_cls} bg-surface border-r border-border min-h-screen p-6 flex flex-col gap-6 fixed md:static inset-y-0 left-0 z-30 transition-all duration-200 ease-in-out",
+            role: "navigation",
+            aria_label: "Dashboard sidebar",
             aria_expanded: "{expanded}",
+            aria_modal: if expanded { "true" } else { "false" },
             div { class: "text-lg font-bold text-primary truncate",
                 if is_collapsed {
                     span { title: "Trust Work Escrow", "TWE" }

@@ -357,9 +357,37 @@ pub fn tr(lang: Lang, key: &str) -> &'static str {
         Lang::En => en,
     };
     if val.is_empty() {
-        // fallback to key to avoid blank UI — leak to 'static (called few times, intentional)
+        // Intentional leak: tr must return &'static str for Dioxus RSX (zero-copy).
+        // Missing keys are bounded (dev typo only, never user input), so 1 alloc + leak per
+        // distinct missing key is acceptable vs changing signature to String/Cow.
+        // Expected path is the `else` branch (val from match), which allocates nothing.
         Box::leak(key.to_owned().into_boxed_str())
     } else {
         val
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tr_fallback_returns_key_not_empty() {
+        let missing = "does.not.exist";
+        let v_es = tr(Lang::Es, missing);
+        let v_en = tr(Lang::En, missing);
+        // Must return the key itself, not "" (prevents blank UI).
+        assert_eq!(v_es, missing);
+        assert_eq!(v_en, missing);
+        assert!(!v_es.is_empty());
+        assert!(!v_en.is_empty());
+    }
+
+    #[test]
+    fn tr_known_returns_translation() {
+        assert_eq!(tr(Lang::Es, "nav.home"), "Inicio");
+        assert_eq!(tr(Lang::En, "nav.home"), "Home");
+        assert_eq!(tr(Lang::Es, "faq.q1"), "¿Qué es escrow en Solana?");
+        assert_eq!(tr(Lang::En, "faq.q1"), "What is escrow on Solana?");
     }
 }

@@ -9007,6 +9007,7 @@ dependencies = [
  "sqlx",
  "tokio",
  "trust-escrow-sdk",
+ "wasm-bindgen",
  "web-sys",
 ]
 
