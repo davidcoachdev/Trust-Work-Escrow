@@ -5,3 +5,4 @@ pub mod dashboard;
 pub mod docs;
 pub mod escrow;
 pub mod landing;
+pub mod wallet;

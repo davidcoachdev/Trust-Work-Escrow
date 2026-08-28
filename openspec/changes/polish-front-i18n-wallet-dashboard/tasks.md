@@ -25,9 +25,9 @@ Chain strategy: feature-branch-chain
 
 ## Phase 1: Foundation
 
-- [ ] 1.1 Add `[target.wasm32.dependencies] bip39="2" zeroize="1"` to `app/Cargo.toml` scoped wasm-only, verify `cargo tree | grep ed25519` not in `api` (PR2)
+- [x] 1.1 Add `[target.wasm32.dependencies] bip39="2" zeroize="1"` to `app/Cargo.toml` scoped wasm-only, verify `cargo tree | grep ed25519` not in `api` (PR2) — done wave2 1b8c3d9 (bip39+zeroize+getrandom js, bs58/ed25519 now non-optional for web, wasm target retained, backend/api no bip39)
 - [x] 1.2 Extend `app/src/i18n/mod.rs` `tr` with ~40 keys (`faq.q/a 1-6`, `docs.*`, `dashboard.*`, `wallet.*`) fallback `key` when `_=>`, no `es.json` migration — PR1 wave1 620026c
-- [ ] 1.3 Create `app/src/features/wallet/mod.rs` re-export + register `pub mod wallet;` in `app/src/features/mod.rs` (PR2)
+- [x] 1.3 Create `app/src/features/wallet/mod.rs` re-export + register `pub mod wallet;` in `app/src/features/mod.rs` (PR2) — done wave2
 
 ## Phase 2: Wave 1 Visual & i18n
 
@@ -38,10 +38,10 @@ Chain strategy: feature-branch-chain
 
 ## Phase 3: Wave 2 Wallet Frontend-Only
 
-- [ ] 3.1 Implement `app/src/features/wallet/create.rs` `generate_mnemonic()->Zeroizing<String>` via `bip39` 128-bit 12 words, `mnemonic_to_pubkey()->Result<String,String>` via `ed25519-dalek` bs58 44 chars (PR2)
-- [ ] 3.2 Build `CreateWalletCard` seed grid 2×6 + Copy `web_sys::Clipboard::write_text` + warning `tr(wallet.seed.warning)` + Confirm checkbox + Phantom steps `tr(wallet.phantom.*)` (PR2)
-- [ ] 3.3 Wire zeroize on `onunmount` + route `use_effect` + Forget/Close: `seed.write().as_mut().map(|z| z.zeroize()); seed.set(None)`; guard no `localStorage`/`console.log`/`api:3000` seed (PR2)
-- [ ] 3.4 Embed `CreateWalletCard` in `app/src/features/dashboard/config.rs` when `wallet_pubkey.is_none()`, add `validate_base58_public_key` in `app/src/solana/phantom.rs` (PR2)
+- [x] 3.1 Implement `app/src/features/wallet/create.rs` `generate_mnemonic()->Zeroizing<String>` via `bip39` 128-bit 12 words, `mnemonic_to_pubkey()->Result<String,String>` via `ed25519-dalek` bs58 44 chars (PR2) — done wave2
+- [x] 3.2 Build `CreateWalletCard` seed grid 2×6 + Copy `web_sys::Clipboard::write_text` + warning `tr(wallet.seed.warning)` + Confirm checkbox + Phantom steps `tr(wallet.phantom.*)` (PR2) — done wave2
+- [x] 3.3 Wire zeroize on `onunmount` + route `use_effect` + Forget/Close: `seed.write().as_mut().map(|z| z.zeroize()); seed.set(None)`; guard no `localStorage`/`console.log`/`api:3000` seed (PR2) — done wave2
+- [x] 3.4 Embed `CreateWalletCard` in `app/src/features/dashboard/config.rs` when `wallet_pubkey.is_none()`, add `validate_base58_public_key` in `app/src/solana/phantom.rs` (PR2) — done wave2 (phantom already had validate, now gated embed)
 
 ## Phase 4: Testing / Verification
 

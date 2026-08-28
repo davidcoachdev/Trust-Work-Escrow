@@ -4,6 +4,7 @@
 
 use dioxus::prelude::*;
 
+use crate::features::wallet::CreateWalletCard;
 use crate::server::auth::guest::use_auth;
 use crate::server::auth::siws::{request_siws_challenge, verify_siws_server};
 use crate::server::auth::users::{add_wallet_persist, list_wallets_persist, remove_wallet_persist};
@@ -64,6 +65,10 @@ pub fn ConfigPage() -> Element {
     rsx! {
         div { class: "space-y-6 max-w-2xl",
             h1 { class: "text-3xl font-bold text-primary", "Configuración" }
+            // Wave2: CreateWalletCard when no wallet_pubkey (frontend-only devnet helper)
+            if connected.is_none() {
+                CreateWalletCard {}
+            }
             // Legacy single wallet quick connect
             div { class: "bg-surface border border-border rounded-2xl p-6 space-y-4",
                 h2 { class: "text-lg font-bold", "Wallet Solana" }

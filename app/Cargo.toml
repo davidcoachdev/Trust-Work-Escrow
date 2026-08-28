@@ -21,9 +21,11 @@ argon2 = { version = "0.5", optional = true }
 rand = { version = "0.8", optional = true }
 chrono = { version = "0.4", features = ["serde"], optional = true }
 hex = { version = "0.4", optional = true }
-bs58 = { version = "0.5", optional = true }
-ed25519-dalek = { version = "2", optional = true }
+bs58 = "0.5"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 base64 = "0.22"
+bip39 = { version = "2", features = ["rand"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
 dioxus-server = { version = "=0.7.9", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 once_cell = { version = "1.19", optional = true }
@@ -35,6 +37,12 @@ trust-escrow-sdk = { path = "../backend/sdk", features = ["solana"], optional = 
 web-sys = { version = "0.3", features = ["Window", "Document", "Storage", "Element", "HtmlElement", "Navigator", "Clipboard", "KeyboardEvent", "NodeList", "Node", "Event", "EventTarget"] }
 wasm-bindgen = "0.2"
 gloo-timers = { version = "0.3", features = ["futures"] }
+getrandom = { version = "0.2", features = ["js"] }
+bip39 = { version = "2", features = ["rand"] }
+zeroize = { version = "1", features = ["zeroize_derive"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+bs58 = "0.5"
+
 
 [features]
 default = ["web"]
@@ -52,8 +60,6 @@ server = [
   "dep:chrono",
   "dep:hex",
   "dep:once_cell",
-  "dep:bs58",
-  "dep:ed25519-dalek",
   "dep:dioxus-server",
   "dep:reqwest",
   "dep:trust-escrow-sdk"
