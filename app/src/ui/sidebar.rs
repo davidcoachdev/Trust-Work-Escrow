@@ -104,25 +104,48 @@ pub fn Sidebar(
         "translate-x-0"
     };
     let expanded = !is_collapsed;
+    // When collapsed (w-16 = 64px), p-6 (24px each side) leaves only 16px inner width
+    // so w-8 icons get clipped in half. Use minimal horizontal padding when collapsed.
+    let aside_padding = if is_collapsed { "px-2 py-6" } else { "p-6" };
+    let logo_cls = if is_collapsed {
+        "text-lg font-bold text-primary flex justify-center w-full"
+    } else {
+        "text-lg font-bold text-primary truncate"
+    };
+    let nav_cls = if is_collapsed {
+        "flex flex-col gap-2 items-center w-full"
+    } else {
+        "flex flex-col gap-2"
+    };
+    let link_cls = if is_collapsed {
+        "flex items-center justify-center p-2 rounded-xl text-sm text-fg hover:bg-surface-2 hover:text-primary transition-colors border border-transparent hover:border-border shrink-0"
+    } else {
+        "px-3 py-2 rounded-xl text-sm text-fg hover:bg-surface-2 hover:text-primary transition-colors border border-transparent hover:border-border flex items-center gap-2 overflow-hidden"
+    };
+    let footer_cls = if is_collapsed {
+        "mt-auto text-xs text-muted flex justify-center w-full"
+    } else {
+        "mt-auto text-xs text-muted truncate"
+    };
 
     rsx! {
         aside {
-            class: "{width_cls} {translate_cls} bg-surface border-r border-border min-h-screen p-6 flex flex-col gap-6 fixed md:static inset-y-0 left-0 z-30 transition-all duration-200 ease-in-out",
+            class: "{width_cls} {translate_cls} shrink-0 {aside_padding} bg-surface border-r border-border min-h-screen flex flex-col gap-6 fixed md:static inset-y-0 left-0 z-30 transition-all duration-200 ease-in-out overflow-hidden",
             role: "navigation",
             aria_label: "Dashboard sidebar",
             aria_expanded: "{expanded}",
             aria_modal: if expanded { "true" } else { "false" },
-            div { class: "text-lg font-bold text-primary truncate",
+            div { class: "{logo_cls}",
                 if is_collapsed {
                     span { title: "Trust Work Escrow", "TWE" }
                 } else {
                     "Trust Work Escrow"
                 }
             }
-            nav { class: "flex flex-col gap-2",
+            nav { class: "{nav_cls}",
                 for (href, label) in links.iter() {
                     a {
-                        class: "px-3 py-2 rounded-xl text-sm text-fg hover:bg-surface-2 hover:text-primary transition-colors border border-transparent hover:border-border flex items-center gap-2 overflow-hidden",
+                        class: "{link_cls}",
                         href: "{href}",
                         title: "{label}",
                         if is_collapsed {
@@ -133,7 +156,7 @@ pub fn Sidebar(
                     }
                 }
             }
-            div { class: "mt-auto text-xs text-muted truncate",
+            div { class: "{footer_cls}",
                 if is_collapsed {
                     span { title: "{role_label}", "•" }
                 } else {
